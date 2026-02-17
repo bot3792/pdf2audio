@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src", "../server/src/router.ts", "../server/src/trpc.ts", "../server/src/routes", "../server/src/schema.ts", "../server/src/db.ts", "../server/src/lib/paths.ts"]
+}

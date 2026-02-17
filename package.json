@@ -1,0 +1,22 @@
+{
+  "name": "pdf2audio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "dev:server": "pnpm --filter @pdf2audio/server dev",
+    "dev:web": "pnpm --filter @pdf2audio/web dev",
+    "build": "pnpm -r build",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @pdf2audio/server db:generate",
+    "db:migrate": "pnpm --filter @pdf2audio/server db:migrate",
+    "setup": "bash scripts/setup.sh"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
