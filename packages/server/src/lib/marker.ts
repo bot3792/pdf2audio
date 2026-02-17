@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, readdir, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 const execFileAsync = promisify(execFile);
@@ -24,7 +24,7 @@ type MarkerTocEntry = {
 type MarkerOutput = {
   children: MarkerBlock[];
   block_type: "Document";
-  metadata: {
+  metadata?: {
     table_of_contents: MarkerTocEntry[];
   };
 };
@@ -146,13 +146,31 @@ export async function extractPdf(pdfPath: string, outDir: string): Promise<Extra
     env: { ...process.env, TORCH_DEVICE: "mps", PATH: `${CONDA_BIN}:${process.env.PATH}` },
   });
 
-  const files = await import("node:fs/promises").then((fs) => fs.readdir(outDir));
-  const jsonFile = files.find((f) => f.endsWith(".json") && !f.endsWith("_meta.json"));
+  let searchDir = outDir;
+  let files = await readdir(outDir);
+  let jsonFile = files.find((f) => f.endsWith(".json") && !f.endsWith("_meta.json"));
+
+  if (!jsonFile) {
+    for (const entry of files) {
+      const entryPath = path.join(outDir, entry);
+      const s = await stat(entryPath);
+      if (s.isDirectory()) {
+        const subFiles = await readdir(entryPath);
+        const found = subFiles.find((f) => f.endsWith(".json") && !f.endsWith("_meta.json"));
+        if (found) {
+          searchDir = entryPath;
+          jsonFile = found;
+          break;
+        }
+      }
+    }
+  }
+
   if (!jsonFile) {
     throw new Error("Marker did not produce a JSON output file");
   }
 
-  const raw = await readFile(path.join(outDir, jsonFile), "utf-8");
+  const raw = await readFile(path.join(searchDir, jsonFile), "utf-8");
   const doc: MarkerOutput = JSON.parse(raw);
 
   const allBlocks: { type: string; text: string; hierarchy: Record<string, string> | null; level?: number }[] = [];
@@ -176,8 +194,9 @@ export async function extractPdf(pdfPath: string, outDir: string): Promise<Extra
     }
   }
 
-  if (doc.metadata.table_of_contents?.length > 0) {
-    const h1Entries = doc.metadata.table_of_contents.filter((e) => e.heading_level === 1);
+  const toc = doc.metadata?.table_of_contents;
+  if (toc && toc.length > 0) {
+    const h1Entries = toc.filter((e) => e.heading_level === 1);
     if (h1Entries.length >= 2) {
       return detectChaptersFromBlocks(allBlocks);
     }

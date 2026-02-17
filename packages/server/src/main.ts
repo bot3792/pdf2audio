@@ -31,7 +31,6 @@ async function main() {
   await fastify.register(fastifyStatic, {
     root: outputDir,
     prefix: "/files/",
-    decorateReply: false,
   });
 
   await fastify.register(fastifyTRPCPlugin, {
