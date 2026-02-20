@@ -38,6 +38,7 @@ export function BookList() {
               <td className="px-4 py-3">
                 <StatusBadge
                   status={book.status}
+                  error={book.error}
                   chaptersCompleted={book.chaptersCompleted}
                   totalChapters={book.totalChapters}
                 />

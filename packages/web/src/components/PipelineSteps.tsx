@@ -15,6 +15,7 @@ const STEP_LABELS: Record<string, string> = {
 };
 
 function getActiveStepIndex(status: string): number {
+  if (status === "suspended") return STEPS.indexOf("synthesizing");
   const idx = STEPS.indexOf(status as (typeof STEPS)[number]);
   if (status === "done") return STEPS.length - 1;
   if (status === "failed") return -1;
@@ -47,9 +48,10 @@ export function PipelineSteps({ status, chaptersCompleted, totalChapters }: Pipe
         const active = i === activeIndex && status !== "done" && status !== "failed";
         const upcoming = !completed && !active;
         const failed = status === "failed" && i === activeIndex;
+        const suspended = status === "suspended" && step === "synthesizing";
 
         let detail = "";
-        if (step === "synthesizing" && (active || completed) && totalChapters > 0) {
+        if (step === "synthesizing" && (active || completed || suspended) && totalChapters > 0) {
           detail = ` ${chaptersCompleted}/${totalChapters}`;
         }
 
@@ -57,7 +59,7 @@ export function PipelineSteps({ status, chaptersCompleted, totalChapters }: Pipe
           <div key={step} className="flex items-center gap-1">
             {i > 0 && (
               <div
-                className={`h-px w-4 ${completed ? "bg-green-400" : active ? "bg-blue-300" : "bg-zinc-200"}`}
+                className={`h-px w-4 ${completed ? "bg-green-400" : active ? "bg-blue-300" : suspended ? "bg-amber-300" : "bg-zinc-200"}`}
               />
             )}
             <div className="flex items-center gap-1.5">
@@ -67,7 +69,8 @@ export function PipelineSteps({ status, chaptersCompleted, totalChapters }: Pipe
                   ${completed ? "bg-green-500" : ""}
                   ${active ? "bg-blue-500 animate-pulse" : ""}
                   ${failed ? "bg-red-500" : ""}
-                  ${upcoming ? "bg-zinc-200" : ""}
+                  ${suspended ? "bg-amber-500" : ""}
+                  ${upcoming && !suspended ? "bg-zinc-200" : ""}
                 `}
               />
               <span
@@ -78,7 +81,9 @@ export function PipelineSteps({ status, chaptersCompleted, totalChapters }: Pipe
                       ? "text-blue-700 font-medium"
                       : failed
                         ? "text-red-700 font-medium"
-                        : "text-zinc-400"
+                        : suspended
+                          ? "text-amber-700 font-medium"
+                          : "text-zinc-400"
                 }`}
               >
                 {STEP_LABELS[step]}

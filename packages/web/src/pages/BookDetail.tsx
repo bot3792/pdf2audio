@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "../components/StatusBadge.tsx";
 import { PipelineSteps } from "../components/PipelineSteps.tsx";
+import { ChapterModal } from "../components/ChapterModal.tsx";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -15,31 +16,28 @@ export function BookDetail() {
       refetchInterval: (query) => {
         const status = query.state.data?.status;
         if (!status) return 3000;
-        return status === "done" || status === "failed" ? false : 2000;
+        return status === "done" || status === "failed" || status === "suspended"
+          ? false
+          : 2000;
       },
     }
   );
 
-  const cancelMutation = trpc.books.cancel.useMutation({
-    onSuccess: () => utils.books.get.invalidate({ id: id! }),
-  });
-  const retryMutation = trpc.books.retry.useMutation({
-    onSuccess: () => utils.books.get.invalidate({ id: id! }),
-  });
-  const resumeMutation = trpc.books.resume.useMutation({
-    onSuccess: () => utils.books.get.invalidate({ id: id! }),
-  });
+  const invalidate = () => utils.books.get.invalidate({ id: id! });
+
+  const cancelMutation = trpc.books.cancel.useMutation({ onSuccess: invalidate });
+  const retryMutation = trpc.books.retry.useMutation({ onSuccess: invalidate });
+  const resumeMutation = trpc.books.resume.useMutation({ onSuccess: invalidate });
   const deleteMutation = trpc.books.delete.useMutation({
     onSuccess: () => window.location.assign("/"),
   });
-  const retryChapterMutation = trpc.chapters.retry.useMutation({
-    onSuccess: () => utils.books.get.invalidate({ id: id! }),
-  });
+  const queueMutation = trpc.chapters.queue.useMutation({ onSuccess: invalidate });
+  const suspendMutation = trpc.chapters.suspend.useMutation({ onSuccess: invalidate });
 
   if (isLoading || !book) {
     return (
       <div className="min-h-screen bg-zinc-100">
-        <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="max-w-6xl mx-auto px-4 py-8">
           <p className="text-zinc-500">Loading...</p>
         </div>
       </div>
@@ -47,11 +45,12 @@ export function BookDetail() {
   }
 
   const doneChapters = book.chapters.filter((c) => c.status === "done").length;
-  const isProcessing = !["done", "failed", "pending"].includes(book.status);
+  const isProcessing = ["extracting", "synthesizing", "assembling", "normalizing"].includes(book.status);
+  const isStopped = book.status === "failed" || book.status === "suspended";
 
   return (
     <div className="min-h-screen bg-zinc-100">
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8">
         <Link to="/" className="text-sm text-blue-600 hover:text-blue-800 mb-4 inline-block">
           &larr; Back
         </Link>
@@ -61,10 +60,12 @@ export function BookDetail() {
             <h1 className="text-2xl font-bold text-zinc-900">{book.title}</h1>
             <p className="text-sm text-zinc-500 mt-1">
               {book.filename} &middot; Voice: {book.voice} &middot; Speed: {book.speed}x
+              &middot; 4 worker slots
             </p>
           </div>
           <StatusBadge
             status={book.status}
+            error={book.error}
             chaptersCompleted={doneChapters}
             totalChapters={book.totalChapters}
           />
@@ -102,6 +103,8 @@ export function BookDetail() {
           updatedAt={book.updatedAt}
         />
 
+        <LogViewer bookId={book.id} bookStatus={book.status} />
+
         <div className="flex gap-3 mb-6">
           {book.status === "done" && book.outputPath && (
             <a
@@ -120,14 +123,14 @@ export function BookDetail() {
               Cancel
             </button>
           )}
-          {book.status === "failed" && (
+          {isStopped && (
             <>
               <button
                 onClick={() => resumeMutation.mutate({ id: book.id })}
                 disabled={resumeMutation.isPending}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
-                {book.chapters.length > 0 ? "Resume" : "Retry"}
+                {book.chapters.length > 0 ? "Resume All" : "Retry"}
               </button>
               {book.chapters.length > 0 && (
                 <button
@@ -166,45 +169,111 @@ export function BookDetail() {
               : "No chapters extracted yet."}
           </p>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-zinc-200">
-            <table className="min-w-full divide-y divide-zinc-200">
-              <thead className="bg-zinc-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">#</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Title</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Words</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Duration</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-zinc-200">
-                {book.chapters.map((chapter) => (
-                  <tr key={chapter.id} className="hover:bg-zinc-50">
-                    <td className="px-4 py-3 text-sm text-zinc-600">{chapter.index + 1}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-zinc-900">{chapter.title}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={chapter.status} />
-                    </td>
-                    <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
-                      {chapter.wordCount.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
-                      {chapter.durationMs ? formatDuration(chapter.durationMs) : "—"}
-                    </td>
-                    <td className="px-4 py-3 space-x-2">
+          <ChapterTable
+            chapters={book.chapters}
+            onQueue={(id) => queueMutation.mutate({ id })}
+            onSuspend={(id) => suspendMutation.mutate({ id })}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+type ChapterRow = {
+  id: string;
+  index: number;
+  title: string;
+  status: string;
+  error: string | null;
+  wordCount: number;
+  durationMs: number | null;
+  audioPath: string | null;
+  hasCleanText: boolean;
+  progress: string | null;
+};
+
+function ChapterTable({
+  chapters,
+  onQueue,
+  onSuspend,
+}: {
+  chapters: ChapterRow[];
+  onQueue: (id: string) => void;
+  onSuspend: (id: string) => void;
+}) {
+  const [modalChapter, setModalChapter] = useState<ChapterRow | null>(null);
+
+  return (
+    <>
+      <div className="overflow-hidden rounded-lg border border-zinc-200">
+        <table className="min-w-full divide-y divide-zinc-200">
+          <thead className="bg-zinc-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">#</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Title</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-40">Status</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Words</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Duration</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-zinc-200">
+            {chapters.map((chapter) => {
+              const isActive = chapter.status === "synthesizing" || chapter.status === "normalizing";
+              const canQueue = !isActive && chapter.status !== "done" && chapter.status !== "pending";
+              const canSuspend = chapter.status === "pending";
+
+              return (
+                <tr key={chapter.id} className="hover:bg-zinc-50">
+                  <td className="px-4 py-3 text-sm text-zinc-600">{chapter.index + 1}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => setModalChapter(chapter)}
+                      className="text-sm font-medium text-zinc-900 hover:text-blue-700 text-left"
+                    >
+                      {chapter.title}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3">
+                    <ChapterStatusCell chapter={chapter} />
+                  </td>
+                  <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
+                    {chapter.wordCount.toLocaleString()}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
+                    {chapter.durationMs ? formatDuration(chapter.durationMs) : "\u2014"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
                       {chapter.status === "done" && chapter.audioPath && (
-                        <audio controls preload="none" className="h-8 inline-block">
+                        <audio controls preload="none" className="h-8">
                           <source src={`/audio/chapter/${chapter.id}`} type="audio/mpeg" />
                         </audio>
                       )}
-                      {chapter.status === "failed" && (
+                      {canQueue && (
                         <button
-                          onClick={() => retryChapterMutation.mutate({ id: chapter.id })}
-                          disabled={retryChapterMutation.isPending}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50"
+                          onClick={() => onQueue(chapter.id)}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
                         >
-                          Retry
+                          Queue
+                        </button>
+                      )}
+                      {canSuspend && (
+                        <button
+                          onClick={() => onSuspend(chapter.id)}
+                          className="text-xs text-amber-600 hover:text-amber-800 font-medium"
+                        >
+                          Suspend
+                        </button>
+                      )}
+                      {chapter.status === "done" && (
+                        <button
+                          onClick={() => onQueue(chapter.id)}
+                          className="text-xs text-zinc-400 hover:text-zinc-600 font-medium"
+                          title="Re-synthesize this chapter"
+                        >
+                          Redo
                         </button>
                       )}
                       {chapter.error && (
@@ -212,16 +281,48 @@ export function BookDetail() {
                           error
                         </span>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-    </div>
+      {modalChapter && (
+        <ChapterModal
+          chapter={modalChapter}
+          onClose={() => setModalChapter(null)}
+          onQueue={onQueue}
+          onSuspend={onSuspend}
+        />
+      )}
+    </>
   );
+}
+
+function ChapterStatusCell({ chapter }: { chapter: ChapterRow }) {
+  if (chapter.status === "synthesizing" && chapter.progress) {
+    const [current, total] = chapter.progress.split("/").map(Number);
+    const percent = total > 0 ? (current / total) * 100 : 0;
+
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <StatusBadge status={chapter.status} />
+          <span className="text-[10px] text-zinc-500 tabular-nums">{chapter.progress}</span>
+        </div>
+        <div className="w-full bg-zinc-100 rounded-full h-1">
+          <div
+            className="bg-blue-500 h-1 rounded-full transition-all duration-500"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return <StatusBadge status={chapter.status} error={chapter.error} />;
 }
 
 type ProgressSectionProps = {
@@ -235,6 +336,7 @@ function ProgressSection({ status, doneChapters, totalChapters, chapters }: Prog
   const normalizingCount = chapters.filter((c) => c.status === "normalizing").length;
   const synthesizingCount = chapters.filter((c) => c.status === "synthesizing").length;
   const pendingCount = chapters.filter((c) => c.status === "pending").length;
+  const suspendedCount = chapters.filter((c) => c.status === "suspended").length;
 
   const percent = totalChapters > 0 ? (doneChapters / totalChapters) * 100 : 0;
 
@@ -279,7 +381,10 @@ function ProgressSection({ status, doneChapters, totalChapters, chapters }: Prog
             <span>{normalizingCount} normalizing</span>
           )}
           {pendingCount > 0 && (
-            <span>{pendingCount} waiting</span>
+            <span>{pendingCount} queued</span>
+          )}
+          {suspendedCount > 0 && (
+            <span className="text-amber-600">{suspendedCount} suspended</span>
           )}
           {doneChapters > 0 && (
             <span className="text-green-600">{doneChapters} done</span>
@@ -300,15 +405,15 @@ type StatsBarProps = {
 };
 
 function StatsBar({ status, totalChapters, totalWords, totalDurationMs, createdAt, updatedAt }: StatsBarProps) {
-  const isProcessing = !["done", "failed", "pending"].includes(status);
+  const isProcessing = !["done", "failed", "pending", "suspended"].includes(status);
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-      <StatCard label="Chapters" value={totalChapters > 0 ? String(totalChapters) : "—"} />
-      <StatCard label="Words" value={totalWords > 0 ? totalWords.toLocaleString() : "—"} />
+      <StatCard label="Chapters" value={totalChapters > 0 ? String(totalChapters) : "\u2014"} />
+      <StatCard label="Words" value={totalWords > 0 ? totalWords.toLocaleString() : "\u2014"} />
       <StatCard
         label="Duration"
-        value={totalDurationMs > 0 ? formatDuration(totalDurationMs) : "—"}
+        value={totalDurationMs > 0 ? formatDuration(totalDurationMs) : "\u2014"}
       />
       <ElapsedCard
         isProcessing={isProcessing}
@@ -384,4 +489,88 @@ function formatElapsed(ms: number): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return `${hours}h ${remainingMinutes}m`;
+}
+
+function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string }) {
+  const isProcessing = !["done", "failed", "pending", "suspended"].includes(bookStatus);
+  const [expanded, setExpanded] = useState(isProcessing);
+  const [logs, setLogs] = useState<{ id: string; message: string; createdAt: string }[]>([]);
+  const cursorRef = useRef<string | undefined>(undefined);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScroll = useRef(true);
+
+  const { data } = trpc.books.logs.useQuery(
+    { bookId, after: cursorRef.current },
+    { refetchInterval: isProcessing ? 1000 : false }
+  );
+
+  useEffect(() => {
+    if (!data || data.length === 0) return;
+    setLogs((prev) => {
+      const existingIds = new Set(prev.map((l) => l.id));
+      const newEntries = data
+        .filter((l) => !existingIds.has(l.id))
+        .map((l) => ({ id: l.id, message: l.message, createdAt: String(l.createdAt) }));
+      if (newEntries.length === 0) return prev;
+      return [...prev, ...newEntries];
+    });
+    const lastEntry = data[data.length - 1];
+    cursorRef.current = String(lastEntry.createdAt);
+  }, [data]);
+
+  useEffect(() => {
+    if (isProcessing && !expanded) setExpanded(true);
+  }, [isProcessing]);
+
+  useEffect(() => {
+    if (!shouldAutoScroll.current || !scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [logs]);
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    shouldAutoScroll.current = atBottom;
+  }
+
+  if (logs.length === 0 && !isProcessing) return null;
+
+  return (
+    <div className="mb-6">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 mb-2"
+      >
+        <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
+        Logs ({logs.length})
+      </button>
+      {expanded && (
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="bg-zinc-900 rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs leading-5"
+        >
+          {logs.length === 0 ? (
+            <p className="text-zinc-500">Waiting for logs...</p>
+          ) : (
+            logs.map((entry) => (
+              <div key={entry.id} className="flex gap-3">
+                <span className="text-zinc-500 shrink-0 select-none">
+                  {formatLogTime(entry.createdAt)}
+                </span>
+                <span className="text-zinc-200 whitespace-pre-wrap break-all">
+                  {entry.message}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatLogTime(ts: string): string {
+  return new Date(ts).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }

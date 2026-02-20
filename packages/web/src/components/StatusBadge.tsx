@@ -1,5 +1,6 @@
 type StatusBadgeProps = {
   status: string;
+  error?: string | null;
   chaptersCompleted?: number;
   totalChapters?: number;
 };
@@ -12,13 +13,17 @@ const statusStyles: Record<string, string> = {
   assembling: "bg-indigo-100 text-indigo-800",
   done: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
+  suspended: "bg-amber-100 text-amber-800",
+  cancelled: "bg-zinc-200 text-zinc-600",
 };
 
-export function StatusBadge({ status, chaptersCompleted, totalChapters }: StatusBadgeProps) {
-  const style = statusStyles[status] ?? statusStyles.pending;
+export function StatusBadge({ status, error, chaptersCompleted, totalChapters }: StatusBadgeProps) {
+  const isCancelled = status === "failed" && error?.startsWith("Cancelled");
+  const displayStatus = isCancelled ? "cancelled" : status;
+  const style = statusStyles[displayStatus] ?? statusStyles.pending;
 
-  let label = status;
-  if (status === "synthesizing" && totalChapters && totalChapters > 0) {
+  let label = displayStatus;
+  if (displayStatus === "synthesizing" && totalChapters && totalChapters > 0) {
     label = `synthesizing ${chaptersCompleted ?? 0}/${totalChapters}`;
   }
 
