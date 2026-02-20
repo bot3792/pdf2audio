@@ -7,7 +7,7 @@ export const books = pgTable("books", {
   pdfPath: text("pdf_path").notNull(),
   outputPath: text("output_path"),
   status: text("status", {
-    enum: ["pending", "extracting", "synthesizing", "assembling", "done", "failed"],
+    enum: ["pending", "extracting", "synthesizing", "assembling", "done", "failed", "suspended"],
   }).notNull().default("pending"),
   voice: text("voice").notNull().default("af_heart"),
   speed: real("speed").notNull().default(1.0),
@@ -26,10 +26,18 @@ export const chapters = pgTable("chapters", {
   cleanText: text("clean_text"),
   audioPath: text("audio_path"),
   durationMs: integer("duration_ms"),
+  progress: text("progress"),
   status: text("status", {
-    enum: ["pending", "normalizing", "synthesizing", "done", "failed"],
+    enum: ["pending", "normalizing", "synthesizing", "done", "failed", "suspended"],
   }).notNull().default("pending"),
   error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const bookLogs = pgTable("book_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  message: text("message").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -37,3 +45,4 @@ export type Book = typeof books.$inferSelect;
 export type NewBook = typeof books.$inferInsert;
 export type Chapter = typeof chapters.$inferSelect;
 export type NewChapter = typeof chapters.$inferInsert;
+export type BookLog = typeof bookLogs.$inferSelect;
