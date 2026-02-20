@@ -57,7 +57,7 @@ export async function assemble(payload: AssemblePayload) {
 
     await db
       .update(books)
-      .set({ status: "done", outputPath, updatedAt: new Date() })
+      .set({ status: "done", outputPath, error: null, updatedAt: new Date() })
       .where(eq(books.id, bookId));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

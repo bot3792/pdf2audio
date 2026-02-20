@@ -12,7 +12,7 @@ export type NormalizePayload = {
 export async function normalize(payload: NormalizePayload, { addJob }: { addJob: WorkerUtils["addJob"] }) {
   const { chapterId, bookId } = payload;
 
-  await db.update(chapters).set({ status: "normalizing" }).where(eq(chapters.id, chapterId));
+  await db.update(chapters).set({ status: "normalizing", error: null }).where(eq(chapters.id, chapterId));
 
   try {
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));

@@ -4,3 +4,4 @@ dist/
 data/
 *.tsbuildinfo
 .turbo/
+.DS_Store

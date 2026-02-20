@@ -12,7 +12,7 @@ export type ExtractPayload = {
 export async function extract(payload: ExtractPayload, { addJob }: { addJob: WorkerUtils["addJob"] }) {
   const { bookId } = payload;
 
-  await db.update(books).set({ status: "extracting", updatedAt: new Date() }).where(eq(books.id, bookId));
+  await db.update(books).set({ status: "extracting", error: null, updatedAt: new Date() }).where(eq(books.id, bookId));
 
   try {
     const [book] = await db.select().from(books).where(eq(books.id, bookId));

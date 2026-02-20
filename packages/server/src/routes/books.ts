@@ -45,7 +45,16 @@ export const booksRouter = router({
         .where(eq(chapters.bookId, input.id))
         .orderBy(asc(chapters.index));
 
-      return { ...book, chapters: allChapters };
+      const chaptersWithStats = allChapters.map((ch) => {
+        const text = ch.cleanText ?? ch.rawText;
+        const wordCount = text.split(/\s+/).filter(Boolean).length;
+        return { ...ch, wordCount, rawText: undefined, cleanText: undefined };
+      });
+
+      const totalWords = chaptersWithStats.reduce((sum, ch) => sum + ch.wordCount, 0);
+      const totalDurationMs = allChapters.reduce((sum, ch) => sum + (ch.durationMs ?? 0), 0);
+
+      return { ...book, chapters: chaptersWithStats, totalWords, totalDurationMs };
     }),
 
   upload: publicProcedure
@@ -106,6 +115,52 @@ export const booksRouter = router({
 
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       return book;
+    }),
+
+  resume: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+
+      const allChapters = await db
+        .select()
+        .from(chapters)
+        .where(eq(chapters.bookId, input.id))
+        .orderBy(asc(chapters.index));
+
+      if (allChapters.length === 0) {
+        await db.update(books).set({ status: "pending", error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
+        await quickAddJob({ connectionString }, "extract", { bookId: input.id });
+        const [updated] = await db.select().from(books).where(eq(books.id, input.id));
+        return updated;
+      }
+
+      let queued = 0;
+
+      for (const ch of allChapters) {
+        if (ch.status === "done" && ch.audioPath) continue;
+
+        if (ch.cleanText) {
+          await db.update(chapters).set({ status: "pending", error: null, audioPath: null, durationMs: null }).where(eq(chapters.id, ch.id));
+          await quickAddJob({ connectionString }, "synthesize", { chapterId: ch.id, bookId: input.id });
+          queued++;
+        } else {
+          await db.update(chapters).set({ status: "pending", error: null }).where(eq(chapters.id, ch.id));
+          await quickAddJob({ connectionString }, "normalize", { chapterId: ch.id, bookId: input.id });
+          queued++;
+        }
+      }
+
+      const newStatus = queued > 0 ? "synthesizing" : "assembling";
+      await db.update(books).set({ status: newStatus, error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
+
+      if (queued === 0) {
+        await quickAddJob({ connectionString }, "assemble", { bookId: input.id });
+      }
+
+      const [updated] = await db.select().from(books).where(eq(books.id, input.id));
+      return updated;
     }),
 
   cancel: publicProcedure

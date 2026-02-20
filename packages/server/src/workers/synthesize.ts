@@ -18,8 +18,8 @@ export type SynthesizePayload = {
 export async function synthesize(payload: SynthesizePayload, { addJob }: { addJob: WorkerUtils["addJob"] }) {
   const { chapterId, bookId } = payload;
 
-  await db.update(chapters).set({ status: "synthesizing" }).where(eq(chapters.id, chapterId));
-  await db.update(books).set({ status: "synthesizing", updatedAt: new Date() }).where(eq(books.id, bookId));
+  await db.update(chapters).set({ status: "synthesizing", error: null }).where(eq(chapters.id, chapterId));
+  await db.update(books).set({ status: "synthesizing", error: null, updatedAt: new Date() }).where(eq(books.id, bookId));
 
   try {
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));

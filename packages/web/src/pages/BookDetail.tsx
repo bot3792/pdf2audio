@@ -1,6 +1,8 @@
+import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "../components/StatusBadge.tsx";
+import { PipelineSteps } from "../components/PipelineSteps.tsx";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +26,9 @@ export function BookDetail() {
   const retryMutation = trpc.books.retry.useMutation({
     onSuccess: () => utils.books.get.invalidate({ id: id! }),
   });
+  const resumeMutation = trpc.books.resume.useMutation({
+    onSuccess: () => utils.books.get.invalidate({ id: id! }),
+  });
   const deleteMutation = trpc.books.delete.useMutation({
     onSuccess: () => window.location.assign("/"),
   });
@@ -42,6 +47,7 @@ export function BookDetail() {
   }
 
   const doneChapters = book.chapters.filter((c) => c.status === "done").length;
+  const isProcessing = !["done", "failed", "pending"].includes(book.status);
 
   return (
     <div className="min-h-screen bg-zinc-100">
@@ -50,11 +56,11 @@ export function BookDetail() {
           &larr; Back
         </Link>
 
-        <div className="flex items-start justify-between mb-6">
+        <div className="flex items-start justify-between mb-4">
           <div>
             <h1 className="text-2xl font-bold text-zinc-900">{book.title}</h1>
             <p className="text-sm text-zinc-500 mt-1">
-              Voice: {book.voice} &middot; Speed: {book.speed}x &middot; {book.totalChapters} chapters
+              {book.filename} &middot; Voice: {book.voice} &middot; Speed: {book.speed}x
             </p>
           </div>
           <StatusBadge
@@ -64,26 +70,37 @@ export function BookDetail() {
           />
         </div>
 
+        <div className="mb-6">
+          <PipelineSteps
+            status={book.status}
+            chaptersCompleted={doneChapters}
+            totalChapters={book.totalChapters}
+          />
+        </div>
+
         {book.error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-red-700">{book.error}</p>
+            <p className="text-sm text-red-700 font-mono">{book.error}</p>
           </div>
         )}
 
-        {book.status === "synthesizing" && book.totalChapters > 0 && (
-          <div className="mb-6">
-            <div className="flex justify-between text-sm text-zinc-600 mb-1">
-              <span>Progress</span>
-              <span>{doneChapters}/{book.totalChapters}</span>
-            </div>
-            <div className="w-full bg-zinc-200 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-500"
-                style={{ width: `${(doneChapters / book.totalChapters) * 100}%` }}
-              />
-            </div>
-          </div>
+        {isProcessing && book.totalChapters > 0 && (
+          <ProgressSection
+            status={book.status}
+            doneChapters={doneChapters}
+            totalChapters={book.totalChapters}
+            chapters={book.chapters}
+          />
         )}
+
+        <StatsBar
+          status={book.status}
+          totalChapters={book.totalChapters}
+          totalWords={book.totalWords}
+          totalDurationMs={book.totalDurationMs}
+          createdAt={book.createdAt}
+          updatedAt={book.updatedAt}
+        />
 
         <div className="flex gap-3 mb-6">
           {book.status === "done" && book.outputPath && (
@@ -94,7 +111,7 @@ export function BookDetail() {
               Download MP3
             </a>
           )}
-          {book.status !== "done" && book.status !== "failed" && (
+          {isProcessing && (
             <button
               onClick={() => cancelMutation.mutate({ id: book.id })}
               disabled={cancelMutation.isPending}
@@ -104,13 +121,28 @@ export function BookDetail() {
             </button>
           )}
           {book.status === "failed" && (
-            <button
-              onClick={() => retryMutation.mutate({ id: book.id })}
-              disabled={retryMutation.isPending}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-            >
-              Retry
-            </button>
+            <>
+              <button
+                onClick={() => resumeMutation.mutate({ id: book.id })}
+                disabled={resumeMutation.isPending}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                {book.chapters.length > 0 ? "Resume" : "Retry"}
+              </button>
+              {book.chapters.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (confirm("This will delete all chapters and start from scratch. Continue?")) {
+                      retryMutation.mutate({ id: book.id });
+                    }
+                  }}
+                  disabled={retryMutation.isPending}
+                  className="px-4 py-2 bg-zinc-200 text-zinc-700 rounded-md text-sm font-medium hover:bg-zinc-300 disabled:opacity-50"
+                >
+                  Re-extract
+                </button>
+              )}
+            </>
           )}
           <button
             onClick={() => {
@@ -128,7 +160,11 @@ export function BookDetail() {
         <h2 className="text-lg font-semibold text-zinc-800 mb-3">Chapters</h2>
 
         {book.chapters.length === 0 ? (
-          <p className="text-zinc-500 text-sm">No chapters extracted yet.</p>
+          <p className="text-zinc-500 text-sm">
+            {book.status === "extracting"
+              ? "Extracting chapters from PDF..."
+              : "No chapters extracted yet."}
+          </p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-zinc-200">
             <table className="min-w-full divide-y divide-zinc-200">
@@ -137,7 +173,8 @@ export function BookDetail() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">#</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Title</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Duration</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Words</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Duration</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -149,7 +186,10 @@ export function BookDetail() {
                     <td className="px-4 py-3">
                       <StatusBadge status={chapter.status} />
                     </td>
-                    <td className="px-4 py-3 text-sm text-zinc-600">
+                    <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
+                      {chapter.wordCount.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
                       {chapter.durationMs ? formatDuration(chapter.durationMs) : "—"}
                     </td>
                     <td className="px-4 py-3 space-x-2">
@@ -184,9 +224,164 @@ export function BookDetail() {
   );
 }
 
+type ProgressSectionProps = {
+  status: string;
+  doneChapters: number;
+  totalChapters: number;
+  chapters: { status: string; wordCount: number }[];
+};
+
+function ProgressSection({ status, doneChapters, totalChapters, chapters }: ProgressSectionProps) {
+  const normalizingCount = chapters.filter((c) => c.status === "normalizing").length;
+  const synthesizingCount = chapters.filter((c) => c.status === "synthesizing").length;
+  const pendingCount = chapters.filter((c) => c.status === "pending").length;
+
+  const percent = totalChapters > 0 ? (doneChapters / totalChapters) * 100 : 0;
+
+  let progressColor = "bg-blue-600";
+  if (status === "assembling") progressColor = "bg-indigo-600";
+  if (status === "extracting") progressColor = "bg-yellow-500";
+
+  return (
+    <div className="mb-6 bg-white border border-zinc-200 rounded-lg p-4">
+      <div className="flex justify-between text-sm text-zinc-600 mb-2">
+        <span className="font-medium">
+          {status === "extracting" && "Extracting text from PDF..."}
+          {status === "normalizing" && "Normalizing text..."}
+          {status === "synthesizing" && "Generating audio..."}
+          {status === "assembling" && "Assembling final MP3..."}
+        </span>
+        {status === "synthesizing" && (
+          <span className="tabular-nums">{doneChapters}/{totalChapters} chapters</span>
+        )}
+      </div>
+
+      <div className="w-full bg-zinc-100 rounded-full h-2.5 mb-3">
+        <div
+          className={`${progressColor} h-2.5 rounded-full transition-all duration-700 ease-out`}
+          style={{
+            width:
+              status === "extracting"
+                ? "15%"
+                : status === "assembling"
+                  ? "95%"
+                  : `${Math.max(percent, 5)}%`,
+          }}
+        />
+      </div>
+
+      {status === "synthesizing" && totalChapters > 1 && (
+        <div className="flex gap-4 text-xs text-zinc-500">
+          {synthesizingCount > 0 && (
+            <span>{synthesizingCount} synthesizing</span>
+          )}
+          {normalizingCount > 0 && (
+            <span>{normalizingCount} normalizing</span>
+          )}
+          {pendingCount > 0 && (
+            <span>{pendingCount} waiting</span>
+          )}
+          {doneChapters > 0 && (
+            <span className="text-green-600">{doneChapters} done</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type StatsBarProps = {
+  status: string;
+  totalChapters: number;
+  totalWords: number;
+  totalDurationMs: number;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
+
+function StatsBar({ status, totalChapters, totalWords, totalDurationMs, createdAt, updatedAt }: StatsBarProps) {
+  const isProcessing = !["done", "failed", "pending"].includes(status);
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <StatCard label="Chapters" value={totalChapters > 0 ? String(totalChapters) : "—"} />
+      <StatCard label="Words" value={totalWords > 0 ? totalWords.toLocaleString() : "—"} />
+      <StatCard
+        label="Duration"
+        value={totalDurationMs > 0 ? formatDuration(totalDurationMs) : "—"}
+      />
+      <ElapsedCard
+        isProcessing={isProcessing}
+        createdAt={createdAt}
+        updatedAt={updatedAt}
+        status={status}
+      />
+    </div>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-white border border-zinc-200 rounded-lg px-4 py-3">
+      <p className="text-xs text-zinc-500 uppercase tracking-wider">{label}</p>
+      <p className="text-lg font-semibold text-zinc-900 tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function ElapsedCard({
+  isProcessing,
+  createdAt,
+  updatedAt,
+  status,
+}: {
+  isProcessing: boolean;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  status: string;
+}) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!isProcessing) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [isProcessing]);
+
+  const start = new Date(createdAt).getTime();
+  const end = isProcessing ? now : new Date(updatedAt).getTime();
+  const elapsed = Math.max(0, end - start);
+
+  const label = isProcessing ? "Elapsed" : status === "done" ? "Completed in" : "Time";
+
+  return (
+    <div className="bg-white border border-zinc-200 rounded-lg px-4 py-3">
+      <p className="text-xs text-zinc-500 uppercase tracking-wider">{label}</p>
+      <p className="text-lg font-semibold text-zinc-900 tabular-nums">
+        {formatElapsed(elapsed)}
+      </p>
+    </div>
+  );
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return `${hours}h ${remainingMinutes}m`;
 }

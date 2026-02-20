@@ -6,14 +6,14 @@ import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import { appRouter } from "./router.ts";
 import { createContext } from "./trpc.ts";
 import { startWorker } from "./workers/setup.ts";
-import { ensureDataDirs, uploadsDir, outputDir } from "./lib/paths.ts";
+import { ensureDataDirs, uploadsDir, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
 import { books } from "./schema.ts";
 import { eq } from "drizzle-orm";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, access } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { quickAddJob } from "graphile-worker";
 
@@ -95,6 +95,56 @@ async function main() {
     }
 
     return reply.sendFile(path.relative(outputDir, chapter.audioPath), outputDir);
+  });
+
+  const previewGenerating = new Set<string>();
+
+  fastify.get("/preview/:voiceId", async (request, reply) => {
+    const { voiceId } = request.params as { voiceId: string };
+
+    if (!/^[a-z]{2}_[a-z]+$/.test(voiceId)) {
+      return reply.code(400).send({ error: "Invalid voice ID" });
+    }
+
+    const mp3Path = path.join(previewsDir, `${voiceId}.mp3`);
+
+    try {
+      await access(mp3Path);
+      return reply.sendFile(`${voiceId}.mp3`, previewsDir);
+    } catch {}
+
+    if (previewGenerating.has(voiceId)) {
+      return reply.code(202).send({ status: "generating" });
+    }
+
+    previewGenerating.add(voiceId);
+
+    try {
+      const { synthesize } = await import("./lib/kokoro.ts");
+      const { wavToMp3 } = await import("./lib/ffmpeg.ts");
+      const wavPath = path.join(previewsDir, `${voiceId}.wav`);
+
+      await synthesize({
+        inputText: "The quick brown fox jumps over the lazy dog. A wonderful serenity has taken possession of my entire soul, like these sweet mornings of spring which I enjoy with my whole heart.",
+        outputPath: wavPath,
+        voice: voiceId,
+        speed: 1.0,
+      });
+
+      await wavToMp3(wavPath, mp3Path);
+      const txtPath = wavPath.replace(/\.wav$/, ".txt");
+      await import("node:fs/promises").then((fs) => Promise.all([
+        fs.unlink(wavPath).catch(() => {}),
+        fs.unlink(txtPath).catch(() => {}),
+      ]));
+
+      return reply.sendFile(`${voiceId}.mp3`, previewsDir);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(500).send({ error: `Preview generation failed: ${message}` });
+    } finally {
+      previewGenerating.delete(voiceId);
+    }
   });
 
   const worker = await startWorker();

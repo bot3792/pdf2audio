@@ -6,26 +6,39 @@ type UploadZoneProps = {
   onUploadComplete: () => void;
 };
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function UploadZone({ onUploadComplete }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [stagedFile, setStagedFile] = useState<File | null>(null);
   const [voice, setVoice] = useState("af_heart");
   const [speed, setSpeed] = useState(1.0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function uploadFile(file: File) {
+  function stageFile(file: File) {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
       setError("Only PDF files are supported");
       return;
     }
+    setError(null);
+    setStagedFile(file);
+  }
+
+  async function upload() {
+    if (!stagedFile) return;
 
     setIsUploading(true);
     setError(null);
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", stagedFile);
       formData.append("voice", voice);
       formData.append("speed", String(speed));
 
@@ -35,6 +48,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
         throw new Error(body.error ?? `Upload failed (${res.status})`);
       }
 
+      setStagedFile(null);
       onUploadComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -47,7 +61,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) uploadFile(file);
+    if (file) stageFile(file);
   }
 
   function handleDragOver(e: DragEvent) {
@@ -62,7 +76,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) uploadFile(file);
+    if (file) stageFile(file);
     e.target.value = "";
   }
 
@@ -72,11 +86,12 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => !isUploading && fileInputRef.current?.click()}
         className={`
-          border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors
-          ${isDragging ? "border-blue-500 bg-blue-50" : "border-zinc-300 hover:border-zinc-400 bg-zinc-50"}
-          ${isUploading ? "opacity-50 pointer-events-none" : ""}
+          border-2 border-dashed rounded-lg text-center transition-colors
+          ${stagedFile ? "p-6" : "p-12"}
+          ${isDragging ? "border-blue-500 bg-blue-50" : stagedFile ? "border-zinc-300 bg-white" : "border-zinc-300 hover:border-zinc-400 bg-zinc-50"}
+          ${isUploading ? "opacity-50 pointer-events-none" : "cursor-pointer"}
         `}
       >
         <input
@@ -86,8 +101,31 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
           onChange={handleFileSelect}
           className="hidden"
         />
-        {isUploading ? (
-          <p className="text-zinc-500">Uploading...</p>
+        {stagedFile ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="shrink-0 h-10 w-10 rounded-lg bg-red-50 flex items-center justify-center">
+                <span className="text-red-600 text-xs font-bold">PDF</span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zinc-900 truncate">{stagedFile.name}</p>
+                <p className="text-xs text-zinc-500">{formatFileSize(stagedFile.size)}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setStagedFile(null);
+                setError(null);
+              }}
+              className="shrink-0 ml-4 p-1 text-zinc-400 hover:text-zinc-600 rounded"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+              </svg>
+            </button>
+          </div>
         ) : (
           <div>
             <p className="text-lg font-medium text-zinc-700">Drop a PDF here</p>
@@ -100,6 +138,17 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
         <VoicePicker value={voice} onChange={setVoice} />
         <SpeedSlider value={speed} onChange={setSpeed} />
       </div>
+
+      {stagedFile && (
+        <button
+          type="button"
+          onClick={upload}
+          disabled={isUploading}
+          className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+        >
+          {isUploading ? "Uploading..." : "Convert"}
+        </button>
+      )}
 
       {error && (
         <p className="text-red-600 text-sm">{error}</p>

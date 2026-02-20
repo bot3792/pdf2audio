@@ -11,6 +11,7 @@ export default defineConfig({
       "/download": "http://localhost:3034",
       "/audio": "http://localhost:3034",
       "/files": "http://localhost:3034",
+      "/preview": "http://localhost:3034",
     },
   },
 });
