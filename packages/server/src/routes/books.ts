@@ -1,13 +1,34 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, chapters } from "../schema.ts";
-import { eq, desc, asc } from "drizzle-orm";
+import { books, chapters, bookLogs } from "../schema.ts";
+import type { Book, Chapter } from "../schema.ts";
+import { eq, desc, asc, gt, and, ne, inArray } from "drizzle-orm";
 import { uploadsDir } from "../lib/paths.ts";
+import { appendLog } from "../lib/log.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, unlink, rm } from "node:fs/promises";
 import { quickAddJob } from "graphile-worker";
+
+function computeBookStatus(
+  book: Book,
+  chapterList: Pick<Chapter, "status">[],
+): string {
+  if (book.status === "extracting" || book.status === "assembling") return book.status;
+  if (book.status === "done" && book.outputPath) return "done";
+  if (chapterList.length === 0) {
+    if (book.status === "failed") return "failed";
+    return book.status;
+  }
+  const statuses = chapterList.map((c) => c.status);
+  if (statuses.some((s) => s === "synthesizing" || s === "normalizing")) return "synthesizing";
+  if (statuses.some((s) => s === "pending")) return "synthesizing";
+  if (statuses.every((s) => s === "done")) return "assembling";
+  if (statuses.some((s) => s === "failed")) return "failed";
+  if (statuses.every((s) => s === "suspended" || s === "done")) return "suspended";
+  return book.status;
+}
 
 const connectionString = process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
 
@@ -26,7 +47,8 @@ export const booksRouter = router({
           .where(eq(chapters.bookId, book.id));
 
         const doneCount = allChapters.filter((c) => c.status === "done").length;
-        return { ...book, chaptersCompleted: doneCount };
+        const status = computeBookStatus(book, allChapters);
+        return { ...book, status, chaptersCompleted: doneCount };
       })
     );
 
@@ -48,13 +70,32 @@ export const booksRouter = router({
       const chaptersWithStats = allChapters.map((ch) => {
         const text = ch.cleanText ?? ch.rawText;
         const wordCount = text.split(/\s+/).filter(Boolean).length;
-        return { ...ch, wordCount, rawText: undefined, cleanText: undefined };
+        const hasCleanText = !!ch.cleanText;
+        return { ...ch, wordCount, hasCleanText, rawText: undefined, cleanText: undefined };
       });
 
       const totalWords = chaptersWithStats.reduce((sum, ch) => sum + ch.wordCount, 0);
       const totalDurationMs = allChapters.reduce((sum, ch) => sum + (ch.durationMs ?? 0), 0);
+      const status = computeBookStatus(book, allChapters);
 
-      return { ...book, chapters: chaptersWithStats, totalWords, totalDurationMs };
+      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs };
+    }),
+
+  logs: publicProcedure
+    .input(z.object({
+      bookId: z.string().uuid(),
+      after: z.string().datetime().optional(),
+    }))
+    .query(async ({ input }) => {
+      const where = input.after
+        ? and(eq(bookLogs.bookId, input.bookId), gt(bookLogs.createdAt, new Date(input.after)))
+        : eq(bookLogs.bookId, input.bookId);
+
+      return db
+        .select({ id: bookLogs.id, message: bookLogs.message, createdAt: bookLogs.createdAt })
+        .from(bookLogs)
+        .where(where)
+        .orderBy(asc(bookLogs.createdAt));
     }),
 
   upload: publicProcedure
@@ -108,8 +149,9 @@ export const booksRouter = router({
       if (input.speed) updates.speed = input.speed;
 
       await db.update(books).set(updates).where(eq(books.id, input.id));
-
       await db.delete(chapters).where(eq(chapters.bookId, input.id));
+      await db.delete(bookLogs).where(eq(bookLogs.bookId, input.id));
+      await appendLog(input.id, "Re-extracting from scratch");
 
       await quickAddJob({ connectionString }, "extract", { bookId: input.id });
 
@@ -129,7 +171,10 @@ export const booksRouter = router({
         .where(eq(chapters.bookId, input.id))
         .orderBy(asc(chapters.index));
 
+      await db.delete(bookLogs).where(eq(bookLogs.bookId, input.id));
+
       if (allChapters.length === 0) {
+        await appendLog(input.id, "Resuming — no chapters found, re-extracting");
         await db.update(books).set({ status: "pending", error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
         await quickAddJob({ connectionString }, "extract", { bookId: input.id });
         const [updated] = await db.select().from(books).where(eq(books.id, input.id));
@@ -152,8 +197,10 @@ export const booksRouter = router({
         }
       }
 
-      const newStatus = queued > 0 ? "synthesizing" : "assembling";
-      await db.update(books).set({ status: newStatus, error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
+      const doneCount = allChapters.length - queued;
+      await appendLog(input.id, `Resuming — requeuing ${queued} chapter${queued !== 1 ? "s" : ""} (${doneCount} already done)`);
+
+      await db.update(books).set({ error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
 
       if (queued === 0) {
         await quickAddJob({ connectionString }, "assemble", { bookId: input.id });
@@ -166,6 +213,8 @@ export const booksRouter = router({
   cancel: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
+      await appendLog(input.id, "Cancelled by user");
+
       await db
         .update(books)
         .set({ status: "failed", error: "Cancelled by user", updatedAt: new Date() })
@@ -173,8 +222,11 @@ export const booksRouter = router({
 
       await db
         .update(chapters)
-        .set({ status: "failed", error: "Cancelled" })
-        .where(eq(chapters.bookId, input.id));
+        .set({ status: "suspended", error: null })
+        .where(and(
+          eq(chapters.bookId, input.id),
+          ne(chapters.status, "done"),
+        ));
 
       return { success: true };
     }),
