@@ -1,9 +1,7 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { readFile, readdir, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
-
-const execFileAsync = promisify(execFile);
 
 const CONDA_BIN = process.env.CONDA_ENV_PATH ?? "/Users/petur/miniconda3/envs/pdf2audio/bin";
 
@@ -138,12 +136,56 @@ function splitByWordCount(fullText: string, wordsPerChapter = 5000): ExtractedCh
   return chapters;
 }
 
-export async function extractPdf(pdfPath: string, outDir: string): Promise<ExtractedChapter[]> {
+type LogFn = (message: string) => Promise<void>;
+
+const noopLog: LogFn = async () => {};
+
+export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = noopLog): Promise<ExtractedChapter[]> {
   await mkdir(outDir, { recursive: true });
 
-  await execFileAsync(path.join(CONDA_BIN, "marker_single"), [pdfPath, "--output_format", "json", "--output_dir", outDir], {
-    timeout: 600_000,
-    env: { ...process.env, TORCH_DEVICE: "mps", PATH: `${CONDA_BIN}:${process.env.PATH}` },
+  await log(`Running marker_single on "${path.basename(pdfPath)}"`);
+
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn(
+      path.join(CONDA_BIN, "marker_single"),
+      [pdfPath, "--output_format", "json", "--output_dir", outDir],
+      { env: { ...process.env, TORCH_DEVICE: "mps", PATH: `${CONDA_BIN}:${process.env.PATH}` } }
+    );
+
+    const timeout = setTimeout(() => {
+      proc.kill("SIGKILL");
+      reject(new Error("marker_single timed out after 10 minutes"));
+    }, 600_000);
+
+    const rl = createInterface({ input: proc.stderr });
+    rl.on("line", (line) => {
+      const progressMatch = line.match(/(\d+)\/(\d+)/);
+      if (progressMatch) {
+        const [, current, total] = progressMatch;
+        log(`${line.trim().split(":")[0]?.trim() || "Processing"}: ${current}/${total}`);
+      } else if (line.includes("WARNING") || line.includes("Error") || line.includes("Traceback")) {
+        log(line.trim());
+      }
+    });
+
+    let stdout = "";
+    proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+
+    proc.on("close", (code) => {
+      clearTimeout(timeout);
+      rl.close();
+      if (code !== 0) {
+        reject(new Error(`marker_single exited with code ${code}`));
+      } else {
+        resolve();
+      }
+    });
+
+    proc.on("error", (err) => {
+      clearTimeout(timeout);
+      rl.close();
+      reject(err);
+    });
   });
 
   let searchDir = outDir;

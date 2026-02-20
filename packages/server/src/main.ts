@@ -5,7 +5,7 @@ import fastifyStatic from "@fastify/static";
 import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import { appRouter } from "./router.ts";
 import { createContext } from "./trpc.ts";
-import { startWorker } from "./workers/setup.ts";
+import { startWorker, stopWorker } from "./workers/setup.ts";
 import { ensureDataDirs, uploadsDir, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
 import { books } from "./schema.ts";
@@ -147,13 +147,13 @@ async function main() {
     }
   });
 
-  const worker = await startWorker();
+  await startWorker();
 
   await fastify.listen({ port: PORT, host: "0.0.0.0" });
   console.log(`Server running on http://localhost:${PORT}`);
 
   const shutdown = async () => {
-    await worker.stop();
+    await stopWorker();
     await fastify.close();
     process.exit(0);
   };
