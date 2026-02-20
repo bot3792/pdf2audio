@@ -1,8 +1,12 @@
-import { run, type TaskList } from "graphile-worker";
+import { run, type Runner, type TaskList } from "graphile-worker";
 import { extract } from "./extract.ts";
 import { normalize } from "./normalize.ts";
 import { synthesize } from "./synthesize.ts";
 import { assemble } from "./assemble.ts";
+
+const connectionString = process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
+
+export const WORKER_CONCURRENCY = 4;
 
 const taskList: TaskList = {
   extract: async (payload, helpers) => {
@@ -19,13 +23,21 @@ const taskList: TaskList = {
   },
 };
 
-export async function startWorker() {
-  const runner = await run({
-    connectionString: process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio",
-    concurrency: 2,
+let currentRunner: Runner | null = null;
+
+export async function startWorker(): Promise<Runner> {
+  currentRunner = await run({
+    connectionString,
+    concurrency: WORKER_CONCURRENCY,
     noHandleSignals: false,
     taskList,
   });
+  return currentRunner;
+}
 
-  return runner;
+export async function stopWorker(): Promise<void> {
+  if (currentRunner) {
+    await currentRunner.stop();
+    currentRunner = null;
+  }
 }
