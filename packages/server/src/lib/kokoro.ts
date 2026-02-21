@@ -3,7 +3,9 @@ import { createInterface } from "node:readline";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const CONDA_BIN = process.env.CONDA_ENV_PATH ?? "/Users/petur/miniconda3/envs/pdf2audio/bin";
+import { env } from "../env.ts";
+
+const CONDA_BIN = env.CONDA_ENV_PATH;
 
 const SYNTHESIZE_SCRIPT = path.resolve(
   import.meta.dirname,

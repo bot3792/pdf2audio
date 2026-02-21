@@ -1,7 +1,9 @@
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 
-const DATA_DIR = process.env.DATA_DIR ?? "./data";
+import { env } from "../env.ts";
+
+const DATA_DIR = env.DATA_DIR;
 
 export const uploadsDir = path.resolve(DATA_DIR, "uploads");
 export const tmpDir = path.resolve(DATA_DIR, "tmp");

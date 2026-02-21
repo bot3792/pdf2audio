@@ -3,24 +3,51 @@ import { extract } from "./extract.ts";
 import { normalize } from "./normalize.ts";
 import { synthesize } from "./synthesize.ts";
 import { assemble } from "./assemble.ts";
+import { env } from "../env.ts";
 
-const connectionString = process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
+const connectionString = env.DATABASE_URL;
 
 export const WORKER_CONCURRENCY = 4;
 
+function logTask(name: string, payload: Record<string, unknown>) {
+  const bookId = (payload.bookId as string)?.slice(0, 8) ?? "?";
+  const chapterId = (payload.chapterId as string)?.slice(0, 8);
+  const label = chapterId ? `${name} (book ${bookId}, ch ${chapterId})` : `${name} (book ${bookId})`;
+  return {
+    label,
+    start() { console.log(`[worker] Starting ${label}`); },
+    done(ms: number) { console.log(`[worker] Completed ${label} (${(ms / 1000).toFixed(1)}s)`); },
+    fail(ms: number, err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`[worker] Failed ${label} (${(ms / 1000).toFixed(1)}s): ${msg}`);
+    },
+  };
+}
+
+function wrapTask<P extends Record<string, unknown>>(
+  name: string,
+  fn: (payload: P, helpers: any) => Promise<void>,
+) {
+  return async (payload: unknown, helpers: any) => {
+    const p = payload as P;
+    const t = logTask(name, p as Record<string, unknown>);
+    const start = Date.now();
+    t.start();
+    try {
+      await fn(p, helpers);
+      t.done(Date.now() - start);
+    } catch (err) {
+      t.fail(Date.now() - start, err);
+      throw err;
+    }
+  };
+}
+
 const taskList: TaskList = {
-  extract: async (payload, helpers) => {
-    await extract(payload as any, helpers);
-  },
-  normalize: async (payload, helpers) => {
-    await normalize(payload as any, helpers);
-  },
-  synthesize: async (payload, helpers) => {
-    await synthesize(payload as any, helpers);
-  },
-  assemble: async (payload, helpers) => {
-    await assemble(payload as any);
-  },
+  extract: wrapTask("extract", extract),
+  normalize: wrapTask("normalize", normalize),
+  synthesize: wrapTask("synthesize", synthesize),
+  assemble: wrapTask("assemble", (payload) => assemble(payload as any)),
 };
 
 let currentRunner: Runner | null = null;

@@ -5,8 +5,9 @@ import { chapters } from "../schema.ts";
 import { eq } from "drizzle-orm";
 import { appendLog } from "../lib/log.ts";
 import { quickAddJob } from "graphile-worker";
+import { env } from "../env.ts";
 
-const connectionString = process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
+const connectionString = env.DATABASE_URL;
 
 export const chaptersRouter = router({
   get: publicProcedure
@@ -36,12 +37,12 @@ export const chaptersRouter = router({
         await quickAddJob({ connectionString }, "synthesize", {
           chapterId: input.id,
           bookId: chapter.bookId,
-        });
+        }, { maxAttempts: 1 });
       } else {
         await quickAddJob({ connectionString }, "normalize", {
           chapterId: input.id,
           bookId: chapter.bookId,
-        });
+        }, { maxAttempts: 1 });
       }
 
       await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] Queued`);

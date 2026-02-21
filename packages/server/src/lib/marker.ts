@@ -3,7 +3,9 @@ import { createInterface } from "node:readline";
 import { readFile, readdir, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-const CONDA_BIN = process.env.CONDA_ENV_PATH ?? "/Users/petur/miniconda3/envs/pdf2audio/bin";
+import { env } from "../env.ts";
+
+const CONDA_BIN = env.CONDA_ENV_PATH;
 
 type MarkerBlock = {
   id: string;
@@ -154,15 +156,30 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
 
     const timeout = setTimeout(() => {
       proc.kill("SIGKILL");
-      reject(new Error("marker_single timed out after 10 minutes"));
-    }, 600_000);
+      reject(new Error("marker_single timed out after 24 hours"));
+    }, 86_400_000);
 
+    let lastStage = "";
+    let lastLoggedPercent = -1;
     const rl = createInterface({ input: proc.stderr });
     rl.on("line", (line) => {
       const progressMatch = line.match(/(\d+)\/(\d+)/);
       if (progressMatch) {
-        const [, current, total] = progressMatch;
-        log(`${line.trim().split(":")[0]?.trim() || "Processing"}: ${current}/${total}`);
+        const [, currentStr, totalStr] = progressMatch;
+        const current = Number(currentStr);
+        const total = Number(totalStr);
+        const stage = line.trim().split(":")[0]?.trim() || "Processing";
+        const percent = total > 0 ? Math.floor((current / total) * 100) : 0;
+        const isNewStage = stage !== lastStage;
+        const isSignificantProgress = percent >= lastLoggedPercent + 10;
+        const isComplete = current === total;
+
+        if (isNewStage || isSignificantProgress || isComplete) {
+          log(`${stage}: ${currentStr}/${totalStr}`);
+          lastStage = stage;
+          lastLoggedPercent = isNewStage ? percent : percent;
+        }
+        if (isNewStage) lastLoggedPercent = percent;
       } else if (line.includes("WARNING") || line.includes("Error") || line.includes("Traceback")) {
         log(line.trim());
       }

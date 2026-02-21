@@ -10,13 +10,15 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, unlink, rm } from "node:fs/promises";
 import { quickAddJob } from "graphile-worker";
+import { env } from "../env.ts";
+
+const connectionString = env.DATABASE_URL;
 
 function computeBookStatus(
   book: Book,
   chapterList: Pick<Chapter, "status">[],
 ): string {
   if (book.status === "extracting" || book.status === "assembling") return book.status;
-  if (book.status === "done" && book.outputPath) return "done";
   if (chapterList.length === 0) {
     if (book.status === "failed") return "failed";
     return book.status;
@@ -24,13 +26,13 @@ function computeBookStatus(
   const statuses = chapterList.map((c) => c.status);
   if (statuses.some((s) => s === "synthesizing" || s === "normalizing")) return "synthesizing";
   if (statuses.some((s) => s === "pending")) return "synthesizing";
-  if (statuses.every((s) => s === "done")) return "assembling";
+  if (statuses.every((s) => s === "done")) {
+    return book.outputPath ? "done" : "assembling";
+  }
   if (statuses.some((s) => s === "failed")) return "failed";
   if (statuses.every((s) => s === "suspended" || s === "done")) return "suspended";
   return book.status;
 }
-
-const connectionString = process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
 
 export const booksRouter = router({
   list: publicProcedure.query(async () => {
@@ -125,7 +127,7 @@ export const booksRouter = router({
         })
         .returning();
 
-      await quickAddJob({ connectionString }, "extract", { bookId: id });
+      await quickAddJob({ connectionString }, "extract", { bookId: id }, { maxAttempts: 1 });
 
       return book;
     }),
@@ -153,7 +155,7 @@ export const booksRouter = router({
       await db.delete(bookLogs).where(eq(bookLogs.bookId, input.id));
       await appendLog(input.id, "Re-extracting from scratch");
 
-      await quickAddJob({ connectionString }, "extract", { bookId: input.id });
+      await quickAddJob({ connectionString }, "extract", { bookId: input.id }, { maxAttempts: 1 });
 
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       return book;
@@ -176,7 +178,7 @@ export const booksRouter = router({
       if (allChapters.length === 0) {
         await appendLog(input.id, "Resuming — no chapters found, re-extracting");
         await db.update(books).set({ status: "pending", error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
-        await quickAddJob({ connectionString }, "extract", { bookId: input.id });
+        await quickAddJob({ connectionString }, "extract", { bookId: input.id }, { maxAttempts: 1 });
         const [updated] = await db.select().from(books).where(eq(books.id, input.id));
         return updated;
       }
@@ -188,11 +190,11 @@ export const booksRouter = router({
 
         if (ch.cleanText) {
           await db.update(chapters).set({ status: "pending", error: null, audioPath: null, durationMs: null }).where(eq(chapters.id, ch.id));
-          await quickAddJob({ connectionString }, "synthesize", { chapterId: ch.id, bookId: input.id });
+          await quickAddJob({ connectionString }, "synthesize", { chapterId: ch.id, bookId: input.id }, { maxAttempts: 1 });
           queued++;
         } else {
           await db.update(chapters).set({ status: "pending", error: null }).where(eq(chapters.id, ch.id));
-          await quickAddJob({ connectionString }, "normalize", { chapterId: ch.id, bookId: input.id });
+          await quickAddJob({ connectionString }, "normalize", { chapterId: ch.id, bookId: input.id }, { maxAttempts: 1 });
           queued++;
         }
       }
@@ -203,7 +205,7 @@ export const booksRouter = router({
       await db.update(books).set({ error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
 
       if (queued === 0) {
-        await quickAddJob({ connectionString }, "assemble", { bookId: input.id });
+        await quickAddJob({ connectionString }, "assemble", { bookId: input.id }, { maxAttempts: 1 });
       }
 
       const [updated] = await db.select().from(books).where(eq(books.id, input.id));

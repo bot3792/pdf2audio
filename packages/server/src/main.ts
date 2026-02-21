@@ -1,3 +1,4 @@
+import { env } from "./env.ts";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
@@ -17,8 +18,7 @@ import { mkdir, access } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { quickAddJob } from "graphile-worker";
 
-const PORT = parseInt(process.env.PORT ?? "3034", 10);
-const connectionString = process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
+const { PORT, DATABASE_URL: connectionString } = env;
 
 async function main() {
   await ensureDataDirs();
@@ -69,7 +69,7 @@ async function main() {
       })
       .returning();
 
-    await quickAddJob({ connectionString }, "extract", { bookId });
+    await quickAddJob({ connectionString }, "extract", { bookId }, { maxAttempts: 1 });
 
     return reply.send(book);
   });
