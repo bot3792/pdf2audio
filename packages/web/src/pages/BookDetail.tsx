@@ -494,29 +494,13 @@ function formatElapsed(ms: number): string {
 function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string }) {
   const isProcessing = !["done", "failed", "pending", "suspended"].includes(bookStatus);
   const [expanded, setExpanded] = useState(isProcessing);
-  const [logs, setLogs] = useState<{ id: string; message: string; createdAt: string }[]>([]);
-  const cursorRef = useRef<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
 
-  const { data } = trpc.books.logs.useQuery(
-    { bookId, after: cursorRef.current },
+  const { data: logs = [] } = trpc.books.logs.useQuery(
+    { bookId },
     { refetchInterval: isProcessing ? 1000 : false }
   );
-
-  useEffect(() => {
-    if (!data || data.length === 0) return;
-    setLogs((prev) => {
-      const existingIds = new Set(prev.map((l) => l.id));
-      const newEntries = data
-        .filter((l) => !existingIds.has(l.id))
-        .map((l) => ({ id: l.id, message: l.message, createdAt: String(l.createdAt) }));
-      if (newEntries.length === 0) return prev;
-      return [...prev, ...newEntries];
-    });
-    const lastEntry = data[data.length - 1];
-    cursorRef.current = String(lastEntry.createdAt);
-  }, [data]);
 
   useEffect(() => {
     if (isProcessing && !expanded) setExpanded(true);
@@ -557,7 +541,7 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
             logs.map((entry) => (
               <div key={entry.id} className="flex gap-3">
                 <span className="text-zinc-500 shrink-0 select-none">
-                  {formatLogTime(entry.createdAt)}
+                  {formatLogTime(String(entry.createdAt))}
                 </span>
                 <span className="text-zinc-200 whitespace-pre-wrap break-all">
                   {entry.message}
