@@ -100,7 +100,7 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
 
       if (suspended.length === 0) {
         await log("All chapters synthesized, queuing assembly");
-        await addJob("assemble", { bookId });
+        await addJob("assemble", { bookId }, { maxAttempts: 1 });
       } else {
         await log(`All queued chapters done (${suspended.length} suspended — queue them or assemble manually)`);
       }

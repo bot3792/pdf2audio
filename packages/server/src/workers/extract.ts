@@ -46,7 +46,7 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
         })
         .returning();
 
-      await addJob("normalize", { chapterId: inserted.id, bookId });
+      await addJob("normalize", { chapterId: inserted.id, bookId }, { maxAttempts: 1 });
     }
 
     await db

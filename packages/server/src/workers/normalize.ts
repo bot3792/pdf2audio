@@ -29,7 +29,7 @@ export async function normalize(payload: NormalizePayload, { addJob }: { addJob:
       .set({ cleanText, status: "pending" })
       .where(eq(chapters.id, chapterId));
 
-    await addJob("synthesize", { chapterId, bookId });
+    await addJob("synthesize", { chapterId, bookId }, { maxAttempts: 1 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await log(`Normalization failed for chapter ${chapterId}: ${message}`);
