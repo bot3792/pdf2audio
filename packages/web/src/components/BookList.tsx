@@ -8,28 +8,28 @@ export function BookList() {
   });
 
   if (isLoading) {
-    return <p className="text-zinc-500 py-4">Loading...</p>;
+    return <p className="text-(--text-muted) py-4">Loading...</p>;
   }
 
   if (!books || books.length === 0) {
-    return <p className="text-zinc-500 py-4">No books yet. Upload a PDF to get started.</p>;
+    return <p className="text-(--text-muted) py-4">No books yet. Upload a PDF to get started.</p>;
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-zinc-200">
-      <table className="min-w-full divide-y divide-zinc-200">
-        <thead className="bg-zinc-50">
+    <div className="overflow-hidden rounded-lg border border-(--border)">
+      <table className="min-w-full divide-y divide-(--divide)">
+        <thead className="bg-(--bg-subtle)">
           <tr>
-            <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Title</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Status</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Voice</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Created</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Title</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Status</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Voice</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Created</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Actions</th>
           </tr>
         </thead>
-        <tbody className="bg-white divide-y divide-zinc-200">
+        <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
           {books.map((book) => (
-            <tr key={book.id} className="hover:bg-zinc-50">
+            <tr key={book.id} className="hover:bg-(--bg-card-hover)">
               <td className="px-4 py-3">
                 <Link to={`/books/${book.id}`} className="text-blue-600 hover:text-blue-800 font-medium">
                   {book.title}
@@ -43,8 +43,8 @@ export function BookList() {
                   totalChapters={book.totalChapters}
                 />
               </td>
-              <td className="px-4 py-3 text-sm text-zinc-600">{book.voice}</td>
-              <td className="px-4 py-3 text-sm text-zinc-600">
+              <td className="px-4 py-3 text-sm text-(--text-tertiary)">{book.voice}</td>
+              <td className="px-4 py-3 text-sm text-(--text-tertiary)">
                 {new Date(book.createdAt).toLocaleDateString()}
               </td>
               <td className="px-4 py-3">

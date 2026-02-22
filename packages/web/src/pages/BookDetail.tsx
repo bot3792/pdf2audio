@@ -49,9 +49,9 @@ export function BookDetail() {
 
   if (isLoading || !book) {
     return (
-      <div className="min-h-screen bg-zinc-100">
+      <div className="min-h-screen bg-(--bg-page)">
         <div className="max-w-6xl mx-auto px-4 py-8">
-          <p className="text-zinc-500">Loading...</p>
+          <p className="text-(--text-muted)">Loading...</p>
         </div>
       </div>
     );
@@ -68,7 +68,7 @@ export function BookDetail() {
   const canProcess = selectedNotDone > 0 && !isProcessing;
 
   return (
-    <div className="min-h-screen bg-zinc-100">
+    <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-6xl mx-auto px-4 py-8">
         <Link to="/" className="text-sm text-blue-600 hover:text-blue-800 mb-4 inline-block">
           &larr; Back
@@ -76,8 +76,8 @@ export function BookDetail() {
 
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-bold text-zinc-900">{book.title}</h1>
-            <p className="text-sm text-zinc-500 mt-1">
+            <h1 className="text-2xl font-bold text-(--text-primary)">{book.title}</h1>
+            <p className="text-sm text-(--text-muted) mt-1">
               {book.filename} &middot; Voice: {book.voice} &middot; Speed: {book.speed}x
               &middot; 4 worker slots
             </p>
@@ -160,7 +160,7 @@ export function BookDetail() {
                 }
               }}
               disabled={retryMutation.isPending}
-              className="px-4 py-2 bg-zinc-200 text-zinc-700 rounded-md text-sm font-medium hover:bg-zinc-300 disabled:opacity-50"
+              className="px-4 py-2 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50"
             >
               Re-extract the book
             </button>
@@ -179,16 +179,16 @@ export function BookDetail() {
         </div>
 
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-zinc-800">Chapters</h2>
+          <h2 className="text-lg font-semibold text-(--text-secondary)">Chapters</h2>
           {book.chapters.length > 0 ? (
-            <span className="text-sm text-zinc-500">
+            <span className="text-sm text-(--text-muted)">
               {selectedCount} of {book.chapters.length} selected
             </span>
           ) : null}
         </div>
 
         {book.chapters.length === 0 ? (
-          <p className="text-zinc-500 text-sm">
+          <p className="text-(--text-muted) text-sm">
             {book.status === "extracting"
               ? "Extracting chapters from PDF..."
               : "No chapters extracted yet."}
@@ -240,23 +240,23 @@ function AssembliesSection({
 }) {
   return (
     <div className="mt-8">
-      <h2 className="text-lg font-semibold text-zinc-800 mb-3">Assemblies</h2>
-      <div className="overflow-hidden rounded-lg border border-zinc-200">
-        <table className="min-w-full divide-y divide-zinc-200">
-          <thead className="bg-zinc-50">
+      <h2 className="text-lg font-semibold text-(--text-secondary) mb-3">Assemblies</h2>
+      <div className="overflow-hidden rounded-lg border border-(--border)">
+        <table className="min-w-full divide-y divide-(--divide)">
+          <thead className="bg-(--bg-subtle)">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Date</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Chapters</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Duration</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Date</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Chapters</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-(--text-muted) uppercase tracking-wider">Duration</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-zinc-200">
+          <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
             {assemblies.map((assembly) => {
               const isLatest = assembly.outputPath === latestOutputPath;
               return (
-                <tr key={assembly.id} className="hover:bg-zinc-50">
-                  <td className="px-4 py-3 text-sm text-zinc-700">
+                <tr key={assembly.id} className="hover:bg-(--bg-card-hover)">
+                  <td className="px-4 py-3 text-sm text-(--text-secondary)">
                     <div className="flex items-center gap-2">
                       {formatAssemblyDate(assembly.createdAt)}
                       {isLatest && (
@@ -266,13 +266,13 @@ function AssembliesSection({
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-zinc-600">
+                  <td className="px-4 py-3 text-sm text-(--text-tertiary)">
                     <span title={assembly.chapterSummary}>
                       {assembly.chapterCount} chapter{assembly.chapterCount !== 1 ? "s" : ""}
-                      <span className="text-zinc-400 ml-1.5">{assembly.chapterSummary}</span>
+                      <span className="text-(--text-faint) ml-1.5">{assembly.chapterSummary}</span>
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
+                  <td className="px-4 py-3 text-sm text-(--text-tertiary) text-right tabular-nums">
                     {formatDuration(assembly.durationMs)}
                   </td>
                   <td className="px-4 py-3">
@@ -337,8 +337,8 @@ function ProgressSection({ status, doneChapters, totalChapters, chapters }: Prog
   if (status === "extracting") progressColor = "bg-yellow-500";
 
   return (
-    <div className="mb-6 bg-white border border-zinc-200 rounded-lg p-4">
-      <div className="flex justify-between text-sm text-zinc-600 mb-2">
+    <div className="mb-6 bg-(--bg-card) border border-(--border) rounded-lg p-4">
+      <div className="flex justify-between text-sm text-(--text-tertiary) mb-2">
         <span className="font-medium">
           {status === "extracting" && "Extracting text from PDF..."}
           {status === "normalizing" && "Normalizing text..."}
@@ -350,7 +350,7 @@ function ProgressSection({ status, doneChapters, totalChapters, chapters }: Prog
         )}
       </div>
 
-      <div className="w-full bg-zinc-100 rounded-full h-2.5 mb-3">
+      <div className="w-full bg-(--bg-page) rounded-full h-2.5 mb-3">
         <div
           className={`${progressColor} h-2.5 rounded-full transition-all duration-700 ease-out`}
           style={{
@@ -365,7 +365,7 @@ function ProgressSection({ status, doneChapters, totalChapters, chapters }: Prog
       </div>
 
       {status === "synthesizing" && totalChapters > 1 && (
-        <div className="flex gap-4 text-xs text-zinc-500">
+        <div className="flex gap-4 text-xs text-(--text-muted)">
           {synthesizingCount > 0 && (
             <span>{synthesizingCount} synthesizing</span>
           )}
@@ -419,9 +419,9 @@ function StatsBar({ status, totalChapters, totalWords, totalDurationMs, createdA
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-white border border-zinc-200 rounded-lg px-4 py-3">
-      <p className="text-xs text-zinc-500 uppercase tracking-wider">{label}</p>
-      <p className="text-lg font-semibold text-zinc-900 tabular-nums">{value}</p>
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg px-4 py-3">
+      <p className="text-xs text-(--text-muted) uppercase tracking-wider">{label}</p>
+      <p className="text-lg font-semibold text-(--text-primary) tabular-nums">{value}</p>
     </div>
   );
 }
@@ -452,9 +452,9 @@ function ElapsedCard({
   const label = isProcessing ? "Elapsed" : status === "done" ? "Completed in" : "Time";
 
   return (
-    <div className="bg-white border border-zinc-200 rounded-lg px-4 py-3">
-      <p className="text-xs text-zinc-500 uppercase tracking-wider">{label}</p>
-      <p className="text-lg font-semibold text-zinc-900 tabular-nums">
+    <div className="bg-(--bg-card) border border-(--border) rounded-lg px-4 py-3">
+      <p className="text-xs text-(--text-muted) uppercase tracking-wider">{label}</p>
+      <p className="text-lg font-semibold text-(--text-primary) tabular-nums">
         {formatElapsed(elapsed)}
       </p>
     </div>
@@ -522,7 +522,7 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
       <div className="flex items-center gap-2 mb-2">
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900"
+          className="flex items-center gap-2 text-sm font-medium text-(--text-tertiary) hover:text-(--text-primary)"
         >
           <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
           Logs ({logs.length})
@@ -530,7 +530,7 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
         {logs.length > 0 && (
           <button
             onClick={() => clearLogs.mutate({ bookId })}
-            className="text-xs text-zinc-400 hover:text-red-500"
+            className="text-xs text-(--text-faint) hover:text-red-500"
           >
             Clear
           </button>

@@ -6,7 +6,7 @@ type SpeedSliderProps = {
 export function SpeedSlider({ value, onChange }: SpeedSliderProps) {
   return (
     <div className="w-48">
-      <label className="block text-sm font-medium text-zinc-700 mb-1">
+      <label className="block text-sm font-medium text-(--text-secondary) mb-1">
         Speed: {value.toFixed(1)}x
       </label>
       <input

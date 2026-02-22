@@ -1,1 +1,87 @@
 @import "tailwindcss";
+
+:root {
+  color-scheme: light dark;
+
+  --bg-page: var(--color-zinc-100);
+  --bg-card: var(--color-white);
+  --bg-card-hover: var(--color-zinc-50);
+  --bg-subtle: var(--color-zinc-50);
+  --bg-input: var(--color-white);
+  --bg-drag: var(--color-blue-50);
+
+  --border: var(--color-zinc-200);
+  --border-input: var(--color-zinc-300);
+  --divide: var(--color-zinc-200);
+
+  --text-primary: var(--color-zinc-900);
+  --text-secondary: var(--color-zinc-700);
+  --text-tertiary: var(--color-zinc-600);
+  --text-muted: var(--color-zinc-500);
+  --text-faint: var(--color-zinc-400);
+
+  --bg-custom-text: oklch(0.987 0.013 85 / 0.3);
+  --border-custom-text: var(--color-amber-200);
+
+  --badge-pending-bg: var(--color-zinc-100);
+  --badge-pending-text: var(--color-zinc-700);
+  --badge-extracting-bg: var(--color-yellow-100);
+  --badge-extracting-text: var(--color-yellow-800);
+  --badge-synthesizing-bg: var(--color-blue-100);
+  --badge-synthesizing-text: var(--color-blue-800);
+  --badge-normalizing-bg: var(--color-purple-100);
+  --badge-normalizing-text: var(--color-purple-800);
+  --badge-assembling-bg: var(--color-indigo-100);
+  --badge-assembling-text: var(--color-indigo-800);
+  --badge-done-bg: var(--color-green-100);
+  --badge-done-text: var(--color-green-800);
+  --badge-failed-bg: var(--color-red-100);
+  --badge-failed-text: var(--color-red-800);
+  --badge-suspended-bg: var(--color-amber-100);
+  --badge-suspended-text: var(--color-amber-800);
+  --badge-cancelled-bg: var(--color-zinc-200);
+  --badge-cancelled-text: var(--color-zinc-600);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-page: var(--color-zinc-900);
+    --bg-card: var(--color-zinc-800);
+    --bg-card-hover: oklch(0.37 0.013 286 / 0.5);
+    --bg-subtle: oklch(0.274 0.006 286 / 0.5);
+    --bg-input: var(--color-zinc-800);
+    --bg-drag: var(--color-blue-950);
+
+    --border: var(--color-zinc-700);
+    --border-input: var(--color-zinc-600);
+    --divide: var(--color-zinc-700);
+
+    --text-primary: var(--color-zinc-100);
+    --text-secondary: var(--color-zinc-300);
+    --text-tertiary: var(--color-zinc-400);
+    --text-muted: var(--color-zinc-400);
+    --text-faint: var(--color-zinc-500);
+
+    --bg-custom-text: oklch(0.279 0.077 75 / 0.3);
+    --border-custom-text: var(--color-amber-800);
+
+    --badge-pending-bg: var(--color-zinc-700);
+    --badge-pending-text: var(--color-zinc-300);
+    --badge-extracting-bg: oklch(0.55 0.163 49 / 0.3);
+    --badge-extracting-text: var(--color-yellow-300);
+    --badge-synthesizing-bg: oklch(0.546 0.245 263 / 0.3);
+    --badge-synthesizing-text: var(--color-blue-300);
+    --badge-normalizing-bg: oklch(0.496 0.265 302 / 0.3);
+    --badge-normalizing-text: var(--color-purple-300);
+    --badge-assembling-bg: oklch(0.511 0.262 277 / 0.3);
+    --badge-assembling-text: var(--color-indigo-300);
+    --badge-done-bg: oklch(0.527 0.154 150 / 0.3);
+    --badge-done-text: var(--color-green-300);
+    --badge-failed-bg: oklch(0.577 0.245 27 / 0.3);
+    --badge-failed-text: var(--color-red-300);
+    --badge-suspended-bg: oklch(0.555 0.163 49 / 0.3);
+    --badge-suspended-text: var(--color-amber-300);
+    --badge-cancelled-bg: var(--color-zinc-700);
+    --badge-cancelled-text: var(--color-zinc-400);
+  }
+}

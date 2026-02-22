@@ -90,7 +90,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
         className={`
           border-2 border-dashed rounded-lg text-center transition-colors
           ${stagedFile ? "p-6" : "p-12"}
-          ${isDragging ? "border-blue-500 bg-blue-50" : stagedFile ? "border-zinc-300 bg-white" : "border-zinc-300 hover:border-zinc-400 bg-zinc-50"}
+          ${isDragging ? "border-blue-500 bg-(--bg-drag)" : stagedFile ? "border-(--border-input) bg-(--bg-card)" : "border-(--border-input) hover:border-(--text-faint) bg-(--bg-subtle)"}
           ${isUploading ? "opacity-50 pointer-events-none" : "cursor-pointer"}
         `}
       >
@@ -108,8 +108,8 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
                 <span className="text-red-600 text-xs font-bold">PDF</span>
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-zinc-900 truncate">{stagedFile.name}</p>
-                <p className="text-xs text-zinc-500">{formatFileSize(stagedFile.size)}</p>
+                <p className="text-sm font-medium text-(--text-primary) truncate">{stagedFile.name}</p>
+                <p className="text-xs text-(--text-muted)">{formatFileSize(stagedFile.size)}</p>
               </div>
             </div>
             <button
@@ -119,7 +119,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
                 setStagedFile(null);
                 setError(null);
               }}
-              className="shrink-0 ml-4 p-1 text-zinc-400 hover:text-zinc-600 rounded"
+              className="shrink-0 ml-4 p-1 text-(--text-faint) hover:text-(--text-tertiary) rounded"
             >
               <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -128,8 +128,8 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
           </div>
         ) : (
           <div>
-            <p className="text-lg font-medium text-zinc-700">Drop a PDF here</p>
-            <p className="text-sm text-zinc-500 mt-1">or click to browse</p>
+            <p className="text-lg font-medium text-(--text-secondary)">Drop a PDF here</p>
+            <p className="text-sm text-(--text-muted) mt-1">or click to browse</p>
           </div>
         )}
       </div>

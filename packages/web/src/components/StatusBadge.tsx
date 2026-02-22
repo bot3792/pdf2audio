@@ -6,15 +6,15 @@ type StatusBadgeProps = {
 };
 
 const statusStyles: Record<string, string> = {
-  pending: "bg-zinc-100 text-zinc-700",
-  extracting: "bg-yellow-100 text-yellow-800",
-  synthesizing: "bg-blue-100 text-blue-800",
-  normalizing: "bg-purple-100 text-purple-800",
-  assembling: "bg-indigo-100 text-indigo-800",
-  done: "bg-green-100 text-green-800",
-  failed: "bg-red-100 text-red-800",
-  suspended: "bg-amber-100 text-amber-800",
-  cancelled: "bg-zinc-200 text-zinc-600",
+  pending: "bg-(--badge-pending-bg) text-(--badge-pending-text)",
+  extracting: "bg-(--badge-extracting-bg) text-(--badge-extracting-text)",
+  synthesizing: "bg-(--badge-synthesizing-bg) text-(--badge-synthesizing-text)",
+  normalizing: "bg-(--badge-normalizing-bg) text-(--badge-normalizing-text)",
+  assembling: "bg-(--badge-assembling-bg) text-(--badge-assembling-text)",
+  done: "bg-(--badge-done-bg) text-(--badge-done-text)",
+  failed: "bg-(--badge-failed-bg) text-(--badge-failed-text)",
+  suspended: "bg-(--badge-suspended-bg) text-(--badge-suspended-text)",
+  cancelled: "bg-(--badge-cancelled-bg) text-(--badge-cancelled-text)",
 };
 
 export function StatusBadge({ status, error, chaptersCompleted, totalChapters }: StatusBadgeProps) {

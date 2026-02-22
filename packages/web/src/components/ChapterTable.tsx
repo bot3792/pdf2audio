@@ -141,7 +141,7 @@ export function ChapterTable({
         <div className="flex items-center gap-2 mb-2">
           <button
             onClick={() => setFiltersOpen((v) => !v)}
-            className="flex items-center gap-1.5 text-sm font-medium text-zinc-600 hover:text-zinc-900"
+            className="flex items-center gap-1.5 text-sm font-medium text-(--text-tertiary) hover:text-(--text-primary)"
           >
             <span className={`text-xs transition-transform ${filtersOpen ? "rotate-90" : ""}`}>&#9654;</span>
             Filter
@@ -154,7 +154,7 @@ export function ChapterTable({
           {activeFilterCount > 0 ? (
             <button
               onClick={clearFilters}
-              className="text-xs text-zinc-400 hover:text-zinc-600"
+              className="text-xs text-(--text-faint) hover:text-(--text-tertiary)"
             >
               Clear
             </button>
@@ -162,25 +162,25 @@ export function ChapterTable({
         </div>
 
         {filtersOpen ? (
-          <div className="bg-white border border-zinc-200 rounded-lg p-4 mb-3">
+          <div className="bg-(--bg-card) border border-(--border) rounded-lg p-4 mb-3">
             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
               <label className="flex items-center gap-3">
-                <span className="text-xs font-medium text-zinc-500 w-16 shrink-0">Search</span>
+                <span className="text-xs font-medium text-(--text-muted) w-16 shrink-0">Search</span>
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Filter by title..."
-                  className="w-full px-2.5 py-1.5 text-sm border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full px-2.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </label>
               <div className="flex items-center gap-3">
-                <span className="text-xs font-medium text-zinc-500 w-16 shrink-0">Status</span>
+                <span className="text-xs font-medium text-(--text-muted) w-16 shrink-0">Status</span>
                 <div className="flex items-center gap-2 flex-1">
                   <select
                     value={statusOperator}
                     onChange={(e) => setStatusOperator(e.target.value as "is" | "is_not")}
-                    className="px-2.5 py-1.5 text-sm border border-zinc-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="px-2.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="is">is</option>
                     <option value="is_not">is not</option>
@@ -188,7 +188,7 @@ export function ChapterTable({
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 text-sm border border-zinc-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="flex-1 px-2.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="">All</option>
                     {STATUSES.map((s) => (
@@ -198,7 +198,7 @@ export function ChapterTable({
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs font-medium text-zinc-500 w-16 shrink-0">Words</span>
+                <span className="text-xs font-medium text-(--text-muted) w-16 shrink-0">Words</span>
                 <div className="flex items-center gap-2 flex-1">
                   <input
                     type="number"
@@ -206,21 +206,21 @@ export function ChapterTable({
                     onChange={(e) => setWordCountMin(e.target.value)}
                     placeholder="min"
                     min={0}
-                    className="w-full px-2.5 py-1.5 text-sm border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 tabular-nums"
+                    className="w-full px-2.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 tabular-nums"
                   />
-                  <span className="text-zinc-400 text-xs">–</span>
+                  <span className="text-(--text-faint) text-xs">–</span>
                   <input
                     type="number"
                     value={wordCountMax}
                     onChange={(e) => setWordCountMax(e.target.value)}
                     placeholder="max"
                     min={0}
-                    className="w-full px-2.5 py-1.5 text-sm border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 tabular-nums"
+                    className="w-full px-2.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 tabular-nums"
                   />
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs font-medium text-zinc-500 w-16 shrink-0">Duration</span>
+                <span className="text-xs font-medium text-(--text-muted) w-16 shrink-0">Duration</span>
                 <div className="flex items-center gap-2 flex-1">
                   <input
                     type="number"
@@ -228,21 +228,21 @@ export function ChapterTable({
                     onChange={(e) => setDurationMin(e.target.value)}
                     placeholder="min"
                     min={0}
-                    className="w-full px-2.5 py-1.5 text-sm border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 tabular-nums"
+                    className="w-full px-2.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 tabular-nums"
                   />
-                  <span className="text-zinc-400 text-xs">–</span>
+                  <span className="text-(--text-faint) text-xs">–</span>
                   <input
                     type="number"
                     value={durationMax}
                     onChange={(e) => setDurationMax(e.target.value)}
                     placeholder="max"
                     min={0}
-                    className="w-full px-2.5 py-1.5 text-sm border border-zinc-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 tabular-nums"
+                    className="w-full px-2.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 tabular-nums"
                   />
                   <select
                     value={durationUnit}
                     onChange={(e) => setDurationUnit(e.target.value as "sec" | "min")}
-                    className="px-1.5 py-1.5 text-sm border border-zinc-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shrink-0"
+                    className="px-1.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shrink-0"
                   >
                     <option value="sec">sec</option>
                     <option value="min">min</option>
@@ -255,7 +255,7 @@ export function ChapterTable({
 
         {/* Filter summary + bulk actions */}
         {isFiltered ? (
-          <div className="flex items-center justify-between text-xs text-zinc-500 mb-2">
+          <div className="flex items-center justify-between text-xs text-(--text-muted) mb-2">
             <span>
               Showing {filteredChapters.length} of {chapters.length} chapters
             </span>
@@ -268,7 +268,7 @@ export function ChapterTable({
               </button>
               <button
                 onClick={() => onSetSelectedBatch(filteredChapters.map((c) => c.id), false)}
-                className="text-zinc-500 hover:text-zinc-700 font-medium"
+                className="text-(--text-muted) hover:text-(--text-secondary) font-medium"
               >
                 Deselect filtered
               </button>
@@ -278,9 +278,9 @@ export function ChapterTable({
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-lg border border-zinc-200">
-        <table className="min-w-full divide-y divide-zinc-200">
-          <thead className="bg-zinc-50">
+      <div className="overflow-hidden rounded-lg border border-(--border)">
+        <table className="min-w-full divide-y divide-(--divide)">
+          <thead className="bg-(--bg-subtle)">
             <tr>
               <th className="px-3 py-3 w-10">
                 <input
@@ -288,18 +288,18 @@ export function ChapterTable({
                   type="checkbox"
                   checked={allVisibleSelected}
                   onChange={handleToggleAll}
-                  className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                  className="rounded border-(--border-input) text-indigo-600 focus:ring-indigo-500"
                 />
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">#</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Title</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-40">Status</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Words</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Duration</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">#</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Title</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider w-40">Status</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-(--text-muted) uppercase tracking-wider">Words</th>
+              <th className="px-4 py-3 text-right text-xs font-medium text-(--text-muted) uppercase tracking-wider">Duration</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-zinc-200">
+          <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
             {filteredChapters.map((chapter) => {
               const isActive = chapter.status === "synthesizing" || chapter.status === "normalizing";
               const canQueue = !isActive && chapter.status !== "done" && chapter.status !== "pending";
@@ -308,22 +308,22 @@ export function ChapterTable({
               return (
                 <tr
                   key={chapter.id}
-                  className={`hover:bg-zinc-50 ${!chapter.selected ? "opacity-40" : ""}`}
+                  className={`hover:bg-(--bg-card-hover) ${!chapter.selected ? "opacity-40" : ""}`}
                 >
                   <td className="px-3 py-3">
                     <input
                       type="checkbox"
                       checked={chapter.selected}
                       onChange={() => onSetSelected(chapter.id, !chapter.selected)}
-                      className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-(--border-input) text-indigo-600 focus:ring-indigo-500"
                     />
                   </td>
-                  <td className="px-4 py-3 text-sm text-zinc-600">{chapter.index + 1}</td>
+                  <td className="px-4 py-3 text-sm text-(--text-tertiary)">{chapter.index + 1}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setModalChapterIndex(chapters.indexOf(chapter))}
-                        className="text-sm font-medium text-zinc-900 hover:text-blue-700 text-left"
+                        className="text-sm font-medium text-(--text-primary) hover:text-blue-700 text-left"
                       >
                         {chapter.title}
                       </button>
@@ -337,10 +337,10 @@ export function ChapterTable({
                   <td className="px-4 py-3">
                     <ChapterStatusCell chapter={chapter} />
                   </td>
-                  <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
+                  <td className="px-4 py-3 text-sm text-(--text-tertiary) text-right tabular-nums">
                     {chapter.wordCount.toLocaleString()}
                   </td>
-                  <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
+                  <td className="px-4 py-3 text-sm text-(--text-tertiary) text-right tabular-nums">
                     {chapter.durationMs ? formatDuration(chapter.durationMs) : "\u2014"}
                   </td>
                   <td className="px-4 py-3">
@@ -351,7 +351,7 @@ export function ChapterTable({
                           className={`w-6 h-6 flex items-center justify-center rounded text-sm ${
                             playingChapterId === chapter.id
                               ? "text-indigo-600 hover:text-indigo-800"
-                              : "text-zinc-400 hover:text-zinc-700"
+                              : "text-(--text-faint) hover:text-(--text-secondary)"
                           }`}
                           title={playingChapterId === chapter.id && isAudioPlaying ? "Pause" : "Play"}
                         >
@@ -377,7 +377,7 @@ export function ChapterTable({
                       {chapter.status === "done" ? (
                         <button
                           onClick={() => onQueue(chapter.id)}
-                          className="text-xs text-zinc-400 hover:text-zinc-600 font-medium"
+                          className="text-xs text-(--text-faint) hover:text-(--text-tertiary) font-medium"
                           title="Re-synthesize this chapter"
                         >
                           Redo
@@ -395,7 +395,7 @@ export function ChapterTable({
             })}
             {filteredChapters.length === 0 && chapters.length > 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-zinc-400">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-(--text-faint)">
                   No chapters match the current filters
                 </td>
               </tr>
@@ -405,14 +405,14 @@ export function ChapterTable({
       </div>
 
       {playingChapter ? (
-        <div className="sticky bottom-4 mt-3 bg-white border border-zinc-200 rounded-lg px-4 py-3 flex items-center gap-4 shadow-lg z-10">
+        <div className="sticky bottom-4 mt-3 bg-(--bg-card) border border-(--border) rounded-lg px-4 py-3 flex items-center gap-4 shadow-lg z-10">
           <button
             onClick={() => handlePlay(playingChapter.id)}
             className="text-lg text-indigo-600 hover:text-indigo-800 w-8 h-8 flex items-center justify-center shrink-0"
           >
             {isAudioPlaying ? "\u23F8" : "\u25B6"}
           </button>
-          <div className="text-sm text-zinc-700 font-medium truncate min-w-0 shrink-0 max-w-48">
+          <div className="text-sm text-(--text-secondary) font-medium truncate min-w-0 shrink-0 max-w-48">
             Ch {playingChapter.index + 1} &mdash; {playingChapter.title}
           </div>
           <audio
@@ -426,7 +426,7 @@ export function ChapterTable({
           />
           <button
             onClick={handleStopPlayer}
-            className="text-xs text-zinc-400 hover:text-zinc-600 shrink-0"
+            className="text-xs text-(--text-faint) hover:text-(--text-tertiary) shrink-0"
             title="Close player"
           >
             &#10005;
@@ -457,9 +457,9 @@ function ChapterStatusCell({ chapter }: { chapter: ChapterRow }) {
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <StatusBadge status={chapter.status} />
-          <span className="text-[10px] text-zinc-500 tabular-nums">{chapter.progress}</span>
+          <span className="text-[10px] text-(--text-muted) tabular-nums">{chapter.progress}</span>
         </div>
-        <div className="w-full bg-zinc-100 rounded-full h-1">
+        <div className="w-full bg-(--bg-page) rounded-full h-1">
           <div
             className="bg-blue-500 h-1 rounded-full transition-all duration-500"
             style={{ width: `${percent}%` }}

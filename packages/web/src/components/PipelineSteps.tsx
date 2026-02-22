@@ -34,8 +34,8 @@ export function PipelineSteps({ status, chaptersCompleted, totalChapters }: Pipe
 
   if (status === "pending") {
     return (
-      <div className="flex items-center gap-2 text-sm text-zinc-400">
-        <span className="inline-block h-2 w-2 rounded-full bg-zinc-300 animate-pulse" />
+      <div className="flex items-center gap-2 text-sm text-(--text-faint)">
+        <span className="inline-block h-2 w-2 rounded-full bg-(--border) animate-pulse" />
         Waiting to start...
       </div>
     );
@@ -59,7 +59,7 @@ export function PipelineSteps({ status, chaptersCompleted, totalChapters }: Pipe
           <div key={step} className="flex items-center gap-1">
             {i > 0 && (
               <div
-                className={`h-px w-4 ${completed ? "bg-green-400" : active ? "bg-blue-300" : suspended ? "bg-amber-300" : "bg-zinc-200"}`}
+                className={`h-px w-4 ${completed ? "bg-green-400" : active ? "bg-blue-300" : suspended ? "bg-amber-300" : "bg-(--border)"}`}
               />
             )}
             <div className="flex items-center gap-1.5">
@@ -70,7 +70,7 @@ export function PipelineSteps({ status, chaptersCompleted, totalChapters }: Pipe
                   ${active ? "bg-blue-500 animate-pulse" : ""}
                   ${failed ? "bg-red-500" : ""}
                   ${suspended ? "bg-amber-500" : ""}
-                  ${upcoming && !suspended ? "bg-zinc-200" : ""}
+                  ${upcoming && !suspended ? "bg-(--border)" : ""}
                 `}
               />
               <span
@@ -83,7 +83,7 @@ export function PipelineSteps({ status, chaptersCompleted, totalChapters }: Pipe
                         ? "text-red-700 font-medium"
                         : suspended
                           ? "text-amber-700 font-medium"
-                          : "text-zinc-400"
+                          : "text-(--text-faint)"
                 }`}
               >
                 {STEP_LABELS[step]}
