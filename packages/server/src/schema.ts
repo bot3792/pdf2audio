@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, real, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, real, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 
 export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -30,6 +30,7 @@ export const chapters = pgTable("chapters", {
   status: text("status", {
     enum: ["pending", "normalizing", "synthesizing", "done", "failed", "suspended"],
   }).notNull().default("pending"),
+  selected: boolean("selected").notNull().default(true),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -41,8 +42,20 @@ export const bookLogs = pgTable("book_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const assemblies = pgTable("assemblies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  outputPath: text("output_path").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  chapterCount: integer("chapter_count").notNull(),
+  chapterSummary: text("chapter_summary").notNull(),
+  chapterIds: text("chapter_ids").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Book = typeof books.$inferSelect;
 export type NewBook = typeof books.$inferInsert;
 export type Chapter = typeof chapters.$inferSelect;
 export type NewChapter = typeof chapters.$inferInsert;
 export type BookLog = typeof bookLogs.$inferSelect;
+export type Assembly = typeof assemblies.$inferSelect;

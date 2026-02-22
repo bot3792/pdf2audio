@@ -9,7 +9,7 @@ import { createContext } from "./trpc.ts";
 import { startWorker, stopWorker } from "./workers/setup.ts";
 import { ensureDataDirs, uploadsDir, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
-import { books } from "./schema.ts";
+import { books, assemblies } from "./schema.ts";
 import { eq } from "drizzle-orm";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -83,6 +83,17 @@ async function main() {
     }
 
     return reply.sendFile(path.relative(outputDir, book.outputPath), outputDir);
+  });
+
+  fastify.get("/download/assembly/:assemblyId", async (request, reply) => {
+    const { assemblyId } = request.params as { assemblyId: string };
+    const [assembly] = await db.select().from(assemblies).where(eq(assemblies.id, assemblyId));
+
+    if (!assembly?.outputPath) {
+      return reply.code(404).send({ error: "Assembly not found" });
+    }
+
+    return reply.sendFile(path.relative(outputDir, assembly.outputPath), outputDir);
   });
 
   fastify.get("/audio/chapter/:chapterId", async (request, reply) => {

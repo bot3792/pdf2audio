@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, chapters, bookLogs } from "../schema.ts";
+import { books, chapters, bookLogs, assemblies } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, inArray } from "drizzle-orm";
 import { uploadsDir } from "../lib/paths.ts";
@@ -167,33 +167,30 @@ export const booksRouter = router({
       return book;
     }),
 
-  resume: publicProcedure
+  processSelected: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       if (!book) throw new Error("Book not found");
 
-      const allChapters = await db
+      const selectedChapters = await db
         .select()
         .from(chapters)
-        .where(eq(chapters.bookId, input.id))
+        .where(and(eq(chapters.bookId, input.id), eq(chapters.selected, true)))
         .orderBy(asc(chapters.index));
+
+      const processable = selectedChapters.filter(
+        (ch) => ch.status === "failed" || ch.status === "suspended" || ch.status === "pending"
+      );
+
+      if (processable.length === 0) {
+        throw new Error("No selected chapters need processing");
+      }
 
       await db.delete(bookLogs).where(eq(bookLogs.bookId, input.id));
 
-      if (allChapters.length === 0) {
-        await appendLog(input.id, "Resuming — no chapters found, re-extracting");
-        await db.update(books).set({ status: "pending", error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
-        await quickAddJob({ connectionString }, "extract", { bookId: input.id }, { maxAttempts: 1 });
-        const [updated] = await db.select().from(books).where(eq(books.id, input.id));
-        return updated;
-      }
-
       let queued = 0;
-
-      for (const ch of allChapters) {
-        if (ch.status === "done" && ch.audioPath) continue;
-
+      for (const ch of processable) {
         if (ch.cleanText) {
           await db.update(chapters).set({ status: "pending", error: null, audioPath: null, durationMs: null }).where(eq(chapters.id, ch.id));
           await quickAddJob({ connectionString }, "synthesize", { chapterId: ch.id, bookId: input.id }, { maxAttempts: 1 });
@@ -205,14 +202,42 @@ export const booksRouter = router({
         }
       }
 
-      const doneCount = allChapters.length - queued;
-      await appendLog(input.id, `Resuming — requeuing ${queued} chapter${queued !== 1 ? "s" : ""} (${doneCount} already done)`);
+      const doneCount = selectedChapters.filter((ch) => ch.status === "done").length;
+      await appendLog(input.id, `Processing ${queued} selected chapter${queued !== 1 ? "s" : ""} (${doneCount} already done)`);
 
-      await db.update(books).set({ error: null, outputPath: null, updatedAt: new Date() }).where(eq(books.id, input.id));
+      await db.update(books).set({ error: null, updatedAt: new Date() }).where(eq(books.id, input.id));
 
-      if (queued === 0) {
-        await quickAddJob({ connectionString }, "assemble", { bookId: input.id }, { maxAttempts: 1 });
+      const [updated] = await db.select().from(books).where(eq(books.id, input.id));
+      return updated;
+    }),
+
+  assemble: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+
+      const selectedDone = await db
+        .select()
+        .from(chapters)
+        .where(and(
+          eq(chapters.bookId, input.id),
+          eq(chapters.selected, true),
+          eq(chapters.status, "done"),
+        ));
+
+      const withAudio = selectedDone.filter((ch) => ch.audioPath);
+      if (withAudio.length === 0) {
+        throw new Error("No selected chapters with audio available for assembly");
       }
+
+      await db
+        .update(books)
+        .set({ outputPath: null, error: null, updatedAt: new Date() })
+        .where(eq(books.id, input.id));
+
+      await appendLog(input.id, `Queuing assembly (${withAudio.length} selected chapter${withAudio.length !== 1 ? "s" : ""} with audio)`);
+      await quickAddJob({ connectionString }, "assemble", { bookId: input.id }, { maxAttempts: 1 });
 
       const [updated] = await db.select().from(books).where(eq(books.id, input.id));
       return updated;
@@ -253,6 +278,50 @@ export const booksRouter = router({
         await rm(path.dirname(book.outputPath), { recursive: true, force: true }).catch(() => {});
       }
 
+      return { success: true };
+    }),
+
+  assemblies: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      return db
+        .select()
+        .from(assemblies)
+        .where(eq(assemblies.bookId, input.bookId))
+        .orderBy(desc(assemblies.createdAt));
+    }),
+
+  deleteAssembly: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [assembly] = await db.select().from(assemblies).where(eq(assemblies.id, input.id));
+      if (!assembly) throw new Error("Assembly not found");
+
+      if (assembly.outputPath) {
+        await unlink(assembly.outputPath).catch(() => {});
+      }
+
+      // If this was the latest assembly (matches books.outputPath), clear it
+      const [book] = await db.select().from(books).where(eq(books.id, assembly.bookId));
+      if (book?.outputPath === assembly.outputPath) {
+        // Find the next most recent assembly for this book
+        const [nextAssembly] = await db
+          .select()
+          .from(assemblies)
+          .where(and(eq(assemblies.bookId, assembly.bookId), ne(assemblies.id, input.id)))
+          .orderBy(desc(assemblies.createdAt))
+          .limit(1);
+
+        await db
+          .update(books)
+          .set({
+            outputPath: nextAssembly?.outputPath ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(books.id, assembly.bookId));
+      }
+
+      await db.delete(assemblies).where(eq(assemblies.id, input.id));
       return { success: true };
     }),
 });

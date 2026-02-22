@@ -51,8 +51,8 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
 
     const timeout = setTimeout(() => {
       proc.kill("SIGKILL");
-      reject(new Error("Kokoro synthesis timed out after 30 minutes"));
-    }, 1_800_000);
+      reject(new Error("Kokoro synthesis timed out after 3 hours"));
+    }, 3 * 60 * 60 * 1000);
 
     let totalChunks = 0;
     const stdoutRl = createInterface({ input: proc.stdout });

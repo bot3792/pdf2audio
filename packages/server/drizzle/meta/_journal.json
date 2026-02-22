@@ -22,6 +22,27 @@
       "when": 1771625787356,
       "tag": "0002_brown_patch",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1771745365910,
+      "tag": "0003_minor_devos",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1771747695175,
+      "tag": "0004_gifted_ironclad",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1771760000000,
+      "tag": "0005_rename_included_to_selected",
+      "breakpoints": true
     }
   ]
 }

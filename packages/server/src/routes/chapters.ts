@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { chapters } from "../schema.ts";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { appendLog } from "../lib/log.ts";
 import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
@@ -68,6 +68,42 @@ export const chaptersRouter = router({
         .where(eq(chapters.id, input.id));
 
       await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] Suspended`);
+      return { success: true };
+    }),
+
+  setSelected: publicProcedure
+    .input(z.object({ id: z.string().uuid(), selected: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.id));
+      if (!chapter) throw new Error("Chapter not found");
+
+      await db
+        .update(chapters)
+        .set({ selected: input.selected })
+        .where(eq(chapters.id, input.id));
+
+      return { success: true };
+    }),
+
+  setSelectedBatch: publicProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()), selected: z.boolean() }))
+    .mutation(async ({ input }) => {
+      if (input.ids.length === 0) return { success: true };
+      await db
+        .update(chapters)
+        .set({ selected: input.selected })
+        .where(inArray(chapters.id, input.ids));
+      return { success: true };
+    }),
+
+  setAllSelected: publicProcedure
+    .input(z.object({ bookId: z.string().uuid(), selected: z.boolean() }))
+    .mutation(async ({ input }) => {
+      await db
+        .update(chapters)
+        .set({ selected: input.selected })
+        .where(eq(chapters.bookId, input.bookId));
+
       return { success: true };
     }),
 });

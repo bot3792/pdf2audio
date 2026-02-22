@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "../components/StatusBadge.tsx";
 import { PipelineSteps } from "../components/PipelineSteps.tsx";
-import { ChapterModal } from "../components/ChapterModal.tsx";
+import { ChapterTable } from "../components/ChapterTable.tsx";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -23,16 +23,29 @@ export function BookDetail() {
     }
   );
 
-  const invalidate = () => utils.books.get.invalidate({ id: id! });
+  const invalidate = () => {
+    utils.books.get.invalidate({ id: id! });
+    utils.books.assemblies.invalidate({ bookId: id! });
+  };
+
+  const { data: bookAssemblies = [] } = trpc.books.assemblies.useQuery(
+    { bookId: id! },
+    { enabled: !!id },
+  );
 
   const cancelMutation = trpc.books.cancel.useMutation({ onSuccess: invalidate });
   const retryMutation = trpc.books.retry.useMutation({ onSuccess: invalidate });
-  const resumeMutation = trpc.books.resume.useMutation({ onSuccess: invalidate });
+  const processSelectedMutation = trpc.books.processSelected.useMutation({ onSuccess: invalidate });
   const deleteMutation = trpc.books.delete.useMutation({
     onSuccess: () => window.location.assign("/"),
   });
   const queueMutation = trpc.chapters.queue.useMutation({ onSuccess: invalidate });
   const suspendMutation = trpc.chapters.suspend.useMutation({ onSuccess: invalidate });
+  const assembleMutation = trpc.books.assemble.useMutation({ onSuccess: invalidate });
+  const deleteAssemblyMutation = trpc.books.deleteAssembly.useMutation({ onSuccess: invalidate });
+  const setSelectedMutation = trpc.chapters.setSelected.useMutation({ onSuccess: invalidate });
+  const setAllSelectedMutation = trpc.chapters.setAllSelected.useMutation({ onSuccess: invalidate });
+  const setSelectedBatchMutation = trpc.chapters.setSelectedBatch.useMutation({ onSuccess: invalidate });
 
   if (isLoading || !book) {
     return (
@@ -45,8 +58,14 @@ export function BookDetail() {
   }
 
   const doneChapters = book.chapters.filter((c) => c.status === "done").length;
+  const selectedCount = book.chapters.filter((c) => c.selected).length;
   const isProcessing = ["extracting", "synthesizing", "assembling", "normalizing"].includes(book.status);
-  const isStopped = book.status === "failed" || book.status === "suspended";
+  const selectedWithAudio = book.chapters.filter((c) => c.selected && c.status === "done" && c.audioPath).length;
+  const selectedNotDone = book.chapters.filter(
+    (c) => c.selected && (c.status === "failed" || c.status === "suspended" || c.status === "pending")
+  ).length;
+  const canAssemble = selectedWithAudio > 0 && !isProcessing;
+  const canProcess = selectedNotDone > 0 && !isProcessing;
 
   return (
     <div className="min-h-screen bg-zinc-100">
@@ -106,15 +125,25 @@ export function BookDetail() {
         <LogViewer bookId={book.id} bookStatus={book.status} />
 
         <div className="flex gap-3 mb-6">
-          {book.status === "done" && book.outputPath && (
-            <a
-              href={`/download/${book.id}`}
-              className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700"
+          {canProcess ? (
+            <button
+              onClick={() => processSelectedMutation.mutate({ id: book.id })}
+              disabled={processSelectedMutation.isPending}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
             >
-              Download MP3
-            </a>
-          )}
-          {isProcessing && (
+              Process selected ({selectedNotDone})
+            </button>
+          ) : null}
+          {canAssemble ? (
+            <button
+              onClick={() => assembleMutation.mutate({ id: book.id })}
+              disabled={assembleMutation.isPending}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {book.outputPath ? "Re-assemble" : "Assemble"} selected ({selectedWithAudio})
+            </button>
+          ) : null}
+          {isProcessing ? (
             <button
               onClick={() => cancelMutation.mutate({ id: book.id })}
               disabled={cancelMutation.isPending}
@@ -122,31 +151,20 @@ export function BookDetail() {
             >
               Cancel
             </button>
-          )}
-          {isStopped && (
-            <>
-              <button
-                onClick={() => resumeMutation.mutate({ id: book.id })}
-                disabled={resumeMutation.isPending}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                {book.chapters.length > 0 ? "Resume All" : "Retry"}
-              </button>
-              {book.chapters.length > 0 && (
-                <button
-                  onClick={() => {
-                    if (confirm("This will delete all chapters and start from scratch. Continue?")) {
-                      retryMutation.mutate({ id: book.id });
-                    }
-                  }}
-                  disabled={retryMutation.isPending}
-                  className="px-4 py-2 bg-zinc-200 text-zinc-700 rounded-md text-sm font-medium hover:bg-zinc-300 disabled:opacity-50"
-                >
-                  Re-extract
-                </button>
-              )}
-            </>
-          )}
+          ) : null}
+          {book.chapters.length > 0 && !isProcessing ? (
+            <button
+              onClick={() => {
+                if (confirm("This will delete all chapters and re-extract from the PDF. Continue?")) {
+                  retryMutation.mutate({ id: book.id });
+                }
+              }}
+              disabled={retryMutation.isPending}
+              className="px-4 py-2 bg-zinc-200 text-zinc-700 rounded-md text-sm font-medium hover:bg-zinc-300 disabled:opacity-50"
+            >
+              Re-extract the book
+            </button>
+          ) : null}
           <button
             onClick={() => {
               if (confirm("Delete this book and all its audio?")) {
@@ -160,7 +178,14 @@ export function BookDetail() {
           </button>
         </div>
 
-        <h2 className="text-lg font-semibold text-zinc-800 mb-3">Chapters</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-zinc-800">Chapters</h2>
+          {book.chapters.length > 0 ? (
+            <span className="text-sm text-zinc-500">
+              {selectedCount} of {book.chapters.length} selected
+            </span>
+          ) : null}
+        </div>
 
         {book.chapters.length === 0 ? (
           <p className="text-zinc-500 text-sm">
@@ -170,9 +195,22 @@ export function BookDetail() {
           </p>
         ) : (
           <ChapterTable
+            bookId={book.id}
             chapters={book.chapters}
             onQueue={(id) => queueMutation.mutate({ id })}
             onSuspend={(id) => suspendMutation.mutate({ id })}
+            onSetSelected={(id, selected) => setSelectedMutation.mutate({ id, selected })}
+            onSetAllSelected={(selected) => setAllSelectedMutation.mutate({ bookId: book.id, selected })}
+            onSetSelectedBatch={(ids, selected) => setSelectedBatchMutation.mutate({ ids, selected })}
+          />
+        )}
+
+        {bookAssemblies.length > 0 && (
+          <AssembliesSection
+            assemblies={bookAssemblies}
+            latestOutputPath={book.outputPath}
+            onDelete={(id) => deleteAssemblyMutation.mutate({ id })}
+            isDeleting={deleteAssemblyMutation.isPending}
           />
         )}
       </div>
@@ -180,107 +218,82 @@ export function BookDetail() {
   );
 }
 
-type ChapterRow = {
+type AssemblyRow = {
   id: string;
-  index: number;
-  title: string;
-  status: string;
-  error: string | null;
-  wordCount: number;
-  durationMs: number | null;
-  audioPath: string | null;
-  hasCleanText: boolean;
-  progress: string | null;
+  outputPath: string;
+  durationMs: number;
+  chapterCount: number;
+  chapterSummary: string;
+  createdAt: string | Date;
 };
 
-function ChapterTable({
-  chapters,
-  onQueue,
-  onSuspend,
+function AssembliesSection({
+  assemblies,
+  latestOutputPath,
+  onDelete,
+  isDeleting,
 }: {
-  chapters: ChapterRow[];
-  onQueue: (id: string) => void;
-  onSuspend: (id: string) => void;
+  assemblies: AssemblyRow[];
+  latestOutputPath: string | null;
+  onDelete: (id: string) => void;
+  isDeleting: boolean;
 }) {
-  const [modalChapter, setModalChapter] = useState<ChapterRow | null>(null);
-
   return (
-    <>
+    <div className="mt-8">
+      <h2 className="text-lg font-semibold text-zinc-800 mb-3">Assemblies</h2>
       <div className="overflow-hidden rounded-lg border border-zinc-200">
         <table className="min-w-full divide-y divide-zinc-200">
           <thead className="bg-zinc-50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">#</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Title</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider w-40">Status</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Words</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Date</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Chapters</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500 uppercase tracking-wider">Duration</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-zinc-200">
-            {chapters.map((chapter) => {
-              const isActive = chapter.status === "synthesizing" || chapter.status === "normalizing";
-              const canQueue = !isActive && chapter.status !== "done" && chapter.status !== "pending";
-              const canSuspend = chapter.status === "pending";
-
+            {assemblies.map((assembly) => {
+              const isLatest = assembly.outputPath === latestOutputPath;
               return (
-                <tr key={chapter.id} className="hover:bg-zinc-50">
-                  <td className="px-4 py-3 text-sm text-zinc-600">{chapter.index + 1}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => setModalChapter(chapter)}
-                      className="text-sm font-medium text-zinc-900 hover:text-blue-700 text-left"
-                    >
-                      {chapter.title}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <ChapterStatusCell chapter={chapter} />
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
-                    {chapter.wordCount.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
-                    {chapter.durationMs ? formatDuration(chapter.durationMs) : "\u2014"}
-                  </td>
-                  <td className="px-4 py-3">
+                <tr key={assembly.id} className="hover:bg-zinc-50">
+                  <td className="px-4 py-3 text-sm text-zinc-700">
                     <div className="flex items-center gap-2">
-                      {chapter.status === "done" && chapter.audioPath && (
-                        <audio controls preload="none" className="h-8">
-                          <source src={`/audio/chapter/${chapter.id}`} type="audio/mpeg" />
-                        </audio>
-                      )}
-                      {canQueue && (
-                        <button
-                          onClick={() => onQueue(chapter.id)}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          Queue
-                        </button>
-                      )}
-                      {canSuspend && (
-                        <button
-                          onClick={() => onSuspend(chapter.id)}
-                          className="text-xs text-amber-600 hover:text-amber-800 font-medium"
-                        >
-                          Suspend
-                        </button>
-                      )}
-                      {chapter.status === "done" && (
-                        <button
-                          onClick={() => onQueue(chapter.id)}
-                          className="text-xs text-zinc-400 hover:text-zinc-600 font-medium"
-                          title="Re-synthesize this chapter"
-                        >
-                          Redo
-                        </button>
-                      )}
-                      {chapter.error && (
-                        <span className="text-xs text-red-500" title={chapter.error}>
-                          error
+                      {formatAssemblyDate(assembly.createdAt)}
+                      {isLatest && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-700">
+                          latest
                         </span>
                       )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-zinc-600">
+                    <span title={assembly.chapterSummary}>
+                      {assembly.chapterCount} chapter{assembly.chapterCount !== 1 ? "s" : ""}
+                      <span className="text-zinc-400 ml-1.5">{assembly.chapterSummary}</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-zinc-600 text-right tabular-nums">
+                    {formatDuration(assembly.durationMs)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <a
+                        href={`/download/assembly/${assembly.id}`}
+                        className="text-xs text-green-600 hover:text-green-800 font-medium"
+                      >
+                        Download
+                      </a>
+                      <button
+                        onClick={() => {
+                          if (confirm("Delete this assembly?")) {
+                            onDelete(assembly.id);
+                          }
+                        }}
+                        disabled={isDeleting}
+                        className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -289,40 +302,19 @@ function ChapterTable({
           </tbody>
         </table>
       </div>
-      {modalChapter && (
-        <ChapterModal
-          chapter={modalChapter}
-          onClose={() => setModalChapter(null)}
-          onQueue={onQueue}
-          onSuspend={onSuspend}
-        />
-      )}
-    </>
+    </div>
   );
 }
 
-function ChapterStatusCell({ chapter }: { chapter: ChapterRow }) {
-  if (chapter.status === "synthesizing" && chapter.progress) {
-    const [current, total] = chapter.progress.split("/").map(Number);
-    const percent = total > 0 ? (current / total) * 100 : 0;
-
-    return (
-      <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <StatusBadge status={chapter.status} />
-          <span className="text-[10px] text-zinc-500 tabular-nums">{chapter.progress}</span>
-        </div>
-        <div className="w-full bg-zinc-100 rounded-full h-1">
-          <div
-            className="bg-blue-500 h-1 rounded-full transition-all duration-500"
-            style={{ width: `${percent}%` }}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  return <StatusBadge status={chapter.status} error={chapter.error} />;
+function formatAssemblyDate(date: string | Date): string {
+  const d = new Date(date);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 type ProgressSectionProps = {
