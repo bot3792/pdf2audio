@@ -456,6 +456,7 @@ export function ChapterTable({
           onNavigate={setModalChapterIndex}
           onQueue={onQueue}
           onSuspend={onSuspend}
+          onSetSelected={onSetSelected}
         />
       ) : null}
     </>

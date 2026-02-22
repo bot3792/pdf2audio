@@ -10,6 +10,7 @@ type ChapterModalProps = {
   onNavigate: (index: number) => void;
   onQueue: (id: string) => void;
   onSuspend: (id: string) => void;
+  onSetSelected: (id: string, selected: boolean) => void;
 };
 
 type ViewMode = "custom" | "clean" | "raw" | "split";
@@ -21,15 +22,20 @@ export function ChapterModal({
   onNavigate,
   onQueue,
   onSuspend,
+  onSetSelected,
 }: ChapterModalProps) {
   const chapter = chapters[chapterIndex];
   const hasPrev = chapterIndex > 0;
   const hasNext = chapterIndex < chapters.length - 1;
 
-  const defaultViewMode: ViewMode = chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw";
-  const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode);
+  const [viewMode, setViewMode] = useState<ViewMode>(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
+
+  useEffect(() => {
+    setViewMode(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
+    setIsEditing(false);
+  }, [chapterIndex]);
 
   const { data: fullChapter, isLoading } = trpc.chapters.get.useQuery({ id: chapter.id });
   const utils = trpc.useUtils();
@@ -112,6 +118,12 @@ export function ChapterModal({
         <div className="flex items-start justify-between p-5 border-b border-(--border)">
           <div className="min-w-0">
             <div className="flex items-center gap-3 mb-1">
+              <input
+                type="checkbox"
+                checked={chapter.selected}
+                onChange={() => onSetSelected(chapter.id, !chapter.selected)}
+                className="rounded border-(--border-input) text-indigo-600 focus:ring-indigo-500"
+              />
               <span className="text-sm font-mono text-(--text-faint)">#{chapter.index + 1}</span>
               <h2 className="text-lg font-semibold text-(--text-primary) truncate">{chapter.title}</h2>
               <StatusBadge status={chapter.status} error={chapter.error} />
@@ -143,7 +155,7 @@ export function ChapterModal({
 
         <div className="flex items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
           {chapter.status === "done" && chapter.audioPath ? (
-            <audio controls preload="none" className="h-8 mr-2">
+            <audio key={chapter.id} controls preload="none" className="h-8 mr-2">
               <source src={`/audio/chapter/${chapter.id}`} type="audio/mpeg" />
             </audio>
           ) : null}

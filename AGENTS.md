@@ -21,12 +21,13 @@ This is a personal power-user tool, not a polished consumer product. The design 
 
 **Visibility into what's happening.** Worker activity logs to both the terminal and the UI. Every subprocess event is captured. The user should never wonder "what is it doing right now?"
 
-### Future Directions
+### Task Tracking
 
-- **Custom text editing** — editable chapter text stored as a separate `customText` column (`customText ?? cleanText ?? rawText` fallback chain)
-- **Column filtering** — for multi-column PDFs (e.g., parallel translations), filter blocks by x-coordinate to keep only left or right column
-- **Per-chapter voice/speed** — different voices for different chapters (e.g., French voice for French text, English voice for English text)
-- **Chapter selection for assembly** — include/exclude checkboxes, assemble only selected chapters
+Ideas and planned features live as individual markdown files in `tasks/`. Each file captures the idea, context, and any design notes.
+
+- To propose a new feature or idea, create a new file in `tasks/` (kebab-case, e.g., `tasks/my-feature.md`).
+- **After implementing a feature, check `tasks/` for any related task files and delete them.**
+- When starting work on a task, read the corresponding file first — it may contain design decisions or constraints.
 
 ## Architecture
 
@@ -51,9 +52,9 @@ PDF Upload → extract → normalize (per chapter) → synthesize (per chapter) 
 
 2. **normalize** (`workers/normalize.ts`, per chapter, parallel) — Strips markdown, reference markers, URLs, rejoins hyphenated line breaks. Saves clean text. Queues synthesize job.
 
-3. **synthesize** (`workers/synthesize.ts`, per chapter, 4 concurrent) — Runs `scripts/synthesize.py` (Kokoro TTS with MPS/Metal GPU acceleration). Two-step process: G2P + phoneme chunking upfront (for accurate progress), then synthesis loop. Produces WAV at 24kHz, FFmpeg converts to MP3. Skips suspended chapters. Writes chunk progress to DB. When all queued chapters done, queues assemble.
+3. **synthesize** (`workers/synthesize.ts`, per chapter, 4 concurrent) — Runs `scripts/synthesize.py` (Kokoro TTS with MPS/Metal GPU acceleration). Uses `customText ?? cleanText ?? rawText` fallback chain for input text. Two-step process: G2P + phoneme chunking upfront (for accurate progress), then synthesis loop. Produces WAV at 24kHz, FFmpeg converts to MP3. Skips suspended chapters. Writes chunk progress to DB.
 
-4. **assemble** (`workers/assemble.ts`) — FFmpeg concatenates chapter MP3s into one (or copies directly for single-chapter books). node-id3 writes ID3v2 CHAP/CTOC frames for chapter markers.
+4. **assemble** (`workers/assemble.ts`, user-triggered) — FFmpeg concatenates selected chapter MP3s into one (or copies directly for single-chapter books). node-id3 writes ID3v2 CHAP/CTOC frames for chapter markers. Assembly is an explicit user action, not auto-queued. Each assembly is recorded in the `assemblies` table with metadata (duration, chapter count, summary).
 
 Worker concurrency is **4** (fixed). All jobs use `maxAttempts: 1` — no silent retries.
 
@@ -93,7 +94,9 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **books** — id (uuid), title, filename, pdfPath, outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, createdAt, updatedAt
 
-**chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, createdAt
+**chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), createdAt
+
+**assemblies** — id (uuid), bookId (FK, cascade delete), outputPath, durationMs, chapterCount, chapterSummary, chapterIds (json array), createdAt
 
 **bookLogs** — id (uuid), bookId (FK, cascade delete), message (text), createdAt
 
@@ -124,8 +127,8 @@ packages/server/src/
   trpc.ts               tRPC init (router, publicProcedure, context)
   router.ts             Root tRPC router combining books + chapters
   routes/
-    books.ts            list, get, logs, clearLogs, upload, retry, resume, cancel, delete
-    chapters.ts         get, queue, suspend
+    books.ts            list, get, logs, clearLogs, upload, retry, processSelected, assemble, assemblies, deleteAssembly, cancel, delete
+    chapters.ts         get, queue, suspend, setSelected, setSelectedBatch, setAllSelected, updateText, resetText
   workers/
     setup.ts            Graphile Worker runner, task wrappers with console logging, concurrency=4
     extract.ts          PDF extraction job
@@ -149,14 +152,15 @@ packages/server/src/
 packages/web/src/
   main.tsx              React root, tRPC/QueryClient providers, BrowserRouter
   trpc.ts               tRPC React client (imports AppRouter type from server)
-  styles.css            Tailwind v4 import
+  styles.css            Tailwind v4 import + semantic CSS custom properties for dark mode
   lib/
     voices.ts           Kokoro voice list (54 voices across 9 languages)
   pages/
     Home.tsx            Upload zone + book list table
-    BookDetail.tsx      Per-book view: chapters, progress, logs, modal, queue/suspend controls
+    BookDetail.tsx      Per-book view: stats, progress, logs, action buttons (process/assemble/cancel/re-extract/delete), chapter table, assemblies list
   components/
-    ChapterModal.tsx    Chapter detail modal: metadata, audio player, text preview (clean/raw/split with scroll sync), action buttons (queue/suspend/re-synthesize)
+    ChapterTable.tsx    Chapter table with filter panel (search, status, word count, duration), shift+click range selection, per-chapter checkboxes, sticky audio player, modal trigger
+    ChapterModal.tsx    Chapter detail modal: selection checkbox, prev/next navigation (< > + keyboard arrows), audio player, view mode tabs (custom/clean/raw/split with scroll sync), text editing with save/cancel/reset, action buttons (queue/suspend/re-synthesize)
     UploadZone.tsx      Drag-and-drop PDF upload with voice/speed pickers
     VoicePicker.tsx     Voice selection dropdown grouped by language
     SpeedSlider.tsx     Speed range slider (0.5x-2.0x)
@@ -164,6 +168,14 @@ packages/web/src/
     BookList.tsx        Books table with auto-refresh polling
     PipelineSteps.tsx   Pipeline step indicator with suspended awareness
 ```
+
+### Dark Mode
+
+Implemented via **semantic CSS custom properties** in `styles.css`. Tokens are defined under `:root` (light) and flipped via `@media (prefers-color-scheme: dark)`. All components reference tokens like `bg-(--bg-card)`, `text-(--text-primary)`, `border-(--border)` instead of hardcoded zinc colors. This avoids the need for `dark:` prefix on every utility class.
+
+Key tokens: `--bg-page`, `--bg-card`, `--bg-card-hover`, `--bg-subtle`, `--bg-input`, `--border`, `--border-input`, `--divide`, `--text-primary` through `--text-faint`, plus per-status badge pairs and custom text preview tokens.
+
+Accent colors (blue, red, green, amber, indigo) are **not** tokenized — they're the same in both modes. The log viewer terminal uses a fixed dark background (`bg-zinc-900`) in both modes.
 
 Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, `/files`, and `/preview` to the server on port 3034 (configured in `vite.config.ts`).
 
@@ -174,17 +186,26 @@ Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, 
 - `books.logs` — Fetch log entries for a book (with optional `after` cursor)
 - `books.clearLogs` — Delete all log entries for a book
 - `books.retry` — Re-extract book, optionally with new voice/speed
-- `books.resume` — Requeue failed/stuck chapters, preserve done chapters
+- `books.processSelected` — Queue normalize/synthesize jobs for selected non-done chapters
+- `books.assemble` — Assemble selected chapters with audio into a single MP3
+- `books.assemblies` — List all assemblies for a book
+- `books.deleteAssembly` — Delete a specific assembly and its file
 - `books.cancel` — Set non-done chapters to suspended (preserves done chapters + audio)
-- `books.delete` — Delete book, chapters, and files from disk
-- `chapters.get` — Single chapter detail
+- `books.delete` — Delete book, chapters, assemblies, and files from disk
+- `chapters.get` — Single chapter detail (includes full text fields)
 - `chapters.queue` — Queue a chapter for processing (creates Graphile job)
 - `chapters.suspend` — Suspend a chapter (prevents processing)
+- `chapters.setSelected` — Toggle a single chapter's selected state
+- `chapters.setSelectedBatch` — Set selected state for multiple chapters at once
+- `chapters.setAllSelected` — Set all chapters in a book to selected/deselected
+- `chapters.updateText` — Save custom text override for a chapter
+- `chapters.resetText` — Clear custom text, reverting to clean/raw text
 
 ## HTTP Endpoints (non-tRPC)
 
 - `POST /upload` — Multipart file upload (PDF + voice + speed fields). Creates book row and queues extract job.
 - `GET /download/:bookId` — Serve final assembled MP3
+- `GET /download/assembly/:assemblyId` — Serve a specific assembly MP3
 - `GET /audio/chapter/:chapterId` — Serve individual chapter MP3
 
 ## Chapter Detection Logic
@@ -217,7 +238,9 @@ Intentionally minimal — Kokoro handles numbers/dates/abbreviations natively. W
 - Model: `hexgrad/Kokoro-82M` (82M params, Apache-2.0), cached locally
 - Python subprocess: `scripts/synthesize.py` called from `lib/kokoro.ts`
 - Two-step synthesis: G2P + `en_tokenize` phoneme chunking upfront (exact chunk count), then `KPipeline.infer()` loop per chunk
+- **510 phoneme limit**: Voice pack tensor has 510 entries (indices 0-509). `en_tokenize` can produce chunks >510 chars. `synthesize.py` splits oversized chunks at space boundaries to stay within limits.
 - Uses MPS (Metal Performance Shaders) for Apple Silicon GPU acceleration
+- Subprocess timeout: **3 hours** (configurable in `lib/kokoro.ts`)
 - Env vars: `PYTORCH_ENABLE_MPS_FALLBACK=1`, `HF_HUB_OFFLINE=1`, conda env path via `CONDA_ENV_PATH`
 - Outputs WAV at 24kHz, FFmpeg converts to MP3
 - 54 voices across 9 languages. Best: af_heart (A), af_bella (A-), bf_emma (B-)
@@ -270,7 +293,7 @@ pnpm jobs:clear       # Delete all jobs from the Graphile Worker queue
 - Marker output is nested in a subdirectory. Code in `lib/marker.ts` searches one level deep for the JSON.
 - `metadata` field in Marker JSON output is optional — always null-check it.
 - **Cancel preserves done chapters** — only sets non-done chapters to `suspended`. Does NOT kill running Python subprocesses.
-- **`tsx watch` restarts kill Graphile Worker** but orphan Python subprocesses. In-flight jobs get re-queued on restart. Don't edit server files during long synthesis runs, or use Resume after.
+- **`tsx watch` restarts kill Graphile Worker** but orphan Python subprocesses. In-flight jobs get re-queued on restart. Don't edit server files during long synthesis runs.
 - **Graphile Worker jobs use `maxAttempts: 1`** — jobs fail once and stay failed. User retries from the UI. Use `pnpm jobs` to inspect the queue, `pnpm jobs:clear` to nuke stale jobs.
 - **Book status is computed** from chapter statuses during synthesis. Only `extracting`, `assembling` come from the stored column. `computeBookStatus()` in `routes/books.ts` derives the rest.
 - Python LSP errors on `scripts/synthesize.py` are expected — numpy/kokoro/soundfile are runtime deps in the conda env, not visible to the editor.
@@ -281,7 +304,8 @@ pnpm jobs:clear       # Delete all jobs from the Graphile Worker queue
 
 ## Pending Task Files
 
-- `TASK-custom-text.md` — Editable chapter text with `customText` column override
-- `TASK-remove-log-throttle.md` — Remove the 10% Marker log throttle, log every progress line
-- `TASK-preserve-marker-json.md` — Keep Marker JSON for re-processing + future column filtering
-- `TASK-chapter-selection-and-assembly.md` — Include/exclude checkboxes + assembly as first-class action
+See `tasks/` directory. Current tasks:
+
+- `tasks/chapter-merge-split.md` — Merge short chapters or split overly long ones
+- `tasks/column-filtering.md` — Filter multi-column PDFs by x-coordinate
+- `tasks/per-chapter-voice-speed.md` — Per-chapter voice and speed overrides
