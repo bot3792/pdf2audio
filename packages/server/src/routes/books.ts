@@ -100,6 +100,12 @@ export const booksRouter = router({
         .orderBy(asc(bookLogs.createdAt));
     }),
 
+  clearLogs: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      await db.delete(bookLogs).where(eq(bookLogs.bookId, input.bookId));
+    }),
+
   upload: publicProcedure
     .input(
       z.object({

@@ -496,11 +496,16 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
   const [expanded, setExpanded] = useState(isProcessing);
   const scrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
+  const utils = trpc.useUtils();
 
   const { data: logs = [] } = trpc.books.logs.useQuery(
     { bookId },
     { refetchInterval: isProcessing ? 1000 : false }
   );
+
+  const clearLogs = trpc.books.clearLogs.useMutation({
+    onSuccess: () => utils.books.logs.invalidate({ bookId }),
+  });
 
   useEffect(() => {
     if (isProcessing && !expanded) setExpanded(true);
@@ -522,13 +527,23 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
 
   return (
     <div className="mb-6">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900 mb-2"
-      >
-        <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
-        Logs ({logs.length})
-      </button>
+      <div className="flex items-center gap-2 mb-2">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex items-center gap-2 text-sm font-medium text-zinc-600 hover:text-zinc-900"
+        >
+          <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
+          Logs ({logs.length})
+        </button>
+        {logs.length > 0 && (
+          <button
+            onClick={() => clearLogs.mutate({ bookId })}
+            className="text-xs text-zinc-400 hover:text-red-500"
+          >
+            Clear
+          </button>
+        )}
+      </div>
       {expanded && (
         <div
           ref={scrollRef}
