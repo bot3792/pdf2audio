@@ -151,7 +151,7 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
     const proc = spawn(
       path.join(CONDA_BIN, "marker_single"),
       [pdfPath, "--output_format", "json", "--output_dir", outDir],
-      { env: { ...process.env, TORCH_DEVICE: "mps", PATH: `${CONDA_BIN}:${process.env.PATH}` } }
+      { env: { ...process.env, TORCH_DEVICE: "mps", HF_HUB_OFFLINE: "1", PATH: `${CONDA_BIN}:${process.env.PATH}` } }
     );
 
     const timeout = setTimeout(() => {

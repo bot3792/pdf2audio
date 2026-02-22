@@ -43,6 +43,7 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
         env: {
           ...process.env,
           PYTORCH_ENABLE_MPS_FALLBACK: "1",
+          HF_HUB_OFFLINE: "1",
           PATH: `${CONDA_BIN}:${process.env.PATH}`,
         },
       }
