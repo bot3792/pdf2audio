@@ -44,6 +44,19 @@ def main():
             print(f"G2P error on segment: {e}", file=sys.stderr)
             continue
 
+    MAX_PHONEMES = 510
+    safe_chunks = []
+    for ps in phoneme_chunks:
+        while len(ps) > MAX_PHONEMES:
+            split_at = ps.rfind(' ', 0, MAX_PHONEMES)
+            if split_at <= 0:
+                split_at = MAX_PHONEMES
+            safe_chunks.append(ps[:split_at])
+            ps = ps[split_at:].lstrip()
+        if ps.strip():
+            safe_chunks.append(ps)
+    phoneme_chunks = safe_chunks
+
     total_chunks = len(phoneme_chunks)
     if total_chunks == 0:
         print("Error: no phoneme chunks produced", file=sys.stderr)
