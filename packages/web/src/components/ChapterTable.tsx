@@ -38,6 +38,7 @@ export function ChapterTable({
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
   const toggleAllRef = useRef<HTMLInputElement>(null);
+  const lastClickedFilteredIndex = useRef<number | null>(null);
   const [playingChapterId, setPlayingChapterId] = useState<string | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -314,7 +315,20 @@ export function ChapterTable({
                     <input
                       type="checkbox"
                       checked={chapter.selected}
-                      onChange={() => onSetSelected(chapter.id, !chapter.selected)}
+                      onChange={() => {}}
+                      onClick={(e) => {
+                        const filteredIdx = filteredChapters.indexOf(chapter);
+                        const newValue = !chapter.selected;
+                        if (e.shiftKey && lastClickedFilteredIndex.current !== null) {
+                          const from = Math.min(lastClickedFilteredIndex.current, filteredIdx);
+                          const to = Math.max(lastClickedFilteredIndex.current, filteredIdx);
+                          const ids = filteredChapters.slice(from, to + 1).map((c) => c.id);
+                          onSetSelectedBatch(ids, newValue);
+                        } else {
+                          onSetSelected(chapter.id, newValue);
+                        }
+                        lastClickedFilteredIndex.current = filteredIdx;
+                      }}
                       className="rounded border-(--border-input) text-indigo-600 focus:ring-indigo-500"
                     />
                   </td>
