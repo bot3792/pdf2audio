@@ -43,6 +43,13 @@
       "when": 1771760000000,
       "tag": "0005_rename_included_to_selected",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1771850000000,
+      "tag": "0006_add_custom_text",
+      "breakpoints": true
     }
   ]
 }

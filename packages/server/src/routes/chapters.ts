@@ -106,4 +106,32 @@ export const chaptersRouter = router({
 
       return { success: true };
     }),
+
+  updateText: publicProcedure
+    .input(z.object({ id: z.string().uuid(), customText: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.id));
+      if (!chapter) throw new Error("Chapter not found");
+
+      await db
+        .update(chapters)
+        .set({ customText: input.customText })
+        .where(eq(chapters.id, input.id));
+
+      return { success: true };
+    }),
+
+  resetText: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.id));
+      if (!chapter) throw new Error("Chapter not found");
+
+      await db
+        .update(chapters)
+        .set({ customText: null })
+        .where(eq(chapters.id, input.id));
+
+      return { success: true };
+    }),
 });

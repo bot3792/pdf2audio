@@ -4,7 +4,7 @@ import { db } from "../db.ts";
 import { books, chapters, bookLogs, assemblies } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, inArray } from "drizzle-orm";
-import { uploadsDir } from "../lib/paths.ts";
+import { uploadsDir, bookTmpDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -70,10 +70,11 @@ export const booksRouter = router({
         .orderBy(asc(chapters.index));
 
       const chaptersWithStats = allChapters.map((ch) => {
-        const text = ch.cleanText ?? ch.rawText;
+        const text = ch.customText ?? ch.cleanText ?? ch.rawText;
         const wordCount = text.split(/\s+/).filter(Boolean).length;
         const hasCleanText = !!ch.cleanText;
-        return { ...ch, wordCount, hasCleanText, rawText: undefined, cleanText: undefined };
+        const hasCustomText = !!ch.customText;
+        return { ...ch, wordCount, hasCleanText, hasCustomText, rawText: undefined, cleanText: undefined, customText: undefined };
       });
 
       const totalWords = chaptersWithStats.reduce((sum, ch) => sum + ch.wordCount, 0);
@@ -277,6 +278,7 @@ export const booksRouter = router({
       if (book?.outputPath) {
         await rm(path.dirname(book.outputPath), { recursive: true, force: true }).catch(() => {});
       }
+      await rm(bookTmpDir(input.id), { recursive: true, force: true }).catch(() => {});
 
       return { success: true };
     }),

@@ -24,6 +24,7 @@ export const chapters = pgTable("chapters", {
   title: text("title").notNull(),
   rawText: text("raw_text").notNull(),
   cleanText: text("clean_text"),
+  customText: text("custom_text"),
   audioPath: text("audio_path"),
   durationMs: integer("duration_ms"),
   progress: text("progress"),

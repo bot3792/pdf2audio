@@ -34,15 +34,17 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
   try {
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
     if (!chapter) throw new Error(`Chapter ${chapterId} not found`);
-    if (!chapter.cleanText) throw new Error(`Chapter ${chapterId} has no clean text`);
+    const text = chapter.customText ?? chapter.cleanText ?? chapter.rawText;
+    if (!text) throw new Error(`Chapter ${chapterId} has no text`);
 
     const [book] = await db.select().from(books).where(eq(books.id, bookId));
     if (!book) throw new Error(`Book ${bookId} not found`);
 
     chPrefix = `[Ch ${chapter.index + 1}] `;
 
-    const wordCount = chapter.cleanText.split(/\s+/).filter(Boolean).length;
-    await chLog(`Synthesizing "${chapter.title}" (${wordCount.toLocaleString()} words)`);
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    const textSource = chapter.customText ? "custom" : chapter.cleanText ? "clean" : "raw";
+    await chLog(`Synthesizing "${chapter.title}" (${wordCount.toLocaleString()} words, ${textSource} text)`);
 
     const outDir = bookOutputDir(bookId);
     await mkdir(outDir, { recursive: true });
@@ -51,7 +53,7 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
     const mp3Path = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.mp3`);
 
     await kokoroSynthesize({
-      inputText: chapter.cleanText,
+      inputText: text,
       outputPath: wavPath,
       voice: book.voice,
       speed: book.speed,

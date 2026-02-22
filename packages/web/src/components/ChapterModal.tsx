@@ -1,40 +1,80 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
-
-type ChapterSummary = {
-  id: string;
-  index: number;
-  title: string;
-  status: string;
-  error: string | null;
-  wordCount: number;
-  durationMs: number | null;
-  audioPath: string | null;
-  hasCleanText: boolean;
-  progress: string | null;
-};
+import type { ChapterRow } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
-  chapter: ChapterSummary;
+  chapters: ChapterRow[];
+  chapterIndex: number;
   onClose: () => void;
+  onNavigate: (index: number) => void;
   onQueue: (id: string) => void;
   onSuspend: (id: string) => void;
 };
 
-type ViewMode = "clean" | "raw" | "split";
+type ViewMode = "custom" | "clean" | "raw" | "split";
 
-export function ChapterModal({ chapter, onClose, onQueue, onSuspend }: ChapterModalProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>(chapter.hasCleanText ? "clean" : "raw");
+export function ChapterModal({
+  chapters,
+  chapterIndex,
+  onClose,
+  onNavigate,
+  onQueue,
+  onSuspend,
+}: ChapterModalProps) {
+  const chapter = chapters[chapterIndex];
+  const hasPrev = chapterIndex > 0;
+  const hasNext = chapterIndex < chapters.length - 1;
+
+  const defaultViewMode: ViewMode = chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw";
+  const [viewMode, setViewMode] = useState<ViewMode>(defaultViewMode);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+
   const { data: fullChapter, isLoading } = trpc.chapters.get.useQuery({ id: chapter.id });
+  const utils = trpc.useUtils();
+
+  const updateTextMutation = trpc.chapters.updateText.useMutation({
+    onSuccess: () => {
+      utils.chapters.get.invalidate({ id: chapter.id });
+      utils.books.get.invalidate();
+      setIsEditing(false);
+    },
+  });
+
+  const resetTextMutation = trpc.chapters.resetText.useMutation({
+    onSuccess: () => {
+      utils.chapters.get.invalidate({ id: chapter.id });
+      utils.books.get.invalidate();
+    },
+  });
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
+      if (isEditing) return;
       if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft" && hasPrev) onNavigate(chapterIndex - 1);
+      if (e.key === "ArrowRight" && hasNext) onNavigate(chapterIndex + 1);
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose]);
+  }, [onClose, isEditing, hasPrev, hasNext, chapterIndex, onNavigate]);
+
+  function startEditing() {
+    if (!fullChapter) return;
+    setEditText(fullChapter.customText ?? fullChapter.cleanText ?? fullChapter.rawText);
+    setIsEditing(true);
+  }
+
+  function handleSave() {
+    if (!editText.trim()) return;
+    updateTextMutation.mutate({ id: chapter.id, customText: editText });
+  }
+
+  function handleReset() {
+    if (!confirm("Reset to original text? Your edits will be lost.")) return;
+    resetTextMutation.mutate({ id: chapter.id });
+  }
 
   const isActive = chapter.status === "synthesizing" || chapter.status === "normalizing";
   const canQueue = !isActive && chapter.status !== "done" && chapter.status !== "pending";
@@ -45,20 +85,47 @@ export function ChapterModal({ chapter, onClose, onQueue, onSuspend }: ChapterMo
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-white rounded-xl shadow-2xl w-[90vw] max-w-4xl max-h-[85vh] flex flex-col">
         <div className="flex items-start justify-between p-5 border-b border-zinc-200">
-          <div className="min-w-0">
-            <div className="flex items-center gap-3 mb-1">
-              <span className="text-sm font-mono text-zinc-400">#{chapter.index + 1}</span>
-              <h2 className="text-lg font-semibold text-zinc-900 truncate">{chapter.title}</h2>
-              <StatusBadge status={chapter.status} error={chapter.error} />
-            </div>
-            <div className="flex gap-4 text-xs text-zinc-500">
-              <span>{chapter.wordCount.toLocaleString()} words</span>
-              {chapter.durationMs && (
-                <span>{formatDuration(chapter.durationMs)}</span>
-              )}
-              {chapter.progress && chapter.status === "synthesizing" && (
-                <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
-              )}
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => hasPrev && onNavigate(chapterIndex - 1)}
+              disabled={!hasPrev}
+              className="shrink-0 p-1 rounded text-zinc-400 hover:text-zinc-700 disabled:opacity-25 disabled:cursor-default"
+              title="Previous chapter"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <button
+              onClick={() => hasNext && onNavigate(chapterIndex + 1)}
+              disabled={!hasNext}
+              className="shrink-0 p-1 rounded text-zinc-400 hover:text-zinc-700 disabled:opacity-25 disabled:cursor-default"
+              title="Next chapter"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <div className="min-w-0 ml-1">
+              <div className="flex items-center gap-3 mb-1">
+                <span className="text-sm font-mono text-zinc-400">#{chapter.index + 1}</span>
+                <h2 className="text-lg font-semibold text-zinc-900 truncate">{chapter.title}</h2>
+                <StatusBadge status={chapter.status} error={chapter.error} />
+                {chapter.hasCustomText ? (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">
+                    edited
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex gap-4 text-xs text-zinc-500">
+                <span>{chapter.wordCount.toLocaleString()} words</span>
+                {chapter.durationMs ? (
+                  <span>{formatDuration(chapter.durationMs)}</span>
+                ) : null}
+                {chapter.progress && chapter.status === "synthesizing" ? (
+                  <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
+                ) : null}
+              </div>
             </div>
           </div>
           <button
@@ -72,51 +139,77 @@ export function ChapterModal({ chapter, onClose, onQueue, onSuspend }: ChapterMo
         </div>
 
         <div className="flex items-center gap-2 px-5 py-2 border-b border-zinc-100 bg-zinc-50">
-          {chapter.status === "done" && chapter.audioPath && (
+          {chapter.status === "done" && chapter.audioPath ? (
             <audio controls preload="none" className="h-8 mr-2">
               <source src={`/audio/chapter/${chapter.id}`} type="audio/mpeg" />
             </audio>
-          )}
-          {canQueue && (
+          ) : null}
+          {canQueue ? (
             <button
               onClick={() => onQueue(chapter.id)}
               className="text-xs px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium"
             >
               Queue
             </button>
-          )}
-          {canSuspend && (
+          ) : null}
+          {canSuspend ? (
             <button
               onClick={() => onSuspend(chapter.id)}
               className="text-xs px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium"
             >
               Suspend
             </button>
-          )}
-          {chapter.status === "done" && (
+          ) : null}
+          {chapter.status === "done" ? (
             <button
               onClick={() => onQueue(chapter.id)}
               className="text-xs px-2.5 py-1 rounded bg-zinc-100 text-zinc-600 hover:bg-zinc-200 font-medium"
             >
               Re-synthesize
             </button>
-          )}
+          ) : null}
           <div className="flex-1" />
-          {chapter.hasCleanText && (
-            <div className="flex rounded-md border border-zinc-200 overflow-hidden text-xs">
-              {(["clean", "raw", "split"] as const).map((mode) => (
+          {isEditing ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSave}
+                disabled={updateTextMutation.isPending}
+                className="text-xs px-2.5 py-1 rounded bg-green-600 text-white hover:bg-green-700 font-medium disabled:opacity-50"
+              >
+                {updateTextMutation.isPending ? "Saving..." : "Save"}
+              </button>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="text-xs px-2.5 py-1 rounded bg-zinc-100 text-zinc-600 hover:bg-zinc-200 font-medium"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              {chapter.hasCustomText ? (
                 <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  className={`px-2.5 py-1 capitalize ${
-                    viewMode === mode
-                      ? "bg-zinc-800 text-white"
-                      : "bg-white text-zinc-600 hover:bg-zinc-50"
-                  }`}
+                  onClick={handleReset}
+                  disabled={resetTextMutation.isPending}
+                  className="text-xs px-2.5 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-medium disabled:opacity-50"
                 >
-                  {mode}
+                  Reset
                 </button>
-              ))}
+              ) : null}
+              {fullChapter ? (
+                <button
+                  onClick={startEditing}
+                  className="text-xs px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium"
+                >
+                  Edit
+                </button>
+              ) : null}
+              <ViewModeTabs
+                viewMode={viewMode}
+                onSetViewMode={setViewMode}
+                hasCleanText={chapter.hasCleanText}
+                hasCustomText={chapter.hasCustomText}
+              />
             </div>
           )}
         </div>
@@ -127,11 +220,20 @@ export function ChapterModal({ chapter, onClose, onQueue, onSuspend }: ChapterMo
               Loading text...
             </div>
           ) : fullChapter ? (
-            <TextPreview
-              rawText={fullChapter.rawText}
-              cleanText={fullChapter.cleanText}
-              viewMode={viewMode}
-            />
+            isEditing ? (
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                className="flex-1 min-h-0 rounded bg-white border border-amber-300 p-4 font-mono text-xs text-zinc-700 whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            ) : (
+              <TextPreview
+                rawText={fullChapter.rawText}
+                cleanText={fullChapter.cleanText}
+                customText={fullChapter.customText}
+                viewMode={viewMode}
+              />
+            )
           ) : (
             <div className="flex items-center justify-center flex-1 text-sm text-red-400">
               Failed to load chapter text
@@ -143,13 +245,53 @@ export function ChapterModal({ chapter, onClose, onQueue, onSuspend }: ChapterMo
   );
 }
 
+function ViewModeTabs({
+  viewMode,
+  onSetViewMode,
+  hasCleanText,
+  hasCustomText,
+}: {
+  viewMode: ViewMode;
+  onSetViewMode: (mode: ViewMode) => void;
+  hasCleanText: boolean;
+  hasCustomText: boolean;
+}) {
+  const modes: ViewMode[] = [];
+  if (hasCustomText) modes.push("custom");
+  if (hasCleanText) modes.push("clean");
+  modes.push("raw");
+  if (hasCleanText) modes.push("split");
+
+  if (modes.length <= 1) return null;
+
+  return (
+    <div className="flex rounded-md border border-zinc-200 overflow-hidden text-xs">
+      {modes.map((mode) => (
+        <button
+          key={mode}
+          onClick={() => onSetViewMode(mode)}
+          className={`px-2.5 py-1 capitalize ${
+            viewMode === mode
+              ? "bg-zinc-800 text-white"
+              : "bg-white text-zinc-600 hover:bg-zinc-50"
+          }`}
+        >
+          {mode}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function TextPreview({
   rawText,
   cleanText,
+  customText,
   viewMode,
 }: {
   rawText: string;
   cleanText: string | null;
+  customText: string | null;
   viewMode: ViewMode;
 }) {
   const leftRef = useRef<HTMLDivElement>(null);
@@ -195,6 +337,14 @@ function TextPreview({
             {cleanText}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (viewMode === "custom" && customText) {
+    return (
+      <div className={textClass + " border-amber-200 bg-amber-50/30"}>
+        {customText}
       </div>
     );
   }

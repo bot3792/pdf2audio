@@ -161,6 +161,7 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
 
     let lastStage = "";
     let lastLoggedPercent = -1;
+    let lastLogTime = Date.now();
     const rl = createInterface({ input: proc.stderr });
     rl.on("line", (line) => {
       const progressMatch = line.match(/(\d+)\/(\d+)/);
@@ -171,13 +172,15 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
         const stage = line.trim().split(":")[0]?.trim() || "Processing";
         const percent = total > 0 ? Math.floor((current / total) * 100) : 0;
         const isNewStage = stage !== lastStage;
-        const isSignificantProgress = percent >= lastLoggedPercent + 10;
+        const isSignificantProgress = percent >= lastLoggedPercent + 1;
         const isComplete = current === total;
+        const isSilenceTooLong = Date.now() - lastLogTime >= 30_000;
 
-        if (isNewStage || isSignificantProgress || isComplete) {
+        if (isNewStage || isSignificantProgress || isComplete || isSilenceTooLong) {
           log(`${stage}: ${currentStr}/${totalStr}`);
           lastStage = stage;
-          lastLoggedPercent = isNewStage ? percent : percent;
+          lastLoggedPercent = percent;
+          lastLogTime = Date.now();
         }
         if (isNewStage) lastLoggedPercent = percent;
       } else if (line.includes("WARNING") || line.includes("Error") || line.includes("Traceback")) {

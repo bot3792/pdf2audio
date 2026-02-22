@@ -12,6 +12,7 @@ export type ChapterRow = {
   durationMs: number | null;
   audioPath: string | null;
   hasCleanText: boolean;
+  hasCustomText: boolean;
   progress: string | null;
   selected: boolean;
 };
@@ -35,7 +36,7 @@ export function ChapterTable({
   onSetAllSelected: (selected: boolean) => void;
   onSetSelectedBatch: (ids: string[], selected: boolean) => void;
 }) {
-  const [modalChapter, setModalChapter] = useState<ChapterRow | null>(null);
+  const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
   const toggleAllRef = useRef<HTMLInputElement>(null);
   const [playingChapterId, setPlayingChapterId] = useState<string | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -319,12 +320,19 @@ export function ChapterTable({
                   </td>
                   <td className="px-4 py-3 text-sm text-zinc-600">{chapter.index + 1}</td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => setModalChapter(chapter)}
-                      className="text-sm font-medium text-zinc-900 hover:text-blue-700 text-left"
-                    >
-                      {chapter.title}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setModalChapterIndex(chapters.indexOf(chapter))}
+                        className="text-sm font-medium text-zinc-900 hover:text-blue-700 text-left"
+                      >
+                        {chapter.title}
+                      </button>
+                      {chapter.hasCustomText ? (
+                        <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-600">
+                          edited
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <ChapterStatusCell chapter={chapter} />
@@ -426,10 +434,12 @@ export function ChapterTable({
         </div>
       ) : null}
 
-      {modalChapter ? (
+      {modalChapterIndex !== null ? (
         <ChapterModal
-          chapter={modalChapter}
-          onClose={() => setModalChapter(null)}
+          chapters={chapters}
+          chapterIndex={modalChapterIndex}
+          onClose={() => setModalChapterIndex(null)}
+          onNavigate={setModalChapterIndex}
           onQueue={onQueue}
           onSuspend={onSuspend}
         />
