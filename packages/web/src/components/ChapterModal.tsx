@@ -50,6 +50,11 @@ export function ChapterModal({
   });
 
   useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (isEditing) return;
       if (e.key === "Escape") onClose();
@@ -83,49 +88,47 @@ export function ChapterModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      {hasPrev ? (
+        <a
+          href="#prev"
+          onClick={(e) => { e.preventDefault(); onNavigate(chapterIndex - 1); }}
+          className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white/90 shadow-md border border-zinc-200 text-zinc-500 hover:text-zinc-900 hover:bg-white transition-colors text-xl font-light select-none no-underline"
+          title="Previous chapter (←)"
+        >
+          &lt;
+        </a>
+      ) : null}
+      {hasNext ? (
+        <a
+          href="#next"
+          onClick={(e) => { e.preventDefault(); onNavigate(chapterIndex + 1); }}
+          className="absolute right-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-white/90 shadow-md border border-zinc-200 text-zinc-500 hover:text-zinc-900 hover:bg-white transition-colors text-xl font-light select-none no-underline"
+          title="Next chapter (→)"
+        >
+          &gt;
+        </a>
+      ) : null}
       <div className="relative bg-white rounded-xl shadow-2xl w-[90vw] max-w-4xl max-h-[85vh] flex flex-col">
         <div className="flex items-start justify-between p-5 border-b border-zinc-200">
-          <div className="flex items-center gap-2 min-w-0">
-            <button
-              onClick={() => hasPrev && onNavigate(chapterIndex - 1)}
-              disabled={!hasPrev}
-              className="shrink-0 p-1 rounded text-zinc-400 hover:text-zinc-700 disabled:opacity-25 disabled:cursor-default"
-              title="Previous chapter"
-            >
-              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
-              </svg>
-            </button>
-            <button
-              onClick={() => hasNext && onNavigate(chapterIndex + 1)}
-              disabled={!hasNext}
-              className="shrink-0 p-1 rounded text-zinc-400 hover:text-zinc-700 disabled:opacity-25 disabled:cursor-default"
-              title="Next chapter"
-            >
-              <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-              </svg>
-            </button>
-            <div className="min-w-0 ml-1">
-              <div className="flex items-center gap-3 mb-1">
-                <span className="text-sm font-mono text-zinc-400">#{chapter.index + 1}</span>
-                <h2 className="text-lg font-semibold text-zinc-900 truncate">{chapter.title}</h2>
-                <StatusBadge status={chapter.status} error={chapter.error} />
-                {chapter.hasCustomText ? (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">
-                    edited
-                  </span>
-                ) : null}
-              </div>
-              <div className="flex gap-4 text-xs text-zinc-500">
-                <span>{chapter.wordCount.toLocaleString()} words</span>
-                {chapter.durationMs ? (
-                  <span>{formatDuration(chapter.durationMs)}</span>
-                ) : null}
-                {chapter.progress && chapter.status === "synthesizing" ? (
-                  <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
-                ) : null}
-              </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-sm font-mono text-zinc-400">#{chapter.index + 1}</span>
+              <h2 className="text-lg font-semibold text-zinc-900 truncate">{chapter.title}</h2>
+              <StatusBadge status={chapter.status} error={chapter.error} />
+              {chapter.hasCustomText ? (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">
+                  edited
+                </span>
+              ) : null}
+            </div>
+            <div className="flex gap-4 text-xs text-zinc-500">
+              <span>{chapter.wordCount.toLocaleString()} words</span>
+              {chapter.durationMs ? (
+                <span>{formatDuration(chapter.durationMs)}</span>
+              ) : null}
+              {chapter.progress && chapter.status === "synthesizing" ? (
+                <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
+              ) : null}
             </div>
           </div>
           <button
@@ -214,7 +217,7 @@ export function ChapterModal({
           )}
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col p-5">
+        <div className="flex-1 min-h-[40vh] flex flex-col p-5">
           {isLoading ? (
             <div className="flex items-center justify-center flex-1 text-sm text-zinc-400">
               Loading text...
