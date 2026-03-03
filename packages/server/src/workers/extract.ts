@@ -42,6 +42,9 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
           index: i,
           title: ch.title,
           rawText: ch.text,
+          pageStart: ch.pageStart,
+          pageEnd: ch.pageEnd,
+          sourceBlocks: ch.sourceBlocks,
           status: "pending",
         })
         .returning();

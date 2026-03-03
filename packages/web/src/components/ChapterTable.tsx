@@ -13,8 +13,11 @@ export type ChapterRow = {
   audioPath: string | null;
   hasCleanText: boolean;
   hasCustomText: boolean;
+  hasSourceBlocks: boolean;
   progress: string | null;
   selected: boolean;
+  pageStart: number | null;
+  pageEnd: number | null;
 };
 
 const STATUSES = ["done", "failed", "pending", "suspended", "synthesizing", "normalizing"] as const;
@@ -344,6 +347,11 @@ export function ChapterTable({
                       {chapter.hasCustomText ? (
                         <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-600">
                           edited
+                        </span>
+                      ) : null}
+                      {chapter.pageStart ? (
+                        <span className="text-xs text-(--text-faint) tabular-nums">
+                          p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
                         </span>
                       ) : null}
                     </div>

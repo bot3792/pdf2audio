@@ -74,7 +74,8 @@ export const booksRouter = router({
         const wordCount = text.split(/\s+/).filter(Boolean).length;
         const hasCleanText = !!ch.cleanText;
         const hasCustomText = !!ch.customText;
-        return { ...ch, wordCount, hasCleanText, hasCustomText, rawText: undefined, cleanText: undefined, customText: undefined };
+        const hasSourceBlocks = !!ch.sourceBlocks;
+        return { ...ch, wordCount, hasCleanText, hasCustomText, hasSourceBlocks, rawText: undefined, cleanText: undefined, customText: undefined, sourceBlocks: undefined };
       });
 
       const totalWords = chaptersWithStats.reduce((sum, ch) => sum + ch.wordCount, 0);

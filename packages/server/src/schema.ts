@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, real, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, real, integer, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
 
 export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -32,6 +32,9 @@ export const chapters = pgTable("chapters", {
     enum: ["pending", "normalizing", "synthesizing", "done", "failed", "suspended"],
   }).notNull().default("pending"),
   selected: boolean("selected").notNull().default(true),
+  pageStart: integer("page_start"),
+  pageEnd: integer("page_end"),
+  sourceBlocks: jsonb("source_blocks"),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

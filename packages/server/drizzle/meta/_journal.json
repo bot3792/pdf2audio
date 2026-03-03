@@ -50,6 +50,13 @@
       "when": 1771850000000,
       "tag": "0006_add_custom_text",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772700000000,
+      "tag": "0007_add_source_blocks",
+      "breakpoints": true
     }
   ]
 }

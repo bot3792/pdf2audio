@@ -48,7 +48,7 @@ PDF Upload → extract → normalize (per chapter) → synthesize (per chapter) 
 
 ### Job Flow (Graphile Worker)
 
-1. **extract** (`workers/extract.ts`) — Runs `marker_single` (Python subprocess) on the PDF, outputs structured JSON into a subdirectory. Parses blocks, detects chapters from headings (h1 → h2 → fallback word-count split). Creates chapter rows in DB. Queues normalize jobs.
+1. **extract** (`workers/extract.ts`) — Runs `marker_single` (Python subprocess) on the PDF, outputs structured JSON into a subdirectory. Flattens ALL blocks (not just kept types) with page numbers, polygon coordinates, and an `included` flag. Detects chapters from headings (h1 → h2 → fallback word-count split). Stores per-chapter `sourceBlocks` (jsonb) with full block metadata, plus `pageStart`/`pageEnd`. Creates chapter rows in DB. Queues normalize jobs.
 
 2. **normalize** (`workers/normalize.ts`, per chapter, parallel) — Strips markdown, reference markers, URLs, rejoins hyphenated line breaks. Saves clean text. Queues synthesize job.
 
@@ -94,7 +94,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **books** — id (uuid), title, filename, pdfPath, outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, createdAt, updatedAt
 
-**chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), createdAt
+**chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), pageStart (integer, 1-based), pageEnd (integer, 1-based), sourceBlocks (jsonb — array of block metadata with type, text, page, included, level?, polygon?), createdAt
 
 **assemblies** — id (uuid), bookId (FK, cascade delete), outputPath, durationMs, chapterCount, chapterSummary, chapterIds (json array), createdAt
 
@@ -160,7 +160,7 @@ packages/web/src/
     BookDetail.tsx      Per-book view: stats, progress, logs, action buttons (process/assemble/cancel/re-extract/delete), chapter table, assemblies list
   components/
     ChapterTable.tsx    Chapter table with filter panel (search, status, word count, duration), shift+click range selection, per-chapter checkboxes, sticky audio player, modal trigger
-    ChapterModal.tsx    Chapter detail modal: selection checkbox, prev/next navigation (< > + keyboard arrows), audio player, view mode tabs (custom/clean/raw/split with scroll sync), text editing with save/cancel/reset, action buttons (queue/suspend/re-synthesize)
+    ChapterModal.tsx    Chapter detail modal: selection checkbox, prev/next navigation (< > + keyboard arrows), audio player, view mode tabs (custom/clean/raw/split/blocks with scroll sync), text editing with save/cancel/reset, action buttons (queue/suspend/re-synthesize)
     UploadZone.tsx      Drag-and-drop PDF upload with voice/speed pickers
     VoicePicker.tsx     Voice selection dropdown grouped by language
     SpeedSlider.tsx     Speed range slider (0.5x-2.0x)

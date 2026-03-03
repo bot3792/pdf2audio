@@ -23,6 +23,8 @@
   --bg-custom-text: oklch(0.987 0.013 85 / 0.3);
   --border-custom-text: var(--color-amber-200);
 
+  --bg-terminal: var(--color-zinc-900);
+
   --badge-pending-bg: var(--color-zinc-100);
   --badge-pending-text: var(--color-zinc-700);
   --badge-extracting-bg: var(--color-yellow-100);
@@ -64,6 +66,8 @@
 
     --bg-custom-text: oklch(0.279 0.077 75 / 0.3);
     --border-custom-text: var(--color-amber-800);
+
+    --bg-terminal: var(--color-zinc-950);
 
     --badge-pending-bg: var(--color-zinc-700);
     --badge-pending-text: var(--color-zinc-300);

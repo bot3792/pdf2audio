@@ -13,7 +13,16 @@ type ChapterModalProps = {
   onSetSelected: (id: string, selected: boolean) => void;
 };
 
-type ViewMode = "custom" | "clean" | "raw" | "split";
+type SourceBlock = {
+  type: string;
+  text: string;
+  page: number;
+  included: boolean;
+  level?: number;
+  polygon?: number[][];
+};
+
+type ViewMode = "custom" | "clean" | "raw" | "split" | "blocks";
 
 export function ChapterModal({
   chapters,
@@ -138,6 +147,11 @@ export function ChapterModal({
               {chapter.durationMs ? (
                 <span>{formatDuration(chapter.durationMs)}</span>
               ) : null}
+              {chapter.pageStart ? (
+                <span className="tabular-nums">
+                  p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
+                </span>
+              ) : null}
               {chapter.progress && chapter.status === "synthesizing" ? (
                 <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
               ) : null}
@@ -224,6 +238,7 @@ export function ChapterModal({
                 onSetViewMode={setViewMode}
                 hasCleanText={chapter.hasCleanText}
                 hasCustomText={chapter.hasCustomText}
+                hasSourceBlocks={chapter.hasSourceBlocks}
               />
             </div>
           )}
@@ -241,6 +256,8 @@ export function ChapterModal({
                 onChange={(e) => setEditText(e.target.value)}
                 className="flex-1 min-h-0 rounded bg-(--bg-card) border border-amber-300 p-4 font-mono text-xs text-(--text-secondary) whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
+            ) : viewMode === "blocks" && fullChapter.sourceBlocks ? (
+              <BlocksPreview sourceBlocks={fullChapter.sourceBlocks as SourceBlock[]} />
             ) : (
               <TextPreview
                 rawText={fullChapter.rawText}
@@ -265,17 +282,20 @@ function ViewModeTabs({
   onSetViewMode,
   hasCleanText,
   hasCustomText,
+  hasSourceBlocks,
 }: {
   viewMode: ViewMode;
   onSetViewMode: (mode: ViewMode) => void;
   hasCleanText: boolean;
   hasCustomText: boolean;
+  hasSourceBlocks: boolean;
 }) {
   const modes: ViewMode[] = [];
   if (hasCustomText) modes.push("custom");
   if (hasCleanText) modes.push("clean");
   modes.push("raw");
   if (hasCleanText) modes.push("split");
+  if (hasSourceBlocks) modes.push("blocks");
 
   if (modes.length <= 1) return null;
 
@@ -369,6 +389,35 @@ function TextPreview({
   return (
     <div className={textClass}>
       {text}
+    </div>
+  );
+}
+
+function BlocksPreview({ sourceBlocks }: { sourceBlocks: SourceBlock[] }) {
+  let lastPage = -1;
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto rounded bg-(--bg-subtle) border border-(--border) p-2 font-mono text-xs leading-relaxed">
+      {sourceBlocks.map((block, i) => {
+        const showPageDivider = block.page !== lastPage && lastPage !== -1;
+        lastPage = block.page;
+        return (
+          <div key={i}>
+            {showPageDivider ? (
+              <div className="border-t border-(--divide) my-1.5" />
+            ) : null}
+            <div className={`flex gap-2 py-0.5 px-1.5 rounded ${block.included ? "" : "opacity-35"}`}>
+              <span className="text-(--text-faint) tabular-nums shrink-0 w-8 text-right">{block.page}</span>
+              <span className={`shrink-0 w-24 truncate ${block.included ? "text-(--text-muted)" : "text-(--text-faint) line-through"}`}>
+                {block.type}
+              </span>
+              <span className={`min-w-0 ${block.included ? "text-(--text-secondary)" : "text-(--text-faint)"} truncate`}>
+                {block.text}
+              </span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

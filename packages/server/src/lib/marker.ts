@@ -13,6 +13,7 @@ type MarkerBlock = {
   html: string;
   children: MarkerBlock[] | null;
   section_hierarchy: Record<string, string> | null;
+  polygon?: number[][];
 };
 
 type MarkerTocEntry = {
@@ -29,9 +30,21 @@ type MarkerOutput = {
   };
 };
 
+export type SourceBlock = {
+  type: string;
+  text: string;
+  page: number;
+  included: boolean;
+  level?: number;
+  polygon?: number[][];
+};
+
 export type ExtractedChapter = {
   title: string;
   text: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  sourceBlocks: SourceBlock[];
 };
 
 const KEEP_BLOCK_TYPES = new Set([
@@ -53,20 +66,35 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-function collectTextBlocks(block: MarkerBlock, out: { type: string; text: string; hierarchy: Record<string, string> | null }[]) {
+type FlatBlock = {
+  type: string;
+  text: string;
+  hierarchy: Record<string, string> | null;
+  level?: number;
+  page: number;
+  polygon?: number[][];
+  included: boolean;
+};
+
+function collectAllBlocks(block: MarkerBlock, page: number, out: FlatBlock[]) {
   if (block.children) {
     for (const child of block.children) {
-      collectTextBlocks(child, out);
+      collectAllBlocks(child, page, out);
     }
-  } else if (KEEP_BLOCK_TYPES.has(block.block_type)) {
+  } else {
     const text = stripHtml(block.html);
-    if (text) {
-      out.push({
-        type: block.block_type,
-        text,
-        hierarchy: block.section_hierarchy,
-      });
-    }
+    if (!text) return;
+    const included = KEEP_BLOCK_TYPES.has(block.block_type);
+    const level = block.block_type === "SectionHeader" ? (extractHeadingLevel(block.html) ?? undefined) : undefined;
+    out.push({
+      type: block.block_type,
+      text,
+      hierarchy: block.section_hierarchy,
+      level,
+      page,
+      polygon: block.polygon,
+      included,
+    });
   }
 }
 
@@ -75,10 +103,31 @@ function extractHeadingLevel(html: string): number | null {
   return match ? parseInt(match[1], 10) : null;
 }
 
-function detectChaptersFromBlocks(allBlocks: { type: string; text: string; hierarchy: Record<string, string> | null; level?: number }[]): ExtractedChapter[] {
+function blocksToSourceBlocks(blocks: FlatBlock[]): SourceBlock[] {
+  return blocks.map((b) => ({
+    type: b.type,
+    text: b.text,
+    page: b.page,
+    included: b.included,
+    ...(b.level !== undefined ? { level: b.level } : {}),
+    ...(b.polygon ? { polygon: b.polygon } : {}),
+  }));
+}
+
+function chapterFromBlocks(title: string, blocks: FlatBlock[]): ExtractedChapter {
+  const includedBlocks = blocks.filter((b) => b.included);
+  const text = includedBlocks.map((b) => b.text).join("\n\n");
+  const allPages = blocks.map((b) => b.page);
+  const pageStart = allPages.length > 0 ? Math.min(...allPages) : null;
+  const pageEnd = allPages.length > 0 ? Math.max(...allPages) : null;
+  return { title, text, pageStart, pageEnd, sourceBlocks: blocksToSourceBlocks(blocks) };
+}
+
+function detectChaptersFromBlocks(allBlocks: FlatBlock[]): ExtractedChapter[] {
+  const includedBlocks = allBlocks.filter((b) => b.included);
   const headingBlocks: { index: number; level: number; text: string }[] = [];
   for (let i = 0; i < allBlocks.length; i++) {
-    if (allBlocks[i].type === "SectionHeader") {
+    if (allBlocks[i].included && allBlocks[i].type === "SectionHeader") {
       headingBlocks.push({ index: i, level: allBlocks[i].level ?? 1, text: allBlocks[i].text });
     }
   }
@@ -92,49 +141,66 @@ function detectChaptersFromBlocks(allBlocks: { type: string; text: string; hiera
   }
 
   if (targetLevel === null) {
-    return splitByWordCount(allBlocks.map((b) => b.text).join("\n\n"));
+    return splitByWordCount(allBlocks);
   }
 
   const chapterHeadings = headingBlocks.filter((h) => h.level === targetLevel);
   if (chapterHeadings.length === 0) {
-    return splitByWordCount(allBlocks.map((b) => b.text).join("\n\n"));
+    return splitByWordCount(allBlocks);
   }
 
   const chapters: ExtractedChapter[] = [];
   for (let i = 0; i < chapterHeadings.length; i++) {
     const start = chapterHeadings[i].index;
     const end = i + 1 < chapterHeadings.length ? chapterHeadings[i + 1].index : allBlocks.length;
-    const chapterBlocks = allBlocks.slice(start + 1, end);
-    const text = chapterBlocks.map((b) => b.text).join("\n\n");
-    if (text.trim()) {
-      chapters.push({ title: chapterHeadings[i].text, text });
+    const blocks = allBlocks.slice(start, end);
+    const ch = chapterFromBlocks(chapterHeadings[i].text, blocks);
+    if (ch.text.trim()) {
+      chapters.push(ch);
     }
   }
 
-  const preface = allBlocks.slice(0, chapterHeadings[0].index);
-  if (preface.length > 0) {
-    const prefaceText = preface.map((b) => b.text).join("\n\n");
-    if (prefaceText.trim().split(/\s+/).length > 50) {
-      chapters.unshift({ title: "Preface", text: prefaceText });
+  const prefaceBlocks = allBlocks.slice(0, chapterHeadings[0].index);
+  if (prefaceBlocks.length > 0) {
+    const ch = chapterFromBlocks("Preface", prefaceBlocks);
+    if (ch.text.trim().split(/\s+/).length > 50) {
+      chapters.unshift(ch);
     }
   }
 
   return chapters;
 }
 
-function splitByWordCount(fullText: string, wordsPerChapter = 5000): ExtractedChapter[] {
-  const words = fullText.split(/\s+/);
-  if (words.length <= wordsPerChapter) {
-    return [{ title: "Full Text", text: fullText }];
+function splitByWordCount(allBlocks: FlatBlock[], wordsPerChapter = 5000): ExtractedChapter[] {
+  const includedBlocks = allBlocks.filter((b) => b.included);
+  const totalWords = includedBlocks.reduce((sum, b) => sum + b.text.split(/\s+/).filter(Boolean).length, 0);
+
+  if (totalWords <= wordsPerChapter) {
+    return [chapterFromBlocks("Full Text", allBlocks)];
   }
 
   const chapters: ExtractedChapter[] = [];
   let partNum = 1;
-  for (let i = 0; i < words.length; i += wordsPerChapter) {
-    const chunk = words.slice(i, i + wordsPerChapter).join(" ");
-    chapters.push({ title: `Part ${partNum}`, text: chunk });
-    partNum++;
+  let currentBlocks: FlatBlock[] = [];
+  let currentWords = 0;
+
+  for (const block of allBlocks) {
+    currentBlocks.push(block);
+    if (block.included) {
+      currentWords += block.text.split(/\s+/).filter(Boolean).length;
+    }
+    if (currentWords >= wordsPerChapter) {
+      chapters.push(chapterFromBlocks(`Part ${partNum}`, currentBlocks));
+      partNum++;
+      currentBlocks = [];
+      currentWords = 0;
+    }
   }
+
+  if (currentBlocks.length > 0) {
+    chapters.push(chapterFromBlocks(`Part ${partNum}`, currentBlocks));
+  }
+
   return chapters;
 }
 
@@ -244,23 +310,29 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
   const raw = await readFile(path.join(searchDir, jsonFile), "utf-8");
   const doc: MarkerOutput = JSON.parse(raw);
 
-  const allBlocks: { type: string; text: string; hierarchy: Record<string, string> | null; level?: number }[] = [];
+  const allBlocks: FlatBlock[] = [];
 
-  for (const page of doc.children) {
+  for (let pageIdx = 0; pageIdx < doc.children.length; pageIdx++) {
+    const page = doc.children[pageIdx];
     if (page.block_type !== "Page" || !page.children) continue;
+    const pageNum = pageIdx + 1;
     for (const block of page.children) {
       if (block.children) {
-        const nested: { type: string; text: string; hierarchy: Record<string, string> | null }[] = [];
-        collectTextBlocks(block, nested);
-        for (const n of nested) {
-          allBlocks.push(n);
-        }
-      } else if (KEEP_BLOCK_TYPES.has(block.block_type)) {
+        collectAllBlocks(block, pageNum, allBlocks);
+      } else {
         const text = stripHtml(block.html);
-        if (text) {
-          const level = block.block_type === "SectionHeader" ? extractHeadingLevel(block.html) : undefined;
-          allBlocks.push({ type: block.block_type, text, hierarchy: block.section_hierarchy, level: level ?? undefined });
-        }
+        if (!text) continue;
+        const included = KEEP_BLOCK_TYPES.has(block.block_type);
+        const level = block.block_type === "SectionHeader" ? (extractHeadingLevel(block.html) ?? undefined) : undefined;
+        allBlocks.push({
+          type: block.block_type,
+          text,
+          hierarchy: block.section_hierarchy,
+          level,
+          page: pageNum,
+          polygon: block.polygon,
+          included,
+        });
       }
     }
   }

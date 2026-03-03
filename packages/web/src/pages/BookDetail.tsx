@@ -540,7 +540,7 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="bg-zinc-900 rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs leading-5"
+          className="bg-(--bg-terminal) rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs leading-5"
         >
           {logs.length === 0 ? (
             <p className="text-zinc-500">Waiting for logs...</p>
