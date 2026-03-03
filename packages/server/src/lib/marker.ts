@@ -142,16 +142,12 @@ type LogFn = (message: string) => Promise<void>;
 
 const noopLog: LogFn = async () => {};
 
-export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = noopLog): Promise<ExtractedChapter[]> {
-  await mkdir(outDir, { recursive: true });
-
-  await log(`Running marker_single on "${path.basename(pdfPath)}"`);
-
-  await new Promise<void>((resolve, reject) => {
+function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu", log: LogFn): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
     const proc = spawn(
       path.join(CONDA_BIN, "marker_single"),
       [pdfPath, "--output_format", "json", "--output_dir", outDir],
-      { env: { ...process.env, TORCH_DEVICE: "mps", HF_HUB_OFFLINE: "1", PATH: `${CONDA_BIN}:${process.env.PATH}` } }
+      { env: { ...process.env, TORCH_DEVICE: device, HF_HUB_OFFLINE: "1", PATH: `${CONDA_BIN}:${process.env.PATH}` } }
     );
 
     const timeout = setTimeout(() => {
@@ -207,6 +203,19 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
       reject(err);
     });
   });
+}
+
+export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = noopLog): Promise<ExtractedChapter[]> {
+  await mkdir(outDir, { recursive: true });
+
+  await log(`Running marker_single on "${path.basename(pdfPath)}"`);
+
+  try {
+    await runMarkerSingle(pdfPath, outDir, "mps", log);
+  } catch (mpsError) {
+    await log(`MPS extraction failed — known PyTorch MPS bug with certain PDFs. Retrying with CPU...`);
+    await runMarkerSingle(pdfPath, outDir, "cpu", log);
+  }
 
   let searchDir = outDir;
   let files = await readdir(outDir);
