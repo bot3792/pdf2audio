@@ -4,6 +4,7 @@ import { readFile, readdir, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { env } from "../env.ts";
+import { detectChaptersWithLlm } from "./chapter-detect.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
 
@@ -123,44 +124,95 @@ function chapterFromBlocks(title: string, blocks: FlatBlock[]): ExtractedChapter
   return { title, text, pageStart, pageEnd, sourceBlocks: blocksToSourceBlocks(blocks) };
 }
 
-function detectChaptersFromBlocks(allBlocks: FlatBlock[]): ExtractedChapter[] {
-  const includedBlocks = allBlocks.filter((b) => b.included);
-  const headingBlocks: { index: number; level: number; text: string }[] = [];
+function isLikelySubheading(text: string): boolean {
+  const t = text.trim();
+  if (/^(?:[A-Za-z]|\d+|[IVXivxlcdm]+)\.\s/.test(t)) return true;
+  if (/^[a-z]{1,3}\s+[a-z]\.\s/.test(t)) return true;
+  return false;
+}
+
+function isLikelyFrontOrBackMatter(text: string): boolean {
+  const t = text.toLowerCase();
+  return [
+    "acknowledg",
+    "about the author",
+    "introduction",
+    "preface",
+    "table of contents",
+    "contents",
+    "bibliography",
+    "index",
+    "glossary",
+  ].some((x) => t.includes(x));
+}
+
+function pickChapterHeadingIndices(allBlocks: FlatBlock[]): number[] {
+  const headingBlocks: { index: number; level: number; text: string; page: number }[] = [];
   for (let i = 0; i < allBlocks.length; i++) {
     if (allBlocks[i].included && allBlocks[i].type === "SectionHeader") {
-      headingBlocks.push({ index: i, level: allBlocks[i].level ?? 1, text: allBlocks[i].text });
+      headingBlocks.push({
+        index: i,
+        level: allBlocks[i].level ?? 4,
+        text: allBlocks[i].text,
+        page: allBlocks[i].page,
+      });
     }
   }
 
-  let targetLevel: number | null = null;
-  for (const lvl of [1, 2, 3]) {
-    if (headingBlocks.some((h) => h.level === lvl)) {
-      targetLevel = lvl;
-      break;
+  if (headingBlocks.length === 0) return [];
+
+  const totalPages = Math.max(...allBlocks.map((b) => b.page));
+  const minChapterPage = totalPages > 80 ? Math.floor(totalPages * 0.08) : 1;
+
+  let bestIndices: number[] = [];
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (const level of [1, 2, 3, 4]) {
+    const levelHeadings = headingBlocks.filter((h) => h.level === level);
+    if (levelHeadings.length < 2) continue;
+
+    const filtered = levelHeadings.filter((h) => {
+      const words = h.text.split(/\s+/).filter(Boolean).length;
+      if (h.page < minChapterPage) return false;
+      if (words < 3) return false;
+      if (isLikelySubheading(h.text)) return false;
+      if (isLikelyFrontOrBackMatter(h.text)) return false;
+      return true;
+    });
+
+    if (filtered.length < 2) continue;
+
+    const count = filtered.length;
+    const target = 10;
+    const score = -Math.abs(count - target) + (level === 1 ? 0.5 : 0);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndices = filtered.map((h) => h.index);
     }
   }
 
-  if (targetLevel === null) {
-    return splitByWordCount(allBlocks);
-  }
+  return bestIndices;
+}
 
-  const chapterHeadings = headingBlocks.filter((h) => h.level === targetLevel);
-  if (chapterHeadings.length === 0) {
+function detectChaptersFromBlocks(allBlocks: FlatBlock[]): ExtractedChapter[] {
+  const chapterHeadingIndices = pickChapterHeadingIndices(allBlocks);
+  if (chapterHeadingIndices.length < 2) {
     return splitByWordCount(allBlocks);
   }
 
   const chapters: ExtractedChapter[] = [];
-  for (let i = 0; i < chapterHeadings.length; i++) {
-    const start = chapterHeadings[i].index;
-    const end = i + 1 < chapterHeadings.length ? chapterHeadings[i + 1].index : allBlocks.length;
+  for (let i = 0; i < chapterHeadingIndices.length; i++) {
+    const start = chapterHeadingIndices[i];
+    const end = i + 1 < chapterHeadingIndices.length ? chapterHeadingIndices[i + 1] : allBlocks.length;
     const blocks = allBlocks.slice(start, end);
-    const ch = chapterFromBlocks(chapterHeadings[i].text, blocks);
+    const ch = chapterFromBlocks(allBlocks[start].text, blocks);
     if (ch.text.trim()) {
       chapters.push(ch);
     }
   }
 
-  const prefaceBlocks = allBlocks.slice(0, chapterHeadings[0].index);
+  const prefaceBlocks = allBlocks.slice(0, chapterHeadingIndices[0]);
   if (prefaceBlocks.length > 0) {
     const ch = chapterFromBlocks("Preface", prefaceBlocks);
     if (ch.text.trim().split(/\s+/).length > 50) {
@@ -204,15 +256,90 @@ function splitByWordCount(allBlocks: FlatBlock[], wordsPerChapter = 5000): Extra
   return chapters;
 }
 
+function similarity(a: string, b: string): number {
+  const la = a.toLowerCase();
+  const lb = b.toLowerCase();
+  if (la === lb) return 1;
+  const shorter = la.length < lb.length ? la : lb;
+  const longer = la.length < lb.length ? lb : la;
+  if (longer.length === 0) return 0;
+  if (longer.includes(shorter)) return shorter.length / longer.length;
+  let matches = 0;
+  const longerChars = [...longer];
+  for (const ch of shorter) {
+    const idx = longerChars.indexOf(ch);
+    if (idx !== -1) {
+      matches++;
+      longerChars[idx] = "";
+    }
+  }
+  return matches / longer.length;
+}
+
+function chaptersFromLlmBoundaries(
+  allBlocks: FlatBlock[],
+  boundaries: { title: string; page: number }[]
+): ExtractedChapter[] | null {
+  const blockIndices: number[] = [];
+
+  for (const boundary of boundaries) {
+    let bestIndex = -1;
+    let bestScore = 0;
+    for (let i = 0; i < allBlocks.length; i++) {
+      const block = allBlocks[i];
+      if (block.type !== "SectionHeader" || !block.included) continue;
+      const pageDist = Math.abs(block.page - boundary.page);
+      if (pageDist > 3) continue;
+      const sim = similarity(block.text, boundary.title);
+      const score = sim - pageDist * 0.1;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    }
+    if (bestIndex !== -1 && bestScore > 0.3) {
+      blockIndices.push(bestIndex);
+    }
+  }
+
+  if (blockIndices.length < 2) return null;
+
+  blockIndices.sort((a, b) => a - b);
+
+  const chapters: ExtractedChapter[] = [];
+  for (let i = 0; i < blockIndices.length; i++) {
+    const start = blockIndices[i];
+    const end = i + 1 < blockIndices.length ? blockIndices[i + 1] : allBlocks.length;
+    const blocks = allBlocks.slice(start, end);
+    const title = allBlocks[start].text;
+    const ch = chapterFromBlocks(title, blocks);
+    if (ch.text.trim()) {
+      chapters.push(ch);
+    }
+  }
+
+  const prefaceBlocks = allBlocks.slice(0, blockIndices[0]);
+  if (prefaceBlocks.length > 0) {
+    const ch = chapterFromBlocks("Preface", prefaceBlocks);
+    if (ch.text.trim().split(/\s+/).length > 50) {
+      chapters.unshift(ch);
+    }
+  }
+
+  return chapters.length >= 2 ? chapters : null;
+}
+
 type LogFn = (message: string) => Promise<void>;
 
 const noopLog: LogFn = async () => {};
 
-function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu", log: LogFn): Promise<void> {
+function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu", log: LogFn, disableOcr: boolean): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    const args = [pdfPath, "--output_format", "json", "--output_dir", outDir];
+    if (disableOcr) args.push("--disable_ocr");
     const proc = spawn(
       path.join(CONDA_BIN, "marker_single"),
-      [pdfPath, "--output_format", "json", "--output_dir", outDir],
+      args,
       { env: { ...process.env, TORCH_DEVICE: device, HF_HUB_OFFLINE: "1", PATH: `${CONDA_BIN}:${process.env.PATH}` } }
     );
 
@@ -271,35 +398,27 @@ function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu",
   });
 }
 
-export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = noopLog): Promise<ExtractedChapter[]> {
-  await mkdir(outDir, { recursive: true });
+export type ExtractOptions = {
+  forceOcr?: boolean;
+  llmChapterDetection?: boolean;
+};
 
-  await log(`Running marker_single on "${path.basename(pdfPath)}"`);
-
-  try {
-    await runMarkerSingle(pdfPath, outDir, "mps", log);
-  } catch (mpsError) {
-    await log(`MPS extraction failed — known PyTorch MPS bug with certain PDFs. Retrying with CPU...`);
-    await runMarkerSingle(pdfPath, outDir, "cpu", log);
-  }
-
+async function findMarkerJson(outDir: string): Promise<string> {
   let searchDir = outDir;
-  let files = await readdir(outDir);
+  const files = await readdir(outDir);
   let jsonFile = files.find((f) => f.endsWith(".json") && !f.endsWith("_meta.json"));
 
   if (!jsonFile) {
     for (const entry of files) {
       const entryPath = path.join(outDir, entry);
       const s = await stat(entryPath);
-      if (s.isDirectory()) {
-        const subFiles = await readdir(entryPath);
-        const found = subFiles.find((f) => f.endsWith(".json") && !f.endsWith("_meta.json"));
-        if (found) {
-          searchDir = entryPath;
-          jsonFile = found;
-          break;
-        }
-      }
+      if (!s.isDirectory()) continue;
+      const subFiles = await readdir(entryPath);
+      const found = subFiles.find((f) => f.endsWith(".json") && !f.endsWith("_meta.json"));
+      if (!found) continue;
+      searchDir = entryPath;
+      jsonFile = found;
+      break;
     }
   }
 
@@ -307,7 +426,11 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
     throw new Error("Marker did not produce a JSON output file");
   }
 
-  const raw = await readFile(path.join(searchDir, jsonFile), "utf-8");
+  return path.join(searchDir, jsonFile);
+}
+
+async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath: string, log: LogFn, options: ExtractOptions): Promise<ExtractedChapter[]> {
+  const raw = await readFile(markerJsonPath, "utf-8");
   const doc: MarkerOutput = JSON.parse(raw);
 
   const allBlocks: FlatBlock[] = [];
@@ -337,13 +460,49 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
     }
   }
 
-  const toc = doc.metadata?.table_of_contents;
-  if (toc && toc.length > 0) {
-    const h1Entries = toc.filter((e) => e.heading_level === 1);
-    if (h1Entries.length >= 2) {
-      return detectChaptersFromBlocks(allBlocks);
+  if (options.llmChapterDetection !== false) {
+    await log("Attempting LLM chapter detection...");
+    try {
+      const boundaries = await detectChaptersWithLlm(markerJsonPath, pdfPath, log);
+      if (boundaries && boundaries.length >= 2) {
+        const chapters = chaptersFromLlmBoundaries(allBlocks, boundaries);
+        if (chapters) {
+          await log(`LLM detected ${chapters.length} chapters`);
+          return chapters;
+        }
+        await log("LLM boundaries didn't match blocks, falling back to heuristic");
+      } else {
+        await log("LLM returned no usable chapters, falling back to heuristic");
+      }
+    } catch (err) {
+      await log(`LLM chapter detection failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+  } else if (options.llmChapterDetection === false) {
+    await log("LLM chapter detection disabled, using heuristic");
   }
 
   return detectChaptersFromBlocks(allBlocks);
+}
+
+export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = noopLog, options: ExtractOptions = {}): Promise<ExtractedChapter[]> {
+  await mkdir(outDir, { recursive: true });
+
+  const disableOcr = !options.forceOcr;
+  await log(`Running marker_single on "${path.basename(pdfPath)}"${disableOcr ? " (OCR disabled)" : " (OCR enabled)"}`);
+
+  try {
+    await runMarkerSingle(pdfPath, outDir, "mps", log, disableOcr);
+  } catch (mpsError) {
+    await log(`MPS extraction failed — known PyTorch MPS bug with certain PDFs. Retrying with CPU...`);
+    await runMarkerSingle(pdfPath, outDir, "cpu", log, disableOcr);
+  }
+
+  const markerJsonPath = await findMarkerJson(outDir);
+  return detectChaptersFromMarkerJsonPath(markerJsonPath, pdfPath, log, options);
+}
+
+export async function redetectChaptersFromExistingMarkerOutput(outDir: string, pdfPath: string, log: LogFn = noopLog, options: ExtractOptions = {}): Promise<ExtractedChapter[]> {
+  const markerJsonPath = await findMarkerJson(outDir);
+  await log("Re-detecting chapters from existing Marker output");
+  return detectChaptersFromMarkerJsonPath(markerJsonPath, pdfPath, log, options);
 }

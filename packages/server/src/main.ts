@@ -56,6 +56,8 @@ async function main() {
     const title = filename.replace(/\.pdf$/i, "").replace(/[_-]/g, " ");
     const voice = (data.fields.voice as any)?.value ?? "af_heart";
     const speed = parseFloat((data.fields.speed as any)?.value ?? "1.0");
+    const forceOcr = (data.fields.forceOcr as any)?.value === "true";
+    const llmChapterDetection = (data.fields.llmChapterDetection as any)?.value === "true";
 
     const [book] = await db
       .insert(books)
@@ -66,6 +68,8 @@ async function main() {
         pdfPath,
         voice,
         speed,
+        forceOcr,
+        llmChapterDetection,
       })
       .returning();
 

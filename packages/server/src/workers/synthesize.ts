@@ -1,7 +1,7 @@
 import { db } from "../db.ts";
 import { chapters, books } from "../schema.ts";
 import { eq, and, ne, notInArray } from "drizzle-orm";
-import { synthesize as kokoroSynthesize } from "../lib/kokoro.ts";
+import { synthesize as kokoroSynthesize, KokoroAbortedError } from "../lib/kokoro.ts";
 import { wavToMp3 } from "../lib/ffmpeg.ts";
 import { bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
@@ -25,11 +25,24 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
     return;
   }
 
-  await db.update(chapters).set({ status: "synthesizing", error: null, progress: null }).where(eq(chapters.id, chapterId));
+  const transitioned = await db
+    .update(chapters)
+    .set({ status: "synthesizing", error: null, progress: null })
+    .where(and(eq(chapters.id, chapterId), ne(chapters.status, "suspended")))
+    .returning({ id: chapters.id });
+
+  if (transitioned.length === 0) {
+    await log(`[Ch ${(currentChapter?.index ?? 0) + 1}] Skipped (suspended)`);
+    return;
+  }
+
   await db.update(books).set({ error: null, updatedAt: new Date() }).where(eq(books.id, bookId));
 
   let chPrefix = "";
   const chLog = (msg: string) => appendLog(bookId, chPrefix + msg);
+  const abortController = new AbortController();
+  let cancelPoll: NodeJS.Timeout | null = null;
+  let cancelCheckInFlight = false;
 
   try {
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
@@ -52,18 +65,53 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
     const wavPath = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.wav`);
     const mp3Path = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.mp3`);
 
+    cancelPoll = setInterval(async () => {
+      if (cancelCheckInFlight) return;
+      cancelCheckInFlight = true;
+      try {
+        const [latest] = await db
+          .select({ status: chapters.status })
+          .from(chapters)
+          .where(eq(chapters.id, chapterId));
+        if (latest?.status === "suspended") {
+          abortController.abort();
+        }
+      } finally {
+        cancelCheckInFlight = false;
+      }
+    }, 1500);
+
     await kokoroSynthesize({
       inputText: text,
       outputPath: wavPath,
       voice: book.voice,
       speed: book.speed,
       log: chLog,
+      signal: abortController.signal,
       onProgress: async (chunk, totalChunks) => {
-        await db.update(chapters)
+        const updated = await db.update(chapters)
           .set({ progress: `${chunk}/${totalChunks}` })
-          .where(eq(chapters.id, chapterId));
+          .where(and(eq(chapters.id, chapterId), ne(chapters.status, "suspended")))
+          .returning({ id: chapters.id });
+        if (updated.length === 0) {
+          abortController.abort();
+        }
       },
     });
+
+    if (cancelPoll) {
+      clearInterval(cancelPoll);
+      cancelPoll = null;
+    }
+
+    const [latestAfterSynth] = await db
+      .select({ status: chapters.status })
+      .from(chapters)
+      .where(eq(chapters.id, chapterId));
+    if (latestAfterSynth?.status === "suspended") {
+      await chLog("Stopped — cancelled by user");
+      return;
+    }
 
     await chLog(`Converting WAV to MP3`);
     await wavToMp3(wavPath, mp3Path);
@@ -108,6 +156,17 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
       }
     }
   } catch (err) {
+    if (cancelPoll) {
+      clearInterval(cancelPoll);
+      cancelPoll = null;
+    }
+
+    if (err instanceof KokoroAbortedError) {
+      await db.update(chapters).set({ status: "suspended", error: null, progress: null }).where(eq(chapters.id, chapterId));
+      await chLog("Stopped — cancelled by user");
+      return;
+    }
+
     const message = err instanceof Error ? err.message : String(err);
     await chLog(`Synthesis failed: ${message}`);
     await db.update(chapters).set({ status: "failed", error: message }).where(eq(chapters.id, chapterId));

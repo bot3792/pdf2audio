@@ -25,9 +25,17 @@ type SynthesizeOptions = {
   speed: number;
   log?: LogFn;
   onProgress?: ProgressFn;
+  signal?: AbortSignal;
 };
 
-export async function synthesize({ inputText, outputPath, voice, speed, log = noopLog, onProgress = noopProgress }: SynthesizeOptions): Promise<void> {
+export class KokoroAbortedError extends Error {
+  constructor() {
+    super("Kokoro synthesis aborted");
+    this.name = "KokoroAbortedError";
+  }
+}
+
+export async function synthesize({ inputText, outputPath, voice, speed, log = noopLog, onProgress = noopProgress, signal }: SynthesizeOptions): Promise<void> {
   const textPath = outputPath.replace(/\.wav$/, ".txt");
   await writeFile(textPath, inputText, "utf-8");
 
@@ -36,6 +44,11 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
   await log(`Starting Kokoro synthesis (${wordCount.toLocaleString()} words, voice: ${voice}, speed: ${speed}x)`);
 
   await new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new KokoroAbortedError());
+      return;
+    }
+
     const proc = spawn(
       pythonBin,
       [SYNTHESIZE_SCRIPT, "--input", textPath, "--output", outputPath, "--voice", voice, "--speed", String(speed)],
@@ -53,6 +66,13 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
       proc.kill("SIGKILL");
       reject(new Error("Kokoro synthesis timed out after 3 hours"));
     }, 3 * 60 * 60 * 1000);
+
+    let aborted = false;
+    const handleAbort = () => {
+      aborted = true;
+      proc.kill("SIGKILL");
+    };
+    signal?.addEventListener("abort", handleAbort);
 
     let totalChunks = 0;
     const stdoutRl = createInterface({ input: proc.stdout });
@@ -84,6 +104,11 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
       clearTimeout(timeout);
       stdoutRl.close();
       stderrRl.close();
+      signal?.removeEventListener("abort", handleAbort);
+      if (aborted) {
+        reject(new KokoroAbortedError());
+        return;
+      }
       if (code !== 0) {
         reject(new Error(`Kokoro synthesis failed: ${stderrBuf.trim()}`));
       } else if (stderrBuf.includes("Error")) {
@@ -97,6 +122,11 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
       clearTimeout(timeout);
       stdoutRl.close();
       stderrRl.close();
+      signal?.removeEventListener("abort", handleAbort);
+      if (aborted) {
+        reject(new KokoroAbortedError());
+        return;
+      }
       reject(err);
     });
   });

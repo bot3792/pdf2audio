@@ -22,7 +22,10 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
     if (!book) throw new Error(`Book ${bookId} not found`);
 
     const tmpOut = bookTmpDir(bookId);
-    const extractedChapters = await extractPdf(book.pdfPath, tmpOut, log);
+    const extractedChapters = await extractPdf(book.pdfPath, tmpOut, log, {
+      forceOcr: book.forceOcr,
+      llmChapterDetection: book.llmChapterDetection,
+    });
 
     if (extractedChapters.length === 0) {
       throw new Error("No chapters detected in PDF");

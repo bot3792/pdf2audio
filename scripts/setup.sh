@@ -14,7 +14,7 @@ echo "  python3: $(python3 --version)"
 
 echo ""
 echo "Installing Python dependencies..."
-pip3 install marker-pdf kokoro soundfile
+pip3 install marker-pdf kokoro soundfile mlx-lm
 
 echo ""
 echo "Verifying marker..."
@@ -23,6 +23,10 @@ python3 -c "import marker; print(f'  marker: {marker.__version__}')" 2>/dev/null
 echo ""
 echo "Verifying kokoro..."
 python3 -c "from kokoro import KPipeline; print('  kokoro: OK')"
+
+echo ""
+echo "Caching Qwen2.5 model for chapter detection..."
+python3 -c "from mlx_lm import load; load('mlx-community/Qwen2.5-1.5B-Instruct-4bit'); print('  qwen2.5: OK')" 2>/dev/null || echo "  qwen2.5: download manually with: python3 -c \"from mlx_lm import load; load('mlx-community/Qwen2.5-1.5B-Instruct-4bit')\""
 
 echo ""
 echo "Creating data directories..."

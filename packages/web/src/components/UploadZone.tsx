@@ -18,6 +18,8 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
   const [stagedFile, setStagedFile] = useState<File | null>(null);
   const [voice, setVoice] = useState("af_heart");
   const [speed, setSpeed] = useState(1.0);
+  const [forceOcr, setForceOcr] = useState(false);
+  const [llmChapterDetection, setLlmChapterDetection] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -41,6 +43,8 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
       formData.append("file", stagedFile);
       formData.append("voice", voice);
       formData.append("speed", String(speed));
+      formData.append("forceOcr", String(forceOcr));
+      formData.append("llmChapterDetection", String(llmChapterDetection));
 
       const res = await fetch("/upload", { method: "POST", body: formData });
       if (!res.ok) {
@@ -137,6 +141,17 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
       <div className="flex gap-6 items-end">
         <VoicePicker value={voice} onChange={setVoice} />
         <SpeedSlider value={speed} onChange={setSpeed} />
+      </div>
+
+      <div className="flex gap-6">
+        <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Only needed for scanned PDFs without selectable text">
+          <input type="checkbox" checked={forceOcr} onChange={(e) => setForceOcr(e.target.checked)} className="rounded" />
+          Force OCR
+        </label>
+        <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses a local LLM to identify chapter boundaries from the table of contents">
+          <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
+          LLM chapter detection
+        </label>
       </div>
 
       {stagedFile && (

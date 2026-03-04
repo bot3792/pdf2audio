@@ -57,6 +57,13 @@
       "when": 1772700000000,
       "tag": "0007_add_source_blocks",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1772565000000,
+      "tag": "0008_add_extraction_options",
+      "breakpoints": true
     }
   ]
 }

@@ -3,9 +3,10 @@ import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, chapters, bookLogs, assemblies } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
-import { eq, desc, asc, gt, and, ne, inArray } from "drizzle-orm";
+import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
 import { uploadsDir, bookTmpDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
+import { redetectChaptersFromExistingMarkerOutput } from "../lib/marker.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, unlink, rm } from "node:fs/promises";
@@ -146,6 +147,8 @@ export const booksRouter = router({
         id: z.string().uuid(),
         voice: z.string().optional(),
         speed: z.number().min(0.5).max(2.0).optional(),
+        forceOcr: z.boolean().optional(),
+        llmChapterDetection: z.boolean().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -157,6 +160,8 @@ export const booksRouter = router({
       };
       if (input.voice) updates.voice = input.voice;
       if (input.speed) updates.speed = input.speed;
+      if (input.forceOcr !== undefined) updates.forceOcr = input.forceOcr;
+      if (input.llmChapterDetection !== undefined) updates.llmChapterDetection = input.llmChapterDetection;
 
       await db.update(books).set(updates).where(eq(books.id, input.id));
       await db.delete(chapters).where(eq(chapters.bookId, input.id));
@@ -167,6 +172,122 @@ export const booksRouter = router({
 
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       return book;
+    }),
+
+  redetectChapters: publicProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        forceOcr: z.boolean().optional(),
+        llmChapterDetection: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+      if (book.status === "extracting" || book.status === "assembling") {
+        throw new Error("Cannot re-detect chapters while book is processing");
+      }
+
+      const updates: Record<string, unknown> = {
+        status: "pending",
+        error: null,
+        outputPath: null,
+        updatedAt: new Date(),
+      };
+      if (input.forceOcr !== undefined) updates.forceOcr = input.forceOcr;
+      if (input.llmChapterDetection !== undefined) updates.llmChapterDetection = input.llmChapterDetection;
+
+      const allChapters = await db
+        .select({
+          id: chapters.id,
+          audioPath: chapters.audioPath,
+          title: chapters.title,
+          pageStart: chapters.pageStart,
+          pageEnd: chapters.pageEnd,
+        })
+        .from(chapters)
+        .where(eq(chapters.bookId, input.id));
+
+      const oldSignature = allChapters
+        .map((c) => `${c.title}|${c.pageStart ?? ""}|${c.pageEnd ?? ""}`)
+        .join("\n");
+
+      const bookAssemblies = await db
+        .select({ id: assemblies.id, outputPath: assemblies.outputPath })
+        .from(assemblies)
+        .where(eq(assemblies.bookId, input.id));
+
+      let deletedAudioFiles = 0;
+      for (const ch of allChapters) {
+        if (ch.audioPath) await unlink(ch.audioPath).catch(() => {});
+        if (ch.audioPath) deletedAudioFiles++;
+      }
+      for (const assembly of bookAssemblies) {
+        if (assembly.outputPath) await unlink(assembly.outputPath).catch(() => {});
+      }
+      if (book.outputPath) await unlink(book.outputPath).catch(() => {});
+
+      await db.delete(assemblies).where(eq(assemblies.bookId, input.id));
+      await db.delete(chapters).where(eq(chapters.bookId, input.id));
+      await db.update(books).set(updates).where(eq(books.id, input.id));
+
+      await appendLog(input.id, "Re-detecting chapters from existing extraction output");
+      await appendLog(
+        input.id,
+        `Removed ${allChapters.length} existing chapter${allChapters.length === 1 ? "" : "s"}, ${bookAssemblies.length} assembl${bookAssemblies.length === 1 ? "y" : "ies"}, and ${deletedAudioFiles} chapter audio file${deletedAudioFiles === 1 ? "" : "s"}`
+      );
+
+      const finalLlmSetting = input.llmChapterDetection ?? book.llmChapterDetection;
+      const detected = await redetectChaptersFromExistingMarkerOutput(bookTmpDir(input.id), book.pdfPath, (msg) => appendLog(input.id, msg), {
+        llmChapterDetection: finalLlmSetting,
+      });
+
+      if (detected.length === 0) {
+        throw new Error("No chapters detected from existing extraction output");
+      }
+
+      await appendLog(input.id, `Detected ${detected.length} chapters`);
+
+      for (let i = 0; i < detected.length; i++) {
+        const ch = detected[i];
+        const wordCount = ch.text.split(/\s+/).filter(Boolean).length;
+        await appendLog(input.id, `Chapter ${i + 1}: "${ch.title}" (${wordCount.toLocaleString()} words)`);
+
+        const [inserted] = await db
+          .insert(chapters)
+          .values({
+            bookId: input.id,
+            index: i,
+            title: ch.title,
+            rawText: ch.text,
+            pageStart: ch.pageStart,
+            pageEnd: ch.pageEnd,
+            sourceBlocks: ch.sourceBlocks,
+            status: "suspended",
+          })
+          .returning();
+      }
+
+      await db
+        .update(books)
+        .set({ totalChapters: detected.length, updatedAt: new Date() })
+        .where(eq(books.id, input.id));
+
+      const newSignature = detected
+        .map((c) => `${c.title}|${c.pageStart ?? ""}|${c.pageEnd ?? ""}`)
+        .join("\n");
+
+      if (oldSignature === newSignature) {
+        await appendLog(input.id, "Chapter boundaries unchanged from previous detection");
+      } else {
+        await appendLog(input.id, "Chapter boundaries updated");
+      }
+
+      await appendLog(input.id, "Chapter re-detection complete — chapters are suspended. Queue selected chapters when ready.");
+
+      const [updated] = await db.select().from(books).where(eq(books.id, input.id));
+      return updated;
     }),
 
   processSelected: publicProcedure
@@ -262,6 +383,18 @@ export const booksRouter = router({
           eq(chapters.bookId, input.id),
           ne(chapters.status, "done"),
         ));
+
+      const cleared = await db.execute(sql`
+        DELETE FROM graphile_worker._private_jobs
+        WHERE task_identifier IN ('normalize', 'synthesize')
+          AND (payload ->> 'bookId') = ${input.id}
+          AND run_at > now()
+      `);
+
+      const clearedCount = Array.isArray(cleared) ? 0 : Number((cleared as { rowCount?: number }).rowCount ?? 0);
+      if (clearedCount > 0) {
+        await appendLog(input.id, `Cleared ${clearedCount} queued job${clearedCount === 1 ? "" : "s"}`);
+      }
 
       return { success: true };
     }),

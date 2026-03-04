@@ -35,6 +35,7 @@ export function BookDetail() {
 
   const cancelMutation = trpc.books.cancel.useMutation({ onSuccess: invalidate });
   const retryMutation = trpc.books.retry.useMutation({ onSuccess: invalidate });
+  const redetectMutation = trpc.books.redetectChapters.useMutation({ onSuccess: invalidate });
   const processSelectedMutation = trpc.books.processSelected.useMutation({ onSuccess: invalidate });
   const deleteMutation = trpc.books.delete.useMutation({
     onSuccess: () => window.location.assign("/"),
@@ -46,6 +47,9 @@ export function BookDetail() {
   const setSelectedMutation = trpc.chapters.setSelected.useMutation({ onSuccess: invalidate });
   const setAllSelectedMutation = trpc.chapters.setAllSelected.useMutation({ onSuccess: invalidate });
   const setSelectedBatchMutation = trpc.chapters.setSelectedBatch.useMutation({ onSuccess: invalidate });
+
+  const [reExtractForceOcr, setReExtractForceOcr] = useState<boolean | null>(null);
+  const [reExtractLlm, setReExtractLlm] = useState<boolean | null>(null);
 
   if (isLoading || !book) {
     return (
@@ -153,17 +157,60 @@ export function BookDetail() {
             </button>
           ) : null}
           {book.chapters.length > 0 && !isProcessing ? (
-            <button
-              onClick={() => {
-                if (confirm("This will delete all chapters and re-extract from the PDF. Continue?")) {
-                  retryMutation.mutate({ id: book.id });
-                }
-              }}
-              disabled={retryMutation.isPending}
-              className="px-4 py-2 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50"
-            >
-              Re-extract the book
-            </button>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-xs text-(--text-muted)" title="Only needed for scanned PDFs without selectable text">
+                <input
+                  type="checkbox"
+                  checked={reExtractForceOcr ?? book.forceOcr}
+                  onChange={(e) => setReExtractForceOcr(e.target.checked)}
+                  className="rounded"
+                />
+                Force OCR
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-(--text-muted)" title="Uses a local LLM to identify chapter boundaries from the table of contents">
+                <input
+                  type="checkbox"
+                  checked={reExtractLlm ?? book.llmChapterDetection}
+                  onChange={(e) => setReExtractLlm(e.target.checked)}
+                  className="rounded"
+                />
+                LLM chapters
+              </label>
+              <button
+                onClick={() => {
+                  if (confirm("This will delete all chapters and re-extract from the PDF. Continue?")) {
+                    retryMutation.mutate({
+                      id: book.id,
+                      forceOcr: reExtractForceOcr ?? book.forceOcr,
+                      llmChapterDetection: reExtractLlm ?? book.llmChapterDetection,
+                    });
+                    setReExtractForceOcr(null);
+                    setReExtractLlm(null);
+                  }
+                }}
+                disabled={retryMutation.isPending}
+                className="px-4 py-2 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50"
+              >
+                Re-extract the book
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm("This will delete all chapter audio and re-detect chapter boundaries from existing extraction output. Continue?")) {
+                    redetectMutation.mutate({
+                      id: book.id,
+                      forceOcr: reExtractForceOcr ?? book.forceOcr,
+                      llmChapterDetection: reExtractLlm ?? book.llmChapterDetection,
+                    });
+                    setReExtractForceOcr(null);
+                    setReExtractLlm(null);
+                  }
+                }}
+                disabled={redetectMutation.isPending}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              >
+                Re-detect chapters
+              </button>
+            </div>
           ) : null}
           <button
             onClick={() => {
