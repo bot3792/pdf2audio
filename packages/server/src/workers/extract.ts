@@ -1,10 +1,11 @@
 import type { WorkerUtils } from "graphile-worker";
 import { db } from "../db.ts";
-import { books, chapters } from "../schema.ts";
-import { eq } from "drizzle-orm";
+import { books, bookFiles, chapters } from "../schema.ts";
+import { eq, asc, max } from "drizzle-orm";
 import { extractPdf } from "../lib/marker.ts";
 import { bookTmpDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
+import path from "node:path";
 
 export type ExtractPayload = {
   bookId: string;
@@ -21,46 +22,34 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
     const [book] = await db.select().from(books).where(eq(books.id, bookId));
     if (!book) throw new Error(`Book ${bookId} not found`);
 
-    const tmpOut = bookTmpDir(bookId);
-    const extractedChapters = await extractPdf(book.pdfPath, tmpOut, log, {
-      forceOcr: book.forceOcr,
-      llmChapterDetection: book.llmChapterDetection,
-    });
+    const files = await db
+      .select()
+      .from(bookFiles)
+      .where(eq(bookFiles.bookId, bookId))
+      .orderBy(asc(bookFiles.index));
 
-    if (extractedChapters.length === 0) {
-      throw new Error("No chapters detected in PDF");
+    if (files.length === 0) {
+      // Legacy book without book_files rows — use book.pdfPath directly
+      await extractSinglePdf(book, bookTmpDir(bookId), log, addJob, 0, null, book.skipSynthesis);
+    } else {
+      await extractMultipleFiles(book, files, log, addJob);
     }
 
-    await log(`Detected ${extractedChapters.length} chapters`);
-
-    for (let i = 0; i < extractedChapters.length; i++) {
-      const ch = extractedChapters[i];
-      const wordCount = ch.text.split(/\s+/).filter(Boolean).length;
-      await log(`Chapter ${i + 1}: "${ch.title}" (${wordCount.toLocaleString()} words)`);
-
-      const [inserted] = await db
-        .insert(chapters)
-        .values({
-          bookId,
-          index: i,
-          title: ch.title,
-            rawText: ch.text,
-            pageStart: ch.pageStart,
-            pageEnd: ch.pageEnd,
-            sourceBlocks: ch.sourceBlocks,
-            status: book.skipSynthesis ? "suspended" : "pending",
-          })
-          .returning();
-
-      if (!book.skipSynthesis) {
-        await addJob("normalize", { chapterId: inserted.id, bookId }, { maxAttempts: 1 });
-      }
-    }
+    // Count total chapters
+    const [{ count }] = await db
+      .select({ count: max(chapters.index) })
+      .from(chapters)
+      .where(eq(chapters.bookId, bookId));
+    const totalChapters = count != null ? count + 1 : 0;
 
     await db
       .update(books)
-      .set({ totalChapters: extractedChapters.length, updatedAt: new Date() })
+      .set({ totalChapters, updatedAt: new Date() })
       .where(eq(books.id, bookId));
+
+    if (totalChapters === 0) {
+      throw new Error("No chapters detected in any file");
+    }
 
     await log(
       book.skipSynthesis
@@ -72,5 +61,113 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
     await log(`Extraction failed: ${message}`);
     await db.update(books).set({ status: "failed", error: message, updatedAt: new Date() }).where(eq(books.id, bookId));
     throw err;
+  }
+}
+
+async function extractSinglePdf(
+  book: typeof books.$inferSelect,
+  tmpOut: string,
+  log: (msg: string) => Promise<void>,
+  addJob: WorkerUtils["addJob"],
+  chapterOffset: number,
+  sourceFileIndex: number | null,
+  skipSynthesis: boolean,
+) {
+  const extractedChapters = await extractPdf(book.pdfPath, tmpOut, log, {
+    forceOcr: book.forceOcr,
+    llmChapterDetection: book.llmChapterDetection,
+  });
+
+  await log(`Detected ${extractedChapters.length} chapters`);
+
+  for (let i = 0; i < extractedChapters.length; i++) {
+    const ch = extractedChapters[i];
+    const globalIndex = chapterOffset + i;
+    const wordCount = ch.text.split(/\s+/).filter(Boolean).length;
+    await log(`Chapter ${globalIndex + 1}: "${ch.title}" (${wordCount.toLocaleString()} words)`);
+
+    const [inserted] = await db
+      .insert(chapters)
+      .values({
+        bookId: book.id,
+        index: globalIndex,
+        title: ch.title,
+        rawText: ch.text,
+        pageStart: ch.pageStart,
+        pageEnd: ch.pageEnd,
+        sourceBlocks: ch.sourceBlocks,
+        sourceFileIndex,
+        status: skipSynthesis ? "suspended" : "pending",
+      })
+      .returning();
+
+    if (!skipSynthesis) {
+      await addJob("normalize", { chapterId: inserted.id, bookId: book.id }, { maxAttempts: 1 });
+    }
+  }
+
+  return extractedChapters.length;
+}
+
+async function extractMultipleFiles(
+  book: typeof books.$inferSelect,
+  files: (typeof bookFiles.$inferSelect)[],
+  log: (msg: string) => Promise<void>,
+  addJob: WorkerUtils["addJob"],
+) {
+  // Determine chapter offset from existing chapters (for append support)
+  const [existing] = await db
+    .select({ maxIndex: max(chapters.index) })
+    .from(chapters)
+    .where(eq(chapters.bookId, book.id));
+  let chapterOffset = existing?.maxIndex != null ? existing.maxIndex + 1 : 0;
+
+  let filesSucceeded = 0;
+  let filesFailed = 0;
+
+  for (const file of files) {
+    // Skip already-done files (append support)
+    if (file.status === "done") continue;
+
+    // Re-read status to check for cancellation
+    const [fresh] = await db.select({ status: bookFiles.status }).from(bookFiles).where(eq(bookFiles.id, file.id));
+    if (fresh?.status === "failed") {
+      await log(`Skipping cancelled file "${file.filename}"`);
+      filesFailed++;
+      continue;
+    }
+
+    const fileLog = (msg: string) => appendLog(book.id, msg, file.index);
+    await fileLog(`Extracting file ${file.index + 1}: "${file.filename}"`);
+    await db.update(bookFiles).set({ status: "extracting", error: null }).where(eq(bookFiles.id, file.id));
+
+    try {
+      const tmpOut = path.join(bookTmpDir(book.id), `file_${file.index}`);
+      const count = await extractSinglePdf(
+        { ...book, pdfPath: file.pdfPath },
+        tmpOut,
+        fileLog,
+        addJob,
+        chapterOffset,
+        file.index,
+        file.skipSynthesis,
+      );
+      chapterOffset += count;
+      filesSucceeded++;
+      await db.update(bookFiles).set({ status: "done" }).where(eq(bookFiles.id, file.id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await fileLog(`File "${file.filename}" failed: ${message}`);
+      await db.update(bookFiles).set({ status: "failed", error: message }).where(eq(bookFiles.id, file.id));
+      filesFailed++;
+    }
+  }
+
+  if (filesSucceeded === 0 && filesFailed > 0) {
+    throw new Error(`All ${filesFailed} file(s) failed extraction`);
+  }
+
+  if (filesFailed > 0) {
+    await log(`Warning: ${filesFailed} file(s) failed, ${filesSucceeded} succeeded`);
   }
 }

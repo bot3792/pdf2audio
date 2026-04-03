@@ -1,123 +1,228 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { getDb, resetDb } from "../../test/setup.ts";
+import { books, bookFiles, chapters } from "../schema.ts";
+import { eq, asc } from "drizzle-orm";
 
-const { books, chapters, appendLog, extractPdf, insertCalls, updateCalls } = vi.hoisted(() => ({
-  books: { name: "books" },
-  chapters: { name: "chapters" },
-  appendLog: vi.fn(async () => {}),
+// Mock external deps — extractPdf (heavy subprocess), appendLog, paths
+// But use the REAL database for everything else
+vi.mock("../lib/marker.ts", () => ({
   extractPdf: vi.fn(),
-  insertCalls: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
-  updateCalls: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
 }));
 
-type MockBook = {
-  id: string;
-  pdfPath: string;
-  forceOcr: boolean;
-  llmChapterDetection: boolean;
-  skipSynthesis: boolean;
-};
-
-type MockChapter = {
-  title: string;
-  text: string;
-  pageStart: number | null;
-  pageEnd: number | null;
-  sourceBlocks: Array<{ type: string; text: string; page: number; included: boolean }>;
-};
-
-let currentBook: MockBook;
-let extractedChapters: MockChapter[];
-
-vi.mock("../schema.ts", () => ({ books, chapters }));
-
-vi.mock("../lib/log.ts", () => ({ appendLog }));
+vi.mock("../lib/log.ts", () => ({
+  appendLog: vi.fn(async () => {}),
+}));
 
 vi.mock("../lib/paths.ts", () => ({
-  bookTmpDir: (bookId: string) => `/tmp/${bookId}`,
+  bookTmpDir: (bookId: string) => `/tmp/test-${bookId}`,
 }));
 
-vi.mock("../lib/marker.ts", () => ({ extractPdf }));
-
-vi.mock("../db.ts", () => ({
-  db: {
-    update: vi.fn((table: unknown) => ({
-      set: vi.fn((values: Record<string, unknown>) => ({
-        where: vi.fn(async () => {
-          updateCalls.push({ table, values });
-          return [];
-        }),
-      })),
-    })),
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(async () => [currentBook]),
-      })),
-    })),
-    insert: vi.fn((table: unknown) => ({
-      values: vi.fn((values: Record<string, unknown>) => ({
-        returning: vi.fn(async () => {
-          insertCalls.push({ table, values });
-          return [{ id: `chapter-${insertCalls.length}` }];
-        }),
-      })),
-    })),
-  },
-}));
+// Redirect the db import to our test database
+vi.mock("../db.ts", async () => {
+  const { getDb } = await import("../../test/setup.ts");
+  return { get db() { return getDb(); } };
+});
 
 import { extract } from "./extract.ts";
+import { extractPdf } from "../lib/marker.ts";
+
+const mockExtractPdf = vi.mocked(extractPdf);
+
+function fakeChapters(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    title: `Chapter ${i + 1}`,
+    text: `Content of chapter ${i + 1} with enough words`,
+    pageStart: i * 10 + 1,
+    pageEnd: (i + 1) * 10,
+    sourceBlocks: [{ type: "Text", text: `Content ${i + 1}`, page: i * 10 + 1, included: true }],
+  }));
+}
 
 describe("extract worker", () => {
-  beforeEach(() => {
-    currentBook = {
-      id: "book-1",
-      pdfPath: "/tmp/book.pdf",
-      forceOcr: false,
-      llmChapterDetection: false,
-      skipSynthesis: false,
-    };
-    extractedChapters = [
-      {
-        title: "Chapter 1",
-        text: "One two three",
-        pageStart: 1,
-        pageEnd: 2,
-        sourceBlocks: [{ type: "Text", text: "One two three", page: 1, included: true }],
-      },
-      {
-        title: "Chapter 2",
-        text: "Four five six",
-        pageStart: 3,
-        pageEnd: 4,
-        sourceBlocks: [{ type: "Text", text: "Four five six", page: 3, included: true }],
-      },
-    ];
-    insertCalls.length = 0;
-    updateCalls.length = 0;
-    appendLog.mockClear();
-    extractPdf.mockReset();
-    extractPdf.mockImplementation(async () => extractedChapters);
+  beforeEach(async () => {
+    await resetDb(getDb());
+    mockExtractPdf.mockReset();
   });
 
-  it("creates suspended chapters and skips normalize jobs in reader mode", async () => {
-    currentBook.skipSynthesis = true;
+  it("extracts a legacy book (no book_files) using book.pdfPath", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
     const addJob = vi.fn();
 
-    await extract({ bookId: currentBook.id }, { addJob });
+    await db.insert(books).values({
+      id: bookId,
+      title: "Legacy Book",
+      filename: "legacy.pdf",
+      pdfPath: "/tmp/legacy.pdf",
+    });
 
-    expect(insertCalls).toHaveLength(2);
-    expect(insertCalls.map((call) => call.values.status)).toEqual(["suspended", "suspended"]);
+    mockExtractPdf.mockResolvedValue(fakeChapters(3));
+
+    await extract({ bookId }, { addJob } as any);
+
+    const chs = await db.select().from(chapters).where(eq(chapters.bookId, bookId)).orderBy(asc(chapters.index));
+    expect(chs).toHaveLength(3);
+    expect(chs.map((c) => c.index)).toEqual([0, 1, 2]);
+    expect(chs.map((c) => c.sourceFileIndex)).toEqual([null, null, null]);
+    expect(addJob).toHaveBeenCalledTimes(3); // normalize for each chapter
+
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(book.totalChapters).toBe(3);
+  });
+
+  it("extracts multi-file book with correct chapter ordering", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    const addJob = vi.fn();
+
+    await db.insert(books).values({
+      id: bookId,
+      title: "Multi-file Book",
+      filename: "part1.pdf",
+      pdfPath: "/tmp/part1.pdf",
+    });
+
+    await db.insert(bookFiles).values([
+      { bookId, index: 0, filename: "part1.pdf", pdfPath: "/tmp/part1.pdf" },
+      { bookId, index: 1, filename: "part2.pdf", pdfPath: "/tmp/part2.pdf" },
+    ]);
+
+    // File 0 has 2 chapters, file 1 has 3
+    mockExtractPdf
+      .mockResolvedValueOnce(fakeChapters(2))
+      .mockResolvedValueOnce(fakeChapters(3));
+
+    await extract({ bookId }, { addJob } as any);
+
+    const chs = await db.select().from(chapters).where(eq(chapters.bookId, bookId)).orderBy(asc(chapters.index));
+    expect(chs).toHaveLength(5);
+    // File 0 chapters get indices 0,1 — file 1 chapters get indices 2,3,4
+    expect(chs.map((c) => c.index)).toEqual([0, 1, 2, 3, 4]);
+    expect(chs.map((c) => c.sourceFileIndex)).toEqual([0, 0, 1, 1, 1]);
+
+    // Both book_files should be marked done
+    const files = await db.select().from(bookFiles).where(eq(bookFiles.bookId, bookId)).orderBy(asc(bookFiles.index));
+    expect(files.map((f) => f.status)).toEqual(["done", "done"]);
+
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(book.totalChapters).toBe(5);
+  });
+
+  it("skips already-done files on append", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    const addJob = vi.fn();
+
+    await db.insert(books).values({
+      id: bookId,
+      title: "Append Book",
+      filename: "part1.pdf",
+      pdfPath: "/tmp/part1.pdf",
+    });
+
+    // File 0 already done with 2 chapters existing
+    await db.insert(bookFiles).values([
+      { bookId, index: 0, filename: "part1.pdf", pdfPath: "/tmp/part1.pdf", status: "done" },
+      { bookId, index: 1, filename: "part2.pdf", pdfPath: "/tmp/part2.pdf", status: "pending" },
+    ]);
+
+    // Pre-existing chapters from file 0
+    await db.insert(chapters).values([
+      { bookId, index: 0, title: "Ch 1", rawText: "existing", sourceFileIndex: 0 },
+      { bookId, index: 1, title: "Ch 2", rawText: "existing", sourceFileIndex: 0 },
+    ]);
+
+    mockExtractPdf.mockResolvedValue(fakeChapters(2));
+
+    await extract({ bookId }, { addJob } as any);
+
+    // extractPdf should only be called once (for file 1, not file 0)
+    expect(mockExtractPdf).toHaveBeenCalledTimes(1);
+
+    const chs = await db.select().from(chapters).where(eq(chapters.bookId, bookId)).orderBy(asc(chapters.index));
+    expect(chs).toHaveLength(4);
+    // New chapters start at index 2 (after existing 0,1)
+    expect(chs.map((c) => c.index)).toEqual([0, 1, 2, 3]);
+    expect(chs.map((c) => c.sourceFileIndex)).toEqual([0, 0, 1, 1]);
+  });
+
+  it("creates suspended chapters when skipSynthesis is true", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    const addJob = vi.fn();
+
+    await db.insert(books).values({
+      id: bookId,
+      title: "Reader Mode Book",
+      filename: "book.pdf",
+      pdfPath: "/tmp/book.pdf",
+      skipSynthesis: true,
+    });
+
+    mockExtractPdf.mockResolvedValue(fakeChapters(2));
+
+    await extract({ bookId }, { addJob } as any);
+
+    const chs = await db.select().from(chapters).where(eq(chapters.bookId, bookId));
+    expect(chs.every((c) => c.status === "suspended")).toBe(true);
     expect(addJob).not.toHaveBeenCalled();
   });
 
-  it("keeps queuing normalization jobs when synthesis is enabled", async () => {
+  it("handles partial failure — one file fails, other succeeds", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
     const addJob = vi.fn();
 
-    await extract({ bookId: currentBook.id }, { addJob });
+    await db.insert(books).values({
+      id: bookId,
+      title: "Partial Fail",
+      filename: "good.pdf",
+      pdfPath: "/tmp/good.pdf",
+    });
 
-    expect(insertCalls).toHaveLength(2);
-    expect(insertCalls.map((call) => call.values.status)).toEqual(["pending", "pending"]);
-    expect(addJob).toHaveBeenCalledTimes(2);
-    expect(addJob).toHaveBeenNthCalledWith(1, "normalize", { chapterId: "chapter-1", bookId: currentBook.id }, { maxAttempts: 1 });
-    expect(addJob).toHaveBeenNthCalledWith(2, "normalize", { chapterId: "chapter-2", bookId: currentBook.id }, { maxAttempts: 1 });
+    await db.insert(bookFiles).values([
+      { bookId, index: 0, filename: "good.pdf", pdfPath: "/tmp/good.pdf" },
+      { bookId, index: 1, filename: "corrupt.pdf", pdfPath: "/tmp/corrupt.pdf" },
+    ]);
+
+    mockExtractPdf
+      .mockResolvedValueOnce(fakeChapters(2))
+      .mockRejectedValueOnce(new Error("PDF is corrupt"));
+
+    await extract({ bookId }, { addJob } as any);
+
+    const chs = await db.select().from(chapters).where(eq(chapters.bookId, bookId));
+    expect(chs).toHaveLength(2); // Only from the good file
+
+    const files = await db.select().from(bookFiles).where(eq(bookFiles.bookId, bookId)).orderBy(asc(bookFiles.index));
+    expect(files[0].status).toBe("done");
+    expect(files[1].status).toBe("failed");
+    expect(files[1].error).toContain("corrupt");
+  });
+
+  it("fails the whole book when all files fail", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    const addJob = vi.fn();
+
+    await db.insert(books).values({
+      id: bookId,
+      title: "All Fail",
+      filename: "bad.pdf",
+      pdfPath: "/tmp/bad.pdf",
+    });
+
+    await db.insert(bookFiles).values([
+      { bookId, index: 0, filename: "bad1.pdf", pdfPath: "/tmp/bad1.pdf" },
+      { bookId, index: 1, filename: "bad2.pdf", pdfPath: "/tmp/bad2.pdf" },
+    ]);
+
+    mockExtractPdf.mockRejectedValue(new Error("extraction failed"));
+
+    await expect(extract({ bookId }, { addJob } as any)).rejects.toThrow();
+
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(book.status).toBe("failed");
+    expect(book.error).toContain("All 2 file(s) failed");
   });
 });

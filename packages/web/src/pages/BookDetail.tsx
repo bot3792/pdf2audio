@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router";
 import { trpc } from "../trpc.ts";
-import { StatusBadge } from "../components/StatusBadge.tsx";
-import { PipelineSteps } from "../components/PipelineSteps.tsx";
 import { ChapterTable } from "../components/ChapterTable.tsx";
 
 export function BookDetail() {
@@ -14,11 +12,16 @@ export function BookDetail() {
     {
       enabled: !!id,
       refetchInterval: (query) => {
-        const status = query.state.data?.status;
-        if (!status) return 3000;
-        return status === "done" || status === "failed" || status === "suspended"
-          ? false
-          : 2000;
+        const data = query.state.data;
+        if (!data) return 3000;
+        const hasActiveFiles = data.files?.some((f: { status: string }) =>
+          f.status === "extracting" || f.status === "pending"
+        );
+        const hasActiveChapters = data.chapters?.some((c: { status: string }) =>
+          ["synthesizing", "normalizing", "pending"].includes(c.status)
+        );
+        const bookActive = data.status === "extracting" || data.status === "assembling";
+        return (hasActiveFiles || hasActiveChapters || bookActive) ? 2000 : false;
       },
     }
   );
@@ -33,6 +36,7 @@ export function BookDetail() {
     { enabled: !!id },
   );
 
+  // Book mutations
   const cancelMutation = trpc.books.cancel.useMutation({ onSuccess: invalidate });
   const retryMutation = trpc.books.retry.useMutation({ onSuccess: invalidate });
   const redetectMutation = trpc.books.redetectChapters.useMutation({ onSuccess: invalidate });
@@ -40,16 +44,31 @@ export function BookDetail() {
   const deleteMutation = trpc.books.delete.useMutation({
     onSuccess: () => window.location.assign("/"),
   });
-  const queueMutation = trpc.chapters.queue.useMutation({ onSuccess: invalidate });
-  const suspendMutation = trpc.chapters.suspend.useMutation({ onSuccess: invalidate });
   const assembleMutation = trpc.books.assemble.useMutation({ onSuccess: invalidate });
   const deleteAssemblyMutation = trpc.books.deleteAssembly.useMutation({ onSuccess: invalidate });
+
+  // Chapter mutations
+  const queueMutation = trpc.chapters.queue.useMutation({ onSuccess: invalidate });
   const setSelectedMutation = trpc.chapters.setSelected.useMutation({ onSuccess: invalidate });
   const setAllSelectedMutation = trpc.chapters.setAllSelected.useMutation({ onSuccess: invalidate });
   const setSelectedBatchMutation = trpc.chapters.setSelectedBatch.useMutation({ onSuccess: invalidate });
 
+  // File mutations
+  const setFileSelectedMutation = trpc.bookFiles.setSelected.useMutation({ onSuccess: invalidate });
+  const setAllFilesSelectedMutation = trpc.bookFiles.setAllSelected.useMutation({ onSuccess: invalidate });
+  const setFileSelectedBatchMutation = trpc.bookFiles.setSelectedBatch.useMutation({ onSuccess: invalidate });
+  const removeFileMutation = trpc.bookFiles.remove.useMutation({ onSuccess: invalidate });
+  const reExtractFileMutation = trpc.bookFiles.reExtract.useMutation({ onSuccess: invalidate });
+  const reExtractSelectedMutation = trpc.bookFiles.reExtractSelected.useMutation({ onSuccess: invalidate });
+  const cancelFileMutation = trpc.bookFiles.cancel.useMutation({ onSuccess: invalidate });
+
   const [reExtractForceOcr, setReExtractForceOcr] = useState<boolean | null>(null);
   const [reExtractLlm, setReExtractLlm] = useState<boolean | null>(null);
+  const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
+  const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
+  const renameChapterMutation = trpc.chapters.rename.useMutation({ onSuccess: invalidate });
+  const reorderChaptersMutation = trpc.chapters.reorder.useMutation({ onSuccess: invalidate });
+  const setSkipSynthesisMutation = trpc.bookFiles.setSkipSynthesis.useMutation({ onSuccess: invalidate });
 
   if (isLoading || !book) {
     return (
@@ -61,15 +80,22 @@ export function BookDetail() {
     );
   }
 
-  const doneChapters = book.chapters.filter((c) => c.status === "done").length;
+  // Derived state
   const selectedCount = book.chapters.filter((c) => c.selected).length;
-  const isProcessing = ["extracting", "synthesizing", "assembling", "normalizing"].includes(book.status);
+  const hasActiveFiles = book.files?.some((f) => f.status === "extracting" || f.status === "pending") ?? false;
+  const hasActiveChapters = book.chapters.some((c) =>
+    ["synthesizing", "normalizing", "pending"].includes(c.status)
+  );
+  const isProcessing = hasActiveFiles || hasActiveChapters ||
+    book.status === "extracting" || book.status === "assembling";
   const selectedWithAudio = book.chapters.filter((c) => c.selected && c.status === "done" && c.audioPath).length;
   const selectedNotDone = book.chapters.filter(
     (c) => c.selected && (c.status === "failed" || c.status === "suspended" || c.status === "pending")
   ).length;
-  const canAssemble = selectedWithAudio > 0 && !isProcessing;
-  const canProcess = selectedNotDone > 0 && !isProcessing;
+  const isAssembling = book.status === "assembling";
+  const allSelectedDone = selectedCount > 0 && book.chapters.filter((c) => c.selected).every((c) => c.status === "done" && c.audioPath);
+  const canAssemble = allSelectedDone && !isAssembling;
+  const canProcess = selectedNotDone > 0 && !hasActiveChapters && !isAssembling;
 
   return (
     <div className="min-h-screen bg-(--bg-page)">
@@ -78,29 +104,18 @@ export function BookDetail() {
           &larr; Back
         </Link>
 
-        <div className="flex items-start justify-between mb-4">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-(--text-primary)">{book.title}</h1>
+            <EditableTitle
+              title={book.title}
+              onRename={(title) => renameMutation.mutate({ id: book.id, title })}
+            />
             <p className="text-sm text-(--text-muted) mt-1">
-              {book.filename} &middot; Voice: {book.voice} &middot; Speed: {book.speed}x
+              Voice: {book.voice} &middot; Speed: {book.speed}x
               {book.skipSynthesis ? " · Reader mode" : ""}
-              &middot; 4 worker slots
             </p>
           </div>
-          <StatusBadge
-            status={book.status}
-            error={book.error}
-            chaptersCompleted={doneChapters}
-            totalChapters={book.totalChapters}
-          />
-        </div>
-
-        <div className="mb-6">
-          <PipelineSteps
-            status={book.status}
-            chaptersCompleted={doneChapters}
-            totalChapters={book.totalChapters}
-          />
         </div>
 
         {book.error && (
@@ -109,162 +124,209 @@ export function BookDetail() {
           </div>
         )}
 
-        {isProcessing && book.totalChapters > 0 && (
-          <ProgressSection
-            status={book.status}
-            doneChapters={doneChapters}
-            totalChapters={book.totalChapters}
+        {/* TIER 1: Source Files */}
+        {book.files && book.files.length > 0 && (
+          <BookFilesSection
+            files={book.files}
             chapters={book.chapters}
+            bookId={book.id}
+            isProcessing={isProcessing}
+            onSetSelected={(fid, selected) => setFileSelectedMutation.mutate({ id: fid, selected })}
+            onSetAllSelected={(selected) => setAllFilesSelectedMutation.mutate({ bookId: book.id, selected })}
+            onSetSelectedBatch={(ids, selected) => setFileSelectedBatchMutation.mutate({ ids, selected })}
+            onRemove={(fid) => removeFileMutation.mutate({ id: fid })}
+            onReExtract={(fid) => reExtractFileMutation.mutate({ id: fid })}
+            onReExtractSelected={() => reExtractSelectedMutation.mutate({ bookId: book.id })}
+            onCancel={(fid) => cancelFileMutation.mutate({ id: fid })}
+            onSetSkipSynthesis={(fid, skip) => setSkipSynthesisMutation.mutate({ id: fid, skipSynthesis: skip })}
+            onFilesAdded={invalidate}
           />
         )}
 
-        <StatsBar
-          status={book.status}
-          totalChapters={book.totalChapters}
-          totalWords={book.totalWords}
-          totalDurationMs={book.totalDurationMs}
-          createdAt={book.createdAt}
-          updatedAt={book.updatedAt}
-        />
+        {/* TIER 2: Chapters */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-(--text-secondary)">Chapters</h2>
+            {book.chapters.length > 0 && (
+              <span className="text-sm text-(--text-muted)">
+                {selectedCount} of {book.chapters.length} selected
+              </span>
+            )}
+          </div>
 
-        <LogViewer bookId={book.id} bookStatus={book.status} />
-
-        <div className="flex gap-3 mb-6">
-          {canProcess ? (
-            <button
-              onClick={() => processSelectedMutation.mutate({ id: book.id })}
-              disabled={processSelectedMutation.isPending}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-            >
-              Process selected ({selectedNotDone})
-            </button>
-          ) : null}
-          {canAssemble ? (
-            <button
-              onClick={() => assembleMutation.mutate({ id: book.id })}
-              disabled={assembleMutation.isPending}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {book.outputPath ? "Re-assemble" : "Assemble"} selected ({selectedWithAudio})
-            </button>
-          ) : null}
-          {isProcessing ? (
-            <button
-              onClick={() => cancelMutation.mutate({ id: book.id })}
-              disabled={cancelMutation.isPending}
-              className="px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          ) : null}
-          {book.chapters.length > 0 && !isProcessing ? (
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 text-xs text-(--text-muted)" title="Only needed for scanned PDFs without selectable text">
-                <input
-                  type="checkbox"
-                  checked={reExtractForceOcr ?? book.forceOcr}
-                  onChange={(e) => setReExtractForceOcr(e.target.checked)}
-                  className="rounded"
-                />
-                Force OCR
-              </label>
-              <label className="flex items-center gap-1.5 text-xs text-(--text-muted)" title="Uses a local LLM to identify chapter boundaries from the table of contents">
-                <input
-                  type="checkbox"
-                  checked={reExtractLlm ?? book.llmChapterDetection}
-                  onChange={(e) => setReExtractLlm(e.target.checked)}
-                  className="rounded"
-                />
-                LLM chapters
-              </label>
+          {/* Chapter action toolbar */}
+          {book.chapters.length > 0 && (
+            <div className="flex gap-3 mb-3">
               <button
-                onClick={() => {
-                  if (confirm("This will delete all chapters and re-extract from the PDF. Continue?")) {
-                    retryMutation.mutate({
-                      id: book.id,
-                      forceOcr: reExtractForceOcr ?? book.forceOcr,
-                      llmChapterDetection: reExtractLlm ?? book.llmChapterDetection,
-                    });
-                    setReExtractForceOcr(null);
-                    setReExtractLlm(null);
-                  }
-                }}
-                disabled={retryMutation.isPending}
-                className="px-4 py-2 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50"
+                onClick={() => processSelectedMutation.mutate({ id: book.id })}
+                disabled={!canProcess || processSelectedMutation.isPending}
+                title={
+                  selectedNotDone === 0 ? "No selected chapters need processing" :
+                  hasActiveChapters ? "Wait for active chapters to finish" :
+                  isAssembling ? "Wait for assembly to finish" :
+                  undefined
+                }
+                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Re-extract the book
+                Process selected ({selectedNotDone})
+              </button>
+              <button
+                onClick={() => assembleMutation.mutate({ id: book.id })}
+                disabled={!canAssemble || assembleMutation.isPending}
+                title={
+                  selectedCount === 0 ? "No chapters selected" :
+                  !allSelectedDone ? "All selected chapters must be done with audio" :
+                  isAssembling ? "Assembly already in progress" :
+                  undefined
+                }
+                className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {book.outputPath ? "Re-assemble" : "Assemble"} selected ({selectedWithAudio})
+              </button>
+              <button
+                onClick={() => cancelMutation.mutate({ id: book.id })}
+                disabled={!hasActiveChapters || cancelMutation.isPending}
+                title={!hasActiveChapters ? "No chapters are actively processing" : undefined}
+                className="px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel processing
               </button>
               <button
                 onClick={() => {
-                  if (confirm("This will delete all chapter audio and re-detect chapter boundaries from existing extraction output. Continue?")) {
-                    redetectMutation.mutate({
-                      id: book.id,
-                      forceOcr: reExtractForceOcr ?? book.forceOcr,
-                      llmChapterDetection: reExtractLlm ?? book.llmChapterDetection,
-                    });
-                    setReExtractForceOcr(null);
-                    setReExtractLlm(null);
+                  if (confirm(`Delete ${selectedCount} selected chapter(s) and their audio?`)) {
+                    deleteChaptersMutation.mutate({ bookId: book.id });
                   }
                 }}
-                disabled={redetectMutation.isPending}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+                disabled={selectedCount === 0 || hasActiveChapters || deleteChaptersMutation.isPending}
+                title={
+                  selectedCount === 0 ? "No chapters selected" :
+                  hasActiveChapters ? "Wait for active chapters to finish" :
+                  "Delete selected chapters and their audio"
+                }
+                className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Re-detect chapters
+                Delete selected ({selectedCount})
               </button>
             </div>
-          ) : null}
-          <button
-            onClick={() => {
-              if (confirm("Delete this book and all its audio?")) {
-                deleteMutation.mutate({ id: book.id });
-              }
-            }}
-            disabled={deleteMutation.isPending}
-            className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-          >
-            Delete
-          </button>
+          )}
+
+          {book.chapters.length === 0 ? (
+            <p className="text-(--text-muted) text-sm">
+              {book.status === "extracting" || hasActiveFiles
+                ? "Extracting chapters from PDF..."
+                : "No chapters extracted yet."}
+            </p>
+          ) : (
+            <ChapterTable
+              bookId={book.id}
+              chapters={book.chapters}
+              files={book.files?.map((f) => ({ index: f.index, filename: f.filename }))}
+              onQueue={(cid) => queueMutation.mutate({ id: cid })}
+              onRename={(cid, title) => renameChapterMutation.mutate({ id: cid, title })}
+              onReorder={(chapterIds) => reorderChaptersMutation.mutate({ bookId: book.id, chapterIds })}
+              onSetSelected={(cid, selected) => setSelectedMutation.mutate({ id: cid, selected })}
+              onSetAllSelected={(selected) => setAllSelectedMutation.mutate({ bookId: book.id, selected })}
+              onSetSelectedBatch={(ids, selected) => setSelectedBatchMutation.mutate({ ids, selected })}
+            />
+          )}
         </div>
 
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold text-(--text-secondary)">Chapters</h2>
-          {book.chapters.length > 0 ? (
-            <span className="text-sm text-(--text-muted)">
-              {selectedCount} of {book.chapters.length} selected
-            </span>
-          ) : null}
-        </div>
-
-        {book.chapters.length === 0 ? (
-          <p className="text-(--text-muted) text-sm">
-            {book.status === "extracting"
-              ? "Extracting chapters from PDF..."
-              : "No chapters extracted yet."}
-          </p>
-        ) : (
-          <ChapterTable
-            bookId={book.id}
-            chapters={book.chapters}
-            onQueue={(id) => queueMutation.mutate({ id })}
-            onSuspend={(id) => suspendMutation.mutate({ id })}
-            onSetSelected={(id, selected) => setSelectedMutation.mutate({ id, selected })}
-            onSetAllSelected={(selected) => setAllSelectedMutation.mutate({ bookId: book.id, selected })}
-            onSetSelectedBatch={(ids, selected) => setSelectedBatchMutation.mutate({ ids, selected })}
-          />
-        )}
-
+        {/* TIER 3: Assemblies */}
         {bookAssemblies.length > 0 && (
           <AssembliesSection
             assemblies={bookAssemblies}
             latestOutputPath={book.outputPath}
-            onDelete={(id) => deleteAssemblyMutation.mutate({ id })}
+            onDelete={(aid) => deleteAssemblyMutation.mutate({ id: aid })}
             isDeleting={deleteAssemblyMutation.isPending}
           />
         )}
+
+        {/* Logs */}
+        <LogViewer
+          bookId={book.id}
+          isProcessing={isProcessing}
+          files={book.files?.map((f) => ({ index: f.index, filename: f.filename }))}
+        />
+
+        {/* Danger zone */}
+        <div className="border-t border-(--border) pt-6 mt-6">
+          <h3 className="text-sm font-medium text-(--text-muted) uppercase tracking-wider mb-3">Book actions</h3>
+          <div className="flex items-center gap-3 flex-wrap">
+            {!isProcessing && book.chapters.length > 0 && (
+              <>
+                <label className="flex items-center gap-1.5 text-xs text-(--text-muted)" title="Only needed for scanned PDFs without selectable text">
+                  <input
+                    type="checkbox"
+                    checked={reExtractForceOcr ?? book.forceOcr}
+                    onChange={(e) => setReExtractForceOcr(e.target.checked)}
+                    className="rounded"
+                  />
+                  Force OCR
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-(--text-muted)" title="Uses a local LLM to identify chapter boundaries from the table of contents">
+                  <input
+                    type="checkbox"
+                    checked={reExtractLlm ?? book.llmChapterDetection}
+                    onChange={(e) => setReExtractLlm(e.target.checked)}
+                    className="rounded"
+                  />
+                  LLM chapters
+                </label>
+                <button
+                  onClick={() => {
+                    if (confirm("This will delete all chapters and re-extract from all PDFs. Continue?")) {
+                      retryMutation.mutate({
+                        id: book.id,
+                        forceOcr: reExtractForceOcr ?? book.forceOcr,
+                        llmChapterDetection: reExtractLlm ?? book.llmChapterDetection,
+                      });
+                      setReExtractForceOcr(null);
+                      setReExtractLlm(null);
+                    }
+                  }}
+                  disabled={retryMutation.isPending}
+                  className="px-4 py-2 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50"
+                >
+                  Re-extract entire book
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm("This will delete all chapter audio and re-detect chapter boundaries from existing extraction output. Continue?")) {
+                      redetectMutation.mutate({
+                        id: book.id,
+                        forceOcr: reExtractForceOcr ?? book.forceOcr,
+                        llmChapterDetection: reExtractLlm ?? book.llmChapterDetection,
+                      });
+                      setReExtractForceOcr(null);
+                      setReExtractLlm(null);
+                    }
+                  }}
+                  disabled={redetectMutation.isPending}
+                  className="px-4 py-2 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50"
+                >
+                  Re-detect chapters
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => {
+                if (confirm("Delete this book and all its audio?")) {
+                  deleteMutation.mutate({ id: book.id });
+                }
+              }}
+              disabled={deleteMutation.isPending}
+              className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+            >
+              Delete book
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
+
+// --- Assemblies Section ---
 
 type AssemblyRow = {
   id: string;
@@ -287,7 +349,7 @@ function AssembliesSection({
   isDeleting: boolean;
 }) {
   return (
-    <div className="mt-8">
+    <div className="mb-6">
       <h2 className="text-lg font-semibold text-(--text-secondary) mb-3">Assemblies</h2>
       <div className="overflow-hidden rounded-lg border border-(--border)">
         <table className="min-w-full divide-y divide-(--divide)">
@@ -354,189 +416,15 @@ function AssembliesSection({
   );
 }
 
-function formatAssemblyDate(date: string | Date): string {
-  const d = new Date(date);
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
+// --- Log Viewer ---
 
-type ProgressSectionProps = {
-  status: string;
-  doneChapters: number;
-  totalChapters: number;
-  chapters: { status: string; wordCount: number }[];
-};
-
-function ProgressSection({ status, doneChapters, totalChapters, chapters }: ProgressSectionProps) {
-  const normalizingCount = chapters.filter((c) => c.status === "normalizing").length;
-  const synthesizingCount = chapters.filter((c) => c.status === "synthesizing").length;
-  const pendingCount = chapters.filter((c) => c.status === "pending").length;
-  const suspendedCount = chapters.filter((c) => c.status === "suspended").length;
-
-  const percent = totalChapters > 0 ? (doneChapters / totalChapters) * 100 : 0;
-
-  let progressColor = "bg-blue-600";
-  if (status === "assembling") progressColor = "bg-indigo-600";
-  if (status === "extracting") progressColor = "bg-yellow-500";
-
-  return (
-    <div className="mb-6 bg-(--bg-card) border border-(--border) rounded-lg p-4">
-      <div className="flex justify-between text-sm text-(--text-tertiary) mb-2">
-        <span className="font-medium">
-          {status === "extracting" && "Extracting text from PDF..."}
-          {status === "normalizing" && "Normalizing text..."}
-          {status === "synthesizing" && "Generating audio..."}
-          {status === "assembling" && "Assembling final MP3..."}
-        </span>
-        {status === "synthesizing" && (
-          <span className="tabular-nums">{doneChapters}/{totalChapters} chapters</span>
-        )}
-      </div>
-
-      <div className="w-full bg-(--bg-page) rounded-full h-2.5 mb-3">
-        <div
-          className={`${progressColor} h-2.5 rounded-full transition-all duration-700 ease-out`}
-          style={{
-            width:
-              status === "extracting"
-                ? "15%"
-                : status === "assembling"
-                  ? "95%"
-                  : `${Math.max(percent, 5)}%`,
-          }}
-        />
-      </div>
-
-      {status === "synthesizing" && totalChapters > 1 && (
-        <div className="flex gap-4 text-xs text-(--text-muted)">
-          {synthesizingCount > 0 && (
-            <span>{synthesizingCount} synthesizing</span>
-          )}
-          {normalizingCount > 0 && (
-            <span>{normalizingCount} normalizing</span>
-          )}
-          {pendingCount > 0 && (
-            <span>{pendingCount} queued</span>
-          )}
-          {suspendedCount > 0 && (
-            <span className="text-amber-600">{suspendedCount} suspended</span>
-          )}
-          {doneChapters > 0 && (
-            <span className="text-green-600">{doneChapters} done</span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-type StatsBarProps = {
-  status: string;
-  totalChapters: number;
-  totalWords: number;
-  totalDurationMs: number;
-  createdAt: string | Date;
-  updatedAt: string | Date;
-};
-
-function StatsBar({ status, totalChapters, totalWords, totalDurationMs, createdAt, updatedAt }: StatsBarProps) {
-  const isProcessing = !["done", "failed", "pending", "suspended"].includes(status);
-
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-      <StatCard label="Chapters" value={totalChapters > 0 ? String(totalChapters) : "\u2014"} />
-      <StatCard label="Words" value={totalWords > 0 ? totalWords.toLocaleString() : "\u2014"} />
-      <StatCard
-        label="Duration"
-        value={totalDurationMs > 0 ? formatDuration(totalDurationMs) : "\u2014"}
-      />
-      <ElapsedCard
-        isProcessing={isProcessing}
-        createdAt={createdAt}
-        updatedAt={updatedAt}
-        status={status}
-      />
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-(--bg-card) border border-(--border) rounded-lg px-4 py-3">
-      <p className="text-xs text-(--text-muted) uppercase tracking-wider">{label}</p>
-      <p className="text-lg font-semibold text-(--text-primary) tabular-nums">{value}</p>
-    </div>
-  );
-}
-
-function ElapsedCard({
-  isProcessing,
-  createdAt,
-  updatedAt,
-  status,
-}: {
-  isProcessing: boolean;
-  createdAt: string | Date;
-  updatedAt: string | Date;
-  status: string;
-}) {
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    if (!isProcessing) return;
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [isProcessing]);
-
-  const start = new Date(createdAt).getTime();
-  const end = isProcessing ? now : new Date(updatedAt).getTime();
-  const elapsed = Math.max(0, end - start);
-
-  const label = isProcessing ? "Elapsed" : status === "done" ? "Completed in" : "Time";
-
-  return (
-    <div className="bg-(--bg-card) border border-(--border) rounded-lg px-4 py-3">
-      <p className="text-xs text-(--text-muted) uppercase tracking-wider">{label}</p>
-      <p className="text-lg font-semibold text-(--text-primary) tabular-nums">
-        {formatElapsed(elapsed)}
-      </p>
-    </div>
-  );
-}
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes < 60) return `${minutes}m ${seconds}s`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return `${hours}h ${remainingMinutes}m`;
-}
-
-function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string }) {
-  const isProcessing = !["done", "failed", "pending", "suspended"].includes(bookStatus);
+function LogViewer({ bookId, isProcessing, files }: { bookId: string; isProcessing: boolean; files?: { index: number; filename: string }[] }) {
   const [expanded, setExpanded] = useState(isProcessing);
+  const [fileFilter, setFileFilter] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScroll = useRef(true);
   const utils = trpc.useUtils();
+  const isMultiFile = files && files.length > 1;
 
   const { data: logs = [] } = trpc.books.logs.useQuery(
     { bookId },
@@ -563,6 +451,10 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
     shouldAutoScroll.current = atBottom;
   }
 
+  const filteredLogs = fileFilter
+    ? logs.filter((entry) => entry.fileIndex === Number(fileFilter))
+    : logs;
+
   if (logs.length === 0 && !isProcessing) return null;
 
   return (
@@ -573,8 +465,22 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
           className="flex items-center gap-2 text-sm font-medium text-(--text-tertiary) hover:text-(--text-primary)"
         >
           <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>&#9654;</span>
-          Logs ({logs.length})
+          Logs ({filteredLogs.length}{fileFilter ? ` / ${logs.length}` : ""})
         </button>
+        {isMultiFile && (
+          <select
+            value={fileFilter}
+            onChange={(e) => setFileFilter(e.target.value)}
+            className="text-xs px-2 py-0.5 border border-(--border-input) rounded bg-(--bg-input) text-(--text-secondary)"
+          >
+            <option value="">All files</option>
+            {files!.map((f) => (
+              <option key={f.index} value={String(f.index)}>
+                {f.index + 1}. {f.filename}
+              </option>
+            ))}
+          </select>
+        )}
         {logs.length > 0 && (
           <button
             onClick={() => clearLogs.mutate({ bookId })}
@@ -590,10 +496,10 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
           onScroll={handleScroll}
           className="bg-(--bg-terminal) rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs leading-5"
         >
-          {logs.length === 0 ? (
+          {filteredLogs.length === 0 ? (
             <p className="text-zinc-500">Waiting for logs...</p>
           ) : (
-            logs.map((entry) => (
+            filteredLogs.map((entry) => (
               <div key={entry.id} className="flex gap-3">
                 <span className="text-zinc-500 shrink-0 select-none">
                   {formatLogTime(String(entry.createdAt))}
@@ -607,6 +513,383 @@ function LogViewer({ bookId, bookStatus }: { bookId: string; bookStatus: string 
         </div>
       )}
     </div>
+  );
+}
+
+// --- Source Files Section ---
+
+type BookFileRow = {
+  id: string;
+  index: number;
+  filename: string;
+  status: string;
+  selected: boolean;
+  skipSynthesis: boolean;
+  error: string | null;
+};
+
+type ChapterRowForFiles = {
+  sourceFileIndex: number | null;
+  [key: string]: unknown;
+};
+
+function BookFilesSection({
+  files,
+  chapters,
+  bookId,
+  onSetSelected,
+  onSetAllSelected,
+  onSetSelectedBatch,
+  onRemove,
+  onReExtract,
+  onReExtractSelected,
+  onCancel,
+  onSetSkipSynthesis,
+  onFilesAdded,
+}: {
+  files: BookFileRow[];
+  chapters: ChapterRowForFiles[];
+  bookId: string;
+  isProcessing: boolean;
+  onSetSelected: (id: string, selected: boolean) => void;
+  onSetAllSelected: (selected: boolean) => void;
+  onSetSelectedBatch: (ids: string[], selected: boolean) => void;
+  onRemove: (id: string) => void;
+  onReExtract: (id: string) => void;
+  onReExtractSelected: () => void;
+  onCancel: (id: string) => void;
+  onSetSkipSynthesis: (id: string, skip: boolean) => void;
+  onFilesAdded: () => void;
+}) {
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+  const [previewFileId, setPreviewFileId] = useState<string | null>(null);
+
+  const selectedCount = files.filter((f) => f.selected).length;
+  const allSelected = files.length > 0 && selectedCount === files.length;
+  const noneSelected = selectedCount === 0;
+
+  function chapterCountForFile(fileIndex: number) {
+    return chapters.filter((ch) => ch.sourceFileIndex === fileIndex).length;
+  }
+
+  function handleCheckboxClick(file: BookFileRow, index: number, e: React.MouseEvent) {
+    if (e.shiftKey && lastClickedIndex !== null) {
+      const start = Math.min(lastClickedIndex, index);
+      const end = Math.max(lastClickedIndex, index);
+      const ids = files.slice(start, end + 1).map((f) => f.id);
+      onSetSelectedBatch(ids, !file.selected);
+    } else {
+      onSetSelected(file.id, !file.selected);
+    }
+    setLastClickedIndex(index);
+  }
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg font-semibold text-(--text-secondary)">Source files</h2>
+        <span className="text-sm text-(--text-muted)">{selectedCount} of {files.length} selected</span>
+      </div>
+
+      <div className="flex gap-2 mb-2">
+        <button
+          onClick={onReExtractSelected}
+          disabled={selectedCount === 0}
+          title={selectedCount === 0 ? "Select files to re-extract" : undefined}
+          className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border) disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Re-extract selected ({selectedCount})
+        </button>
+        <AddFilesButton bookId={bookId} onFilesAdded={onFilesAdded} />
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-(--border)">
+        <table className="min-w-full divide-y divide-(--divide)">
+          <thead className="bg-(--bg-subtle)">
+            <tr>
+              <th className="w-10 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => { if (el) el.indeterminate = !allSelected && !noneSelected; }}
+                  onChange={() => onSetAllSelected(!allSelected)}
+                  className="rounded"
+                />
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">#</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">Filename</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">Status</th>
+              <th className="px-3 py-2 text-center text-xs font-medium text-(--text-muted) uppercase" title="Skip synthesis — extract only, defer audio generation">Skip synth</th>
+              <th className="px-3 py-2 text-right text-xs font-medium text-(--text-muted) uppercase">Chapters</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
+            {files.map((file, i) => (
+              <tr key={file.id} className="hover:bg-(--bg-card-hover)">
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={file.selected}
+                    onClick={(e) => handleCheckboxClick(file, i, e)}
+                    readOnly
+                    className="rounded"
+                  />
+                </td>
+                <td className="px-3 py-2 text-xs font-mono text-(--text-muted)">{file.index + 1}</td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPreviewFileId(file.id)}
+                      className="shrink-0 h-6 w-6 rounded bg-red-50 flex items-center justify-center hover:bg-red-100 transition-colors cursor-pointer"
+                      title="Preview PDF"
+                    >
+                      <span className="text-red-600 text-[8px] font-bold">PDF</span>
+                    </button>
+                    <span className="text-sm text-(--text-primary) truncate">{file.filename}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <span className={`text-xs font-medium ${
+                    file.status === "done" ? "text-green-600" :
+                    file.status === "failed" ? "text-red-600" :
+                    file.status === "extracting" ? "text-blue-600" :
+                    "text-(--text-muted)"
+                  }`}>
+                    {file.status}
+                    {file.status === "extracting" && (
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 ml-1.5 animate-pulse" />
+                    )}
+                  </span>
+                  {file.error && (
+                    <span className="ml-2 text-xs text-red-500 truncate" title={file.error}>
+                      {file.error.length > 30 ? file.error.slice(0, 30) + "..." : file.error}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={file.skipSynthesis}
+                    onChange={() => onSetSkipSynthesis(file.id, !file.skipSynthesis)}
+                    title={file.skipSynthesis ? "Chapters will be extracted only — click to enable auto-synthesis" : "Chapters will auto-synthesize after extraction — click to extract only"}
+                    className="rounded"
+                  />
+                </td>
+                <td className="px-3 py-2 text-right text-sm tabular-nums text-(--text-tertiary)">
+                  {chapterCountForFile(file.index)}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-1.5">
+                    {/* Cancel */}
+                    <button
+                      onClick={() => onCancel(file.id)}
+                      disabled={file.status !== "extracting" && file.status !== "pending"}
+                      title={file.status !== "extracting" && file.status !== "pending" ? "File is not extracting" : "Cancel extraction"}
+                      className="p-1 rounded text-amber-600 hover:bg-amber-50 disabled:opacity-20 disabled:cursor-not-allowed"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 1.5a5.5 5.5 0 110 11 5.5 5.5 0 010-11zM6 6h4v4H6V6z"/>
+                      </svg>
+                    </button>
+                    {/* Re-extract */}
+                    <button
+                      onClick={() => onReExtract(file.id)}
+                      disabled={file.status !== "done" && file.status !== "failed"}
+                      title={
+                        file.status === "extracting" ? "Wait for extraction to finish" :
+                        file.status === "pending" ? "File hasn't been extracted yet" :
+                        "Re-extract this file"
+                      }
+                      className="p-1 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-20 disabled:cursor-not-allowed"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M11.534 7h3.932a.25.25 0 01.192.41l-1.966 2.36a.25.25 0 01-.384 0l-1.966-2.36A.25.25 0 0111.534 7zM.534 9h3.932a.25.25 0 00.192-.41L2.692 6.23a.25.25 0 00-.384 0L.342 8.59A.25.25 0 00.534 9z"/>
+                        <path d="M8 3a5 5 0 00-4.546 2.914.5.5 0 01-.908-.418A6 6 0 0114 8a.5.5 0 01-1 0 5 5 0 00-5-5zM2.5 8a.5.5 0 01.5.5A5 5 0 0012.546 11.086a.5.5 0 11.908.418A6 6 0 012 8.5a.5.5 0 01.5-.5z"/>
+                      </svg>
+                    </button>
+                    {/* Remove */}
+                    <button
+                      onClick={() => {
+                        const count = chapterCountForFile(file.index);
+                        if (confirm(`Remove "${file.filename}" and its ${count} chapter(s)?`)) {
+                          onRemove(file.id);
+                        }
+                      }}
+                      disabled={file.status === "extracting"}
+                      title={file.status === "extracting" ? "Cannot remove while extracting" : "Remove this file and its chapters"}
+                      className="p-1 rounded text-red-500 hover:bg-red-50 disabled:opacity-20 disabled:cursor-not-allowed"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M5.75 1a.75.75 0 00-.75.75v.5H2.5a.75.75 0 000 1.5h.31l.69 9.112A1.75 1.75 0 005.246 14.5h5.508a1.75 1.75 0 001.746-1.638L13.19 3.75h.31a.75.75 0 000-1.5H11V1.75a.75.75 0 00-.75-.75h-4.5zM6.5 2.25v-.5h3v.5h-3zM4.32 3.75h7.36l-.68 9.04a.25.25 0 01-.249.21H5.249a.25.25 0 01-.249-.21L4.32 3.75z"/>
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {previewFileId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPreviewFileId(null)}>
+          <div className="bg-(--bg-card) rounded-lg shadow-xl w-[90vw] h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-(--border)">
+              <span className="text-sm font-medium text-(--text-primary)">
+                {files.find((f) => f.id === previewFileId)?.filename}
+              </span>
+              <button
+                onClick={() => setPreviewFileId(null)}
+                className="text-(--text-faint) hover:text-(--text-tertiary) p-1"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
+            </div>
+            <iframe
+              src={`/pdf/${previewFileId}`}
+              className="flex-1 w-full"
+              title="PDF Preview"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddFilesButton({
+  bookId,
+  onFilesAdded,
+}: {
+  bookId: string;
+  onFilesAdded: () => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  async function handleFiles(fileList: FileList) {
+    const pdfs = Array.from(fileList).filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+    if (pdfs.length === 0) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      for (const file of pdfs) {
+        formData.append("file", file);
+      }
+      const res = await fetch(`/upload/${bookId}`, { method: "POST", body: formData });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Upload failed (${res.status})`);
+      }
+      onFilesAdded();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setIsUploading(false);
+    }
+  }
+
+  return (
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf"
+        multiple
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleFiles(e.target.files);
+          }
+          e.target.value = "";
+        }}
+        className="hidden"
+      />
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={isUploading}
+        className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border) disabled:opacity-50"
+      >
+        {isUploading ? "Adding..." : "Add files"}
+      </button>
+    </>
+  );
+}
+
+// --- Formatting helpers ---
+
+function formatAssemblyDate(date: string | Date): string {
+  const d = new Date(date);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function EditableTitle({ title, onRename }: { title: string; onRename: (title: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setValue(title);
+  }, [title]);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.select();
+  }, [editing]);
+
+  function save() {
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== title) {
+      onRename(trimmed);
+    } else {
+      setValue(title);
+    }
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") { setValue(title); setEditing(false); }
+        }}
+        className="text-2xl font-bold text-(--text-primary) bg-transparent border-b-2 border-blue-500 outline-none w-full"
+      />
+    );
+  }
+
+  return (
+    <h1
+      onClick={() => setEditing(true)}
+      className="text-2xl font-bold text-(--text-primary) cursor-pointer hover:text-blue-700"
+      title="Click to rename"
+    >
+      {title}
+    </h1>
   );
 }
 

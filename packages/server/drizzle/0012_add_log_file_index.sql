@@ -1,0 +1,1 @@
+ALTER TABLE "book_logs" ADD COLUMN "file_index" integer;

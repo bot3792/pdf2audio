@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, chapters, bookLogs, assemblies } from "../schema.ts";
+import { books, bookFiles, chapters, bookLogs, assemblies } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
 import { uploadsDir, bookTmpDir } from "../lib/paths.ts";
@@ -33,6 +33,34 @@ function computeBookStatus(
   if (statuses.some((s) => s === "failed")) return "failed";
   if (statuses.every((s) => s === "suspended" || s === "done")) return "suspended";
   return book.status;
+}
+
+async function insertRedetectedChapters(
+  bookId: string,
+  detected: { title: string; text: string; pageStart: number | null; pageEnd: number | null; sourceBlocks: unknown }[],
+  chapterOffset: number,
+  sourceFileIndex: number | null,
+) {
+  for (let i = 0; i < detected.length; i++) {
+    const ch = detected[i];
+    const globalIndex = chapterOffset + i;
+    const wordCount = ch.text.split(/\s+/).filter(Boolean).length;
+    await appendLog(bookId, `Chapter ${globalIndex + 1}: "${ch.title}" (${wordCount.toLocaleString()} words)`);
+
+    await db
+      .insert(chapters)
+      .values({
+        bookId,
+        index: globalIndex,
+        title: ch.title,
+        rawText: ch.text,
+        pageStart: ch.pageStart,
+        pageEnd: ch.pageEnd,
+        sourceBlocks: ch.sourceBlocks,
+        sourceFileIndex,
+        status: "suspended",
+      });
+  }
 }
 
 export const booksRouter = router({
@@ -83,7 +111,13 @@ export const booksRouter = router({
       const totalDurationMs = allChapters.reduce((sum, ch) => sum + (ch.durationMs ?? 0), 0);
       const status = computeBookStatus(book, allChapters);
 
-      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs };
+      const files = await db
+        .select()
+        .from(bookFiles)
+        .where(eq(bookFiles.bookId, input.id))
+        .orderBy(asc(bookFiles.index));
+
+      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs, files };
     }),
 
   logs: publicProcedure
@@ -97,7 +131,7 @@ export const booksRouter = router({
         : eq(bookLogs.bookId, input.bookId);
 
       return db
-        .select({ id: bookLogs.id, message: bookLogs.message, createdAt: bookLogs.createdAt })
+        .select({ id: bookLogs.id, message: bookLogs.message, fileIndex: bookLogs.fileIndex, createdAt: bookLogs.createdAt })
         .from(bookLogs)
         .where(where)
         .orderBy(asc(bookLogs.createdAt));
@@ -107,6 +141,13 @@ export const booksRouter = router({
     .input(z.object({ bookId: z.string().uuid() }))
     .mutation(async ({ input }) => {
       await db.delete(bookLogs).where(eq(bookLogs.bookId, input.bookId));
+    }),
+
+  rename: publicProcedure
+    .input(z.object({ id: z.string().uuid(), title: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      await db.update(books).set({ title: input.title, updatedAt: new Date() }).where(eq(books.id, input.id));
+      return { success: true };
     }),
 
   upload: publicProcedure
@@ -167,6 +208,7 @@ export const booksRouter = router({
 
       await db.update(books).set(updates).where(eq(books.id, input.id));
       await db.delete(chapters).where(eq(chapters.bookId, input.id));
+      await db.update(bookFiles).set({ status: "pending", error: null }).where(eq(bookFiles.bookId, input.id));
       await db.delete(bookLogs).where(eq(bookLogs.bookId, input.id));
       await appendLog(input.id, "Re-extracting from scratch");
 
@@ -241,42 +283,61 @@ export const booksRouter = router({
       );
 
       const finalLlmSetting = input.llmChapterDetection ?? book.llmChapterDetection;
-      const detected = await redetectChaptersFromExistingMarkerOutput(bookTmpDir(input.id), book.pdfPath, (msg) => appendLog(input.id, msg), {
-        llmChapterDetection: finalLlmSetting,
-      });
 
-      if (detected.length === 0) {
+      // Check if this is a multi-file book
+      const files = await db
+        .select()
+        .from(bookFiles)
+        .where(eq(bookFiles.bookId, input.id))
+        .orderBy(asc(bookFiles.index));
+
+      let totalDetected = 0;
+
+      if (files.length === 0) {
+        // Legacy single-file book
+        const detected = await redetectChaptersFromExistingMarkerOutput(bookTmpDir(input.id), book.pdfPath, (msg) => appendLog(input.id, msg), {
+          llmChapterDetection: finalLlmSetting,
+        });
+        totalDetected = detected.length;
+        await insertRedetectedChapters(input.id, detected, 0, null);
+      } else {
+        // Multi-file book: re-detect per file
+        let chapterOffset = 0;
+        for (const file of files) {
+          const fileTmpDir = path.join(bookTmpDir(input.id), `file_${file.index}`);
+          try {
+            const detected = await redetectChaptersFromExistingMarkerOutput(fileTmpDir, file.pdfPath, (msg) => appendLog(input.id, msg), {
+              llmChapterDetection: finalLlmSetting,
+            });
+            await insertRedetectedChapters(input.id, detected, chapterOffset, file.index);
+            chapterOffset += detected.length;
+            totalDetected += detected.length;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await appendLog(input.id, `Re-detection failed for "${file.filename}": ${message}`);
+          }
+        }
+      }
+
+      if (totalDetected === 0) {
         throw new Error("No chapters detected from existing extraction output");
       }
 
-      await appendLog(input.id, `Detected ${detected.length} chapters`);
-
-      for (let i = 0; i < detected.length; i++) {
-        const ch = detected[i];
-        const wordCount = ch.text.split(/\s+/).filter(Boolean).length;
-        await appendLog(input.id, `Chapter ${i + 1}: "${ch.title}" (${wordCount.toLocaleString()} words)`);
-
-        const [inserted] = await db
-          .insert(chapters)
-          .values({
-            bookId: input.id,
-            index: i,
-            title: ch.title,
-            rawText: ch.text,
-            pageStart: ch.pageStart,
-            pageEnd: ch.pageEnd,
-            sourceBlocks: ch.sourceBlocks,
-            status: "suspended",
-          })
-          .returning();
-      }
+      await appendLog(input.id, `Detected ${totalDetected} chapters`);
 
       await db
         .update(books)
-        .set({ totalChapters: detected.length, updatedAt: new Date() })
+        .set({ totalChapters: totalDetected, updatedAt: new Date() })
         .where(eq(books.id, input.id));
 
-      const newSignature = detected
+      // Compare new chapter boundaries with old
+      const newChapters = await db
+        .select({ title: chapters.title, pageStart: chapters.pageStart, pageEnd: chapters.pageEnd })
+        .from(chapters)
+        .where(eq(chapters.bookId, input.id))
+        .orderBy(asc(chapters.index));
+
+      const newSignature = newChapters
         .map((c) => `${c.title}|${c.pageStart ?? ""}|${c.pageEnd ?? ""}`)
         .join("\n");
 

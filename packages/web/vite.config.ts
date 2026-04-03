@@ -7,6 +7,7 @@ export default defineConfig({
     port: 3033,
     proxy: {
       "/trpc": "http://localhost:3034",
+      "/pdf": "http://localhost:3034",
       "/upload": "http://localhost:3034",
       "/download": "http://localhost:3034",
       "/audio": "http://localhost:3034",

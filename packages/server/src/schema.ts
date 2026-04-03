@@ -38,6 +38,7 @@ export const chapters = pgTable("chapters", {
   pageStart: integer("page_start"),
   pageEnd: integer("page_end"),
   sourceBlocks: jsonb("source_blocks"),
+  sourceFileIndex: integer("source_file_index"),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -45,7 +46,23 @@ export const chapters = pgTable("chapters", {
 export const bookLogs = pgTable("book_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
   bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  fileIndex: integer("file_index"),
   message: text("message").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const bookFiles = pgTable("book_files", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  index: integer("index").notNull(),
+  filename: text("filename").notNull(),
+  pdfPath: text("pdf_path").notNull(),
+  status: text("status", {
+    enum: ["pending", "extracting", "done", "failed"],
+  }).notNull().default("pending"),
+  selected: boolean("selected").notNull().default(true),
+  skipSynthesis: boolean("skip_synthesis").notNull().default(false),
+  error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -65,4 +82,6 @@ export type NewBook = typeof books.$inferInsert;
 export type Chapter = typeof chapters.$inferSelect;
 export type NewChapter = typeof chapters.$inferInsert;
 export type BookLog = typeof bookLogs.$inferSelect;
+export type BookFile = typeof bookFiles.$inferSelect;
+export type NewBookFile = typeof bookFiles.$inferInsert;
 export type Assembly = typeof assemblies.$inferSelect;

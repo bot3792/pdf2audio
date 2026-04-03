@@ -9,7 +9,6 @@ type ChapterModalProps = {
   onClose: () => void;
   onNavigate: (index: number) => void;
   onQueue: (id: string) => void;
-  onSuspend: (id: string) => void;
   onSetSelected: (id: string, selected: boolean) => void;
 };
 
@@ -30,7 +29,6 @@ export function ChapterModal({
   onClose,
   onNavigate,
   onQueue,
-  onSuspend,
   onSetSelected,
 }: ChapterModalProps) {
   const chapter = chapters[chapterIndex];
@@ -95,10 +93,6 @@ export function ChapterModal({
     if (!confirm("Reset to original text? Your edits will be lost.")) return;
     resetTextMutation.mutate({ id: chapter.id });
   }
-
-  const isActive = chapter.status === "synthesizing" || chapter.status === "normalizing";
-  const canQueue = !isActive && chapter.status !== "done" && chapter.status !== "pending";
-  const canSuspend = chapter.status === "pending";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -173,30 +167,17 @@ export function ChapterModal({
               <source src={`/audio/chapter/${chapter.id}`} type="audio/mpeg" />
             </audio>
           ) : null}
-          {canQueue ? (
-            <button
-              onClick={() => onQueue(chapter.id)}
-              className="text-xs px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium"
-            >
-              Queue
-            </button>
-          ) : null}
-          {canSuspend ? (
-            <button
-              onClick={() => onSuspend(chapter.id)}
-              className="text-xs px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium"
-            >
-              Suspend
-            </button>
-          ) : null}
-          {chapter.status === "done" ? (
-            <button
-              onClick={() => onQueue(chapter.id)}
-              className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium"
-            >
-              Re-synthesize
-            </button>
-          ) : null}
+          <button
+            onClick={() => onQueue(chapter.id)}
+            disabled={chapter.status !== "done"}
+            title={
+              chapter.status === "done" ? "Re-synthesize this chapter's audio from text" :
+              "Only completed chapters can be redone"
+            }
+            className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Re-synthesize
+          </button>
           <div className="flex-1" />
           {isEditing ? (
             <div className="flex items-center gap-2">

@@ -1,0 +1,1 @@
+ALTER TABLE "book_files" ADD COLUMN "skip_synthesis" boolean DEFAULT false NOT NULL;

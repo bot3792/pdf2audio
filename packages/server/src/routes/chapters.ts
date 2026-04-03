@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { chapters } from "../schema.ts";
-import { eq, inArray } from "drizzle-orm";
+import { books, chapters } from "../schema.ts";
+import { eq, and, inArray } from "drizzle-orm";
+import { unlink } from "node:fs/promises";
 import { appendLog } from "../lib/log.ts";
 import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
@@ -107,6 +108,13 @@ export const chaptersRouter = router({
       return { success: true };
     }),
 
+  rename: publicProcedure
+    .input(z.object({ id: z.string().uuid(), title: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      await db.update(chapters).set({ title: input.title }).where(eq(chapters.id, input.id));
+      return { success: true };
+    }),
+
   updateText: publicProcedure
     .input(z.object({ id: z.string().uuid(), customText: z.string().min(1) }))
     .mutation(async ({ input }) => {
@@ -132,6 +140,51 @@ export const chaptersRouter = router({
         .set({ customText: null })
         .where(eq(chapters.id, input.id));
 
+      return { success: true };
+    }),
+
+  reorder: publicProcedure
+    .input(z.object({
+      bookId: z.string().uuid(),
+      chapterIds: z.array(z.string().uuid()),
+    }))
+    .mutation(async ({ input }) => {
+      // chapterIds is the new order — index 0 gets index=0, index 1 gets index=1, etc.
+      for (let i = 0; i < input.chapterIds.length; i++) {
+        await db
+          .update(chapters)
+          .set({ index: i })
+          .where(and(eq(chapters.id, input.chapterIds[i]), eq(chapters.bookId, input.bookId)));
+      }
+      return { success: true };
+    }),
+
+  deleteSelected: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const selected = await db
+        .select()
+        .from(chapters)
+        .where(and(eq(chapters.bookId, input.bookId), eq(chapters.selected, true)));
+
+      const active = selected.filter((c) => c.status === "synthesizing" || c.status === "normalizing");
+      if (active.length > 0) {
+        throw new Error(`Cannot delete ${active.length} chapter(s) that are actively processing`);
+      }
+
+      for (const ch of selected) {
+        if (ch.audioPath) await unlink(ch.audioPath).catch(() => {});
+      }
+
+      await db
+        .delete(chapters)
+        .where(and(eq(chapters.bookId, input.bookId), eq(chapters.selected, true)));
+
+      // Update total count
+      const remaining = await db.select({ id: chapters.id }).from(chapters).where(eq(chapters.bookId, input.bookId));
+      await db.update(books).set({ totalChapters: remaining.length, updatedAt: new Date() }).where(eq(books.id, input.bookId));
+
+      await appendLog(input.bookId, `Deleted ${selected.length} selected chapter(s)`);
       return { success: true };
     }),
 });

@@ -18,6 +18,12 @@ export type ChapterRow = {
   selected: boolean;
   pageStart: number | null;
   pageEnd: number | null;
+  sourceFileIndex: number | null;
+};
+
+export type FileInfo = {
+  index: number;
+  filename: string;
 };
 
 const STATUSES = ["done", "failed", "pending", "suspended", "synthesizing", "normalizing"] as const;
@@ -25,16 +31,20 @@ const STATUSES = ["done", "failed", "pending", "suspended", "synthesizing", "nor
 export function ChapterTable({
   bookId,
   chapters,
+  files,
   onQueue,
-  onSuspend,
+  onRename,
+  onReorder,
   onSetSelected,
   onSetAllSelected,
   onSetSelectedBatch,
 }: {
   bookId: string;
   chapters: ChapterRow[];
+  files?: FileInfo[];
   onQueue: (id: string) => void;
-  onSuspend: (id: string) => void;
+  onRename?: (id: string, title: string) => void;
+  onReorder?: (chapterIds: string[]) => void;
   onSetSelected: (id: string, selected: boolean) => void;
   onSetAllSelected: (selected: boolean) => void;
   onSetSelectedBatch: (ids: string[], selected: boolean) => void;
@@ -56,6 +66,11 @@ export function ChapterTable({
   const [durationMin, setDurationMin] = useState("");
   const [durationMax, setDurationMax] = useState("");
   const [durationUnit, setDurationUnit] = useState<"sec" | "min">("sec");
+  const [sourceFileFilter, setSourceFileFilter] = useState("");
+  const [dragChapterId, setDragChapterId] = useState<string | null>(null);
+  const [dragOverChapterId, setDragOverChapterId] = useState<string | null>(null);
+
+  const isMultiFile = files && files.length > 1;
 
   // Derived: filtered chapters (no useMemo — simple filter, React Compiler handles it)
   const filteredChapters = chapters.filter((ch) => {
@@ -73,11 +88,13 @@ export function ChapterTable({
     if (minD && (ch.durationMs ?? 0) < minD) return false;
     const maxD = Number(durationMax) * durationMultiplier;
     if (maxD && (ch.durationMs ?? 0) > maxD) return false;
+    if (sourceFileFilter && ch.sourceFileIndex !== Number(sourceFileFilter)) return false;
     return true;
   });
 
   const isFiltered = filteredChapters.length !== chapters.length;
-  const activeFilterCount = [search, statusFilter, wordCountMin, wordCountMax, durationMin, durationMax].filter(Boolean).length;
+  const canDrag = onReorder && !isFiltered;
+  const activeFilterCount = [search, statusFilter, wordCountMin, wordCountMax, durationMin, durationMax, sourceFileFilter].filter(Boolean).length;
 
   // Checkbox state based on visible (filtered) chapters
   const visibleSelectedCount = filteredChapters.filter((c) => c.selected).length;
@@ -107,6 +124,7 @@ export function ChapterTable({
     setDurationMin("");
     setDurationMax("");
     setDurationUnit("sec");
+    setSourceFileFilter("");
   }
 
   const playingChapter = playingChapterId
@@ -253,6 +271,23 @@ export function ChapterTable({
                   </select>
                 </div>
               </div>
+              {isMultiFile && (
+                <label className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-(--text-muted) w-16 shrink-0">Source</span>
+                  <select
+                    value={sourceFileFilter}
+                    onChange={(e) => setSourceFileFilter(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">All files</option>
+                    {files!.map((f) => (
+                      <option key={f.index} value={String(f.index)}>
+                        {f.index + 1}. {f.filename}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           </div>
         ) : null}
@@ -295,8 +330,12 @@ export function ChapterTable({
                   className="rounded border-(--border-input) text-indigo-600 focus:ring-indigo-500"
                 />
               </th>
+              {canDrag && <th className="w-8 px-2 py-3"></th>}
               <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">#</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Title</th>
+              {isMultiFile && (
+                <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Source</th>
+              )}
               <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider w-40">Status</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-(--text-muted) uppercase tracking-wider">Words</th>
               <th className="px-4 py-3 text-right text-xs font-medium text-(--text-muted) uppercase tracking-wider">Duration</th>
@@ -305,15 +344,44 @@ export function ChapterTable({
           </thead>
           <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
             {filteredChapters.map((chapter) => {
-              const isActive = chapter.status === "synthesizing" || chapter.status === "normalizing";
-              const canQueue = !isActive && chapter.status !== "done" && chapter.status !== "pending";
-              const canSuspend = chapter.status === "pending";
-
               return (
                 <tr
                   key={chapter.id}
-                  className={`hover:bg-(--bg-card-hover) ${!chapter.selected ? "opacity-40" : ""}`}
+                  draggable={!!canDrag}
+                  onDragStart={(e) => {
+                    if (!canDrag) return;
+                    e.dataTransfer.effectAllowed = "move";
+                    setDragChapterId(chapter.id);
+                  }}
+                  onDragOver={(e) => {
+                    if (!canDrag || dragChapterId === chapter.id) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOverChapterId(chapter.id);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (!canDrag || !dragChapterId || dragChapterId === chapter.id) return;
+                    const fromIdx = chapters.findIndex((c) => c.id === dragChapterId);
+                    const toIdx = chapters.findIndex((c) => c.id === chapter.id);
+                    if (fromIdx === -1 || toIdx === -1) return;
+                    const reordered = [...chapters];
+                    const [moved] = reordered.splice(fromIdx, 1);
+                    reordered.splice(toIdx, 0, moved);
+                    onReorder!(reordered.map((c) => c.id));
+                    setDragChapterId(null);
+                    setDragOverChapterId(null);
+                  }}
+                  onDragEnd={() => { setDragChapterId(null); setDragOverChapterId(null); }}
+                  className={`group hover:bg-(--bg-card-hover) ${!chapter.selected ? "opacity-40" : ""} ${dragChapterId === chapter.id ? "opacity-30" : ""} ${dragOverChapterId === chapter.id && dragChapterId !== chapter.id ? "border-t-2 border-blue-400" : ""}`}
                 >
+                  {canDrag && (
+                    <td className="px-2 py-3 cursor-grab text-(--text-faint)">
+                      <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                      </svg>
+                    </td>
+                  )}
                   <td className="px-3 py-3">
                     <input
                       type="checkbox"
@@ -338,12 +406,11 @@ export function ChapterTable({
                   <td className="px-4 py-3 text-sm text-(--text-tertiary)">{chapter.index + 1}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setModalChapterIndex(chapters.indexOf(chapter))}
-                        className="text-sm font-medium text-(--text-primary) hover:text-blue-700 text-left"
-                      >
-                        {chapter.title}
-                      </button>
+                      <EditableChapterTitle
+                        title={chapter.title}
+                        onRename={onRename ? (title) => onRename(chapter.id, title) : undefined}
+                        onClickTitle={() => setModalChapterIndex(chapters.indexOf(chapter))}
+                      />
                       {chapter.hasCustomText ? (
                         <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-600">
                           edited
@@ -356,6 +423,11 @@ export function ChapterTable({
                       ) : null}
                     </div>
                   </td>
+                  {isMultiFile && (
+                    <td className="px-4 py-3 text-xs text-(--text-muted) truncate max-w-32" title={files!.find((f) => f.index === chapter.sourceFileIndex)?.filename}>
+                      {files!.find((f) => f.index === chapter.sourceFileIndex)?.filename ?? "\u2014"}
+                    </td>
+                  )}
                   <td className="px-4 py-3">
                     <ChapterStatusCell chapter={chapter} />
                   </td>
@@ -391,31 +463,17 @@ export function ChapterTable({
                           Read
                         </a>
                       ) : null}
-                      {canQueue ? (
-                        <button
-                          onClick={() => onQueue(chapter.id)}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          Queue
-                        </button>
-                      ) : null}
-                      {canSuspend ? (
-                        <button
-                          onClick={() => onSuspend(chapter.id)}
-                          className="text-xs text-amber-600 hover:text-amber-800 font-medium"
-                        >
-                          Suspend
-                        </button>
-                      ) : null}
-                      {chapter.status === "done" ? (
-                        <button
-                          onClick={() => onQueue(chapter.id)}
-                          className="text-xs text-(--text-faint) hover:text-(--text-tertiary) font-medium"
-                          title="Re-synthesize this chapter"
-                        >
-                          Redo
-                        </button>
-                      ) : null}
+                      <button
+                        onClick={() => onQueue(chapter.id)}
+                        disabled={chapter.status !== "done"}
+                        title={
+                          chapter.status === "done" ? "Re-synthesize this chapter's audio from text" :
+                          "Only completed chapters can be redone"
+                        }
+                        className="text-xs text-(--text-faint) hover:text-(--text-tertiary) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        Redo
+                      </button>
                       {chapter.error ? (
                         <span className="text-xs text-red-500" title={chapter.error}>
                           error
@@ -474,7 +532,6 @@ export function ChapterTable({
           onClose={() => setModalChapterIndex(null)}
           onNavigate={setModalChapterIndex}
           onQueue={onQueue}
-          onSuspend={onSuspend}
           onSetSelected={onSetSelected}
         />
       ) : null}
@@ -515,4 +572,69 @@ function formatDuration(ms: number): string {
     return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function EditableChapterTitle({
+  title,
+  onRename,
+  onClickTitle,
+}: {
+  title: string;
+  onRename?: (title: string) => void;
+  onClickTitle: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setValue(title); }, [title]);
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+
+  function save() {
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== title && onRename) {
+      onRename(trimmed);
+    } else {
+      setValue(title);
+    }
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") { setValue(title); setEditing(false); }
+        }}
+        className="text-sm font-medium text-(--text-primary) bg-transparent border-b border-blue-500 outline-none w-full"
+      />
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1">
+      <button
+        onClick={onClickTitle}
+        className="text-sm font-medium text-(--text-primary) hover:text-blue-700 text-left"
+      >
+        {title}
+      </button>
+      {onRename && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+          className="text-(--text-faint) hover:text-(--text-tertiary) opacity-0 group-hover:opacity-100 transition-opacity"
+          title="Rename chapter"
+        >
+          <svg className="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M12.146.854a.5.5 0 0 1 .708 0l2.292 2.292a.5.5 0 0 1 0 .708l-9.5 9.5a.5.5 0 0 1-.168.11l-3.5 1.5a.5.5 0 0 1-.65-.65l1.5-3.5a.5.5 0 0 1 .11-.168l9.5-9.5zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5z"/>
+          </svg>
+        </button>
+      )}
+    </span>
+  );
 }

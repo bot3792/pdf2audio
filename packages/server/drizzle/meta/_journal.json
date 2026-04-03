@@ -71,6 +71,34 @@
       "when": 1775194895319,
       "tag": "0009_add_skip_synthesis",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775199673243,
+      "tag": "0010_add_book_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1775205319695,
+      "tag": "0011_add_book_files_selected",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1775211358013,
+      "tag": "0012_add_log_file_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1775215117368,
+      "tag": "0013_add_file_skip_synthesis",
+      "breakpoints": true
     }
   ]
 }

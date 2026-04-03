@@ -9,11 +9,11 @@ export function normalizeForTts(text: string): string {
   // Strip markdown inline code
   out = out.replace(/`(.+?)`/g, "$1");
 
+  // Strip markdown images (must run before link strip)
+  out = out.replace(/!\[([^\]]*)\]\([^)]+\)/g, "");
+
   // Strip markdown links: [text](url) → text
   out = out.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-
-  // Strip markdown images
-  out = out.replace(/!\[([^\]]*)\]\([^)]+\)/g, "");
 
   // Strip markdown headers (# ## ### etc.)
   out = out.replace(/^#{1,6}\s+/gm, "");

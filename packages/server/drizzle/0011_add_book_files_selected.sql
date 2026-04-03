@@ -1,0 +1,1 @@
+ALTER TABLE "book_files" ADD COLUMN "selected" boolean DEFAULT true NOT NULL;
