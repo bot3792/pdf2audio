@@ -79,7 +79,7 @@ async function main() {
     const firstFile = files[0];
     const title = fields.title
       || firstFile.filename.replace(/\.pdf$/i, "").replace(/[_-]/g, " ");
-    const voice = fields.voice ?? "af_heart";
+    const voice = fields.voice ?? "kokoro:af_heart";
     const speed = parseFloat(fields.speed ?? "1.0");
     const forceOcr = fields.forceOcr === "true";
     const llmChapterDetection = fields.llmChapterDetection === "true";
@@ -244,16 +244,20 @@ async function main() {
 
   fastify.get("/preview/:voiceId", async (request, reply) => {
     const { voiceId } = request.params as { voiceId: string };
+    const previewKey = encodeURIComponent(voiceId);
 
-    if (!/^[a-z]{2}_[a-z]+$/.test(voiceId)) {
+    try {
+      const { parseTtsVoice } = await import("./lib/tts.ts");
+      parseTtsVoice(voiceId);
+    } catch {
       return reply.code(400).send({ error: "Invalid voice ID" });
     }
 
-    const mp3Path = path.join(previewsDir, `${voiceId}.mp3`);
+    const mp3Path = path.join(previewsDir, `${previewKey}.mp3`);
 
     try {
       await access(mp3Path);
-      return reply.sendFile(`${voiceId}.mp3`, previewsDir);
+      return reply.sendFile(`${previewKey}.mp3`, previewsDir);
     } catch {}
 
     if (previewGenerating.has(voiceId)) {
@@ -263,12 +267,12 @@ async function main() {
     previewGenerating.add(voiceId);
 
     try {
-      const { synthesize } = await import("./lib/kokoro.ts");
+      const { synthesize, getPreviewTextForVoice } = await import("./lib/tts.ts");
       const { wavToMp3 } = await import("./lib/ffmpeg.ts");
-      const wavPath = path.join(previewsDir, `${voiceId}.wav`);
+      const wavPath = path.join(previewsDir, `${previewKey}.wav`);
 
       await synthesize({
-        inputText: "The quick brown fox jumps over the lazy dog. A wonderful serenity has taken possession of my entire soul, like these sweet mornings of spring which I enjoy with my whole heart.",
+        inputText: getPreviewTextForVoice(voiceId),
         outputPath: wavPath,
         voice: voiceId,
         speed: 1.0,
@@ -281,7 +285,7 @@ async function main() {
         fs.unlink(txtPath).catch(() => {}),
       ]));
 
-      return reply.sendFile(`${voiceId}.mp3`, previewsDir);
+      return reply.sendFile(`${previewKey}.mp3`, previewsDir);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(500).send({ error: `Preview generation failed: ${message}` });

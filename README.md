@@ -121,6 +121,7 @@ data/output/{bookId}/     Chapter MP3s and final concatenated MP3
 - espeak-ng — `brew install espeak-ng`
 - Marker — `pip install marker-pdf`
 - Kokoro — `pip install kokoro soundfile`
+- Bulgarian narrator — `pip install mlx numpy huggingface_hub` and `pip install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"`
 
 ## Setup
 
@@ -162,5 +163,7 @@ pnpm setup            # Full setup (system deps check, Python/Node deps, data di
 - Retry deletes all chapters and re-extracts from the PDF.
 - Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.
 - The Kokoro model (`hexgrad/Kokoro-82M`, 82M params, Apache-2.0) auto-downloads on first run.
+- The Bulgarian narrator uses `raditotev/bg-tts-v5-mlx`, an MLX-native Apple Silicon model that should be cached before offline use.
+- Bulgarian narrator speed is fixed in v1; the UI disables speed control for that voice.
 - `PYTORCH_ENABLE_MPS_FALLBACK=1` is set for MPS compatibility.
 - Best voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).

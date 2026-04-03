@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { voiceGroups, type Voice } from "../lib/voices.ts";
+import { getVoiceById, normalizeVoiceId, voiceGroups, type Voice } from "../lib/voices.ts";
 
 type VoicePickerProps = {
   value: string;
@@ -10,7 +10,8 @@ export function VoicePicker({ value, onChange }: VoicePickerProps) {
   const [expanded, setExpanded] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const selected = voiceGroups.flatMap((g) => g.voices).find((v) => v.id === value);
+  const selectedId = normalizeVoiceId(value);
+  const selected = getVoiceById(value);
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
@@ -31,7 +32,7 @@ export function VoicePicker({ value, onChange }: VoicePickerProps) {
       return;
     }
 
-    const audio = new Audio(`/preview/${voiceId}`);
+    const audio = new Audio(`/preview/${encodeURIComponent(voiceId)}`);
     audioRef.current = audio;
     setPlayingId(voiceId);
 
@@ -74,7 +75,7 @@ export function VoicePicker({ value, onChange }: VoicePickerProps) {
                 <VoiceRow
                   key={voice.id}
                   voice={voice}
-                  isSelected={voice.id === value}
+                   isSelected={voice.id === selectedId}
                   isPlaying={playingId === voice.id}
                   onPlay={() => playVoice(voice.id)}
                   onSelect={() => {
@@ -131,8 +132,11 @@ function VoiceRow({
       </button>
 
       <div className="flex-1 min-w-0">
-        <span className="text-sm text-(--text-primary)">{voice.label}</span>
-        <span className="text-xs text-(--text-faint) ml-1.5">({voice.gender})</span>
+        <div className="text-sm text-(--text-primary)">{voice.label}</div>
+        <div className="text-xs text-(--text-faint)">
+          ({voice.gender})
+          {voice.note ? ` · ${voice.note}` : ""}
+        </div>
       </div>
 
       <span className="text-xs font-medium text-(--text-muted) tabular-nums">{voice.grade}</span>

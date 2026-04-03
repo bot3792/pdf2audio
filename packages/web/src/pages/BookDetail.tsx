@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { ChapterTable } from "../components/ChapterTable.tsx";
+import { getVoiceLabel, voiceSupportsSpeedControl } from "../lib/voices.ts";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -96,6 +97,8 @@ export function BookDetail() {
   const allSelectedDone = selectedCount > 0 && book.chapters.filter((c) => c.selected).every((c) => c.status === "done" && c.audioPath);
   const canAssemble = allSelectedDone && !isAssembling;
   const canProcess = selectedNotDone > 0 && !hasActiveChapters && !isAssembling;
+  const voiceLabel = getVoiceLabel(book.voice);
+  const speedLabel = voiceSupportsSpeedControl(book.voice) ? `${book.speed}x` : "Fixed speed";
 
   return (
     <div className="min-h-screen bg-(--bg-page)">
@@ -107,15 +110,15 @@ export function BookDetail() {
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <EditableTitle
-              title={book.title}
-              onRename={(title) => renameMutation.mutate({ id: book.id, title })}
-            />
-            <p className="text-sm text-(--text-muted) mt-1">
-              Voice: {book.voice} &middot; Speed: {book.speed}x
-              {book.skipSynthesis ? " · Reader mode" : ""}
-            </p>
-          </div>
+             <EditableTitle
+               title={book.title}
+               onRename={(title) => renameMutation.mutate({ id: book.id, title })}
+             />
+             <p className="text-sm text-(--text-muted) mt-1">
+               Voice: {voiceLabel} &middot; Speed: {speedLabel}
+               {book.skipSynthesis ? " · Reader mode" : ""}
+             </p>
+           </div>
         </div>
 
         {book.error && (

@@ -1,7 +1,7 @@
 import { db } from "../db.ts";
 import { chapters, books } from "../schema.ts";
 import { eq, and, ne, notInArray } from "drizzle-orm";
-import { synthesize as kokoroSynthesize, KokoroAbortedError } from "../lib/kokoro.ts";
+import { synthesize as ttsSynthesize, TtsAbortedError } from "../lib/tts.ts";
 import { wavToMp3 } from "../lib/ffmpeg.ts";
 import { bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
@@ -81,7 +81,7 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
       }
     }, 1500);
 
-    await kokoroSynthesize({
+    await ttsSynthesize({
       inputText: text,
       outputPath: wavPath,
       voice: book.voice,
@@ -161,7 +161,7 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
       cancelPoll = null;
     }
 
-    if (err instanceof KokoroAbortedError) {
+    if (err instanceof TtsAbortedError) {
       await db.update(chapters).set({ status: "suspended", error: null, progress: null }).where(eq(chapters.id, chapterId));
       await chLog("Stopped — cancelled by user");
       return;

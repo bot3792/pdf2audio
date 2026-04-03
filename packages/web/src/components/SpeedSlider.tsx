@@ -1,13 +1,14 @@
 type SpeedSliderProps = {
   value: number;
   onChange: (speed: number) => void;
+  disabled?: boolean;
 };
 
-export function SpeedSlider({ value, onChange }: SpeedSliderProps) {
+export function SpeedSlider({ value, onChange, disabled = false }: SpeedSliderProps) {
   return (
     <div className="w-48">
       <label className="block text-sm font-medium text-(--text-secondary) mb-1">
-        Speed: {value.toFixed(1)}x
+        Speed: {disabled ? "Fixed for this voice" : `${value.toFixed(1)}x`}
       </label>
       <input
         type="range"
@@ -16,7 +17,8 @@ export function SpeedSlider({ value, onChange }: SpeedSliderProps) {
         step="0.1"
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full accent-blue-600"
+        disabled={disabled}
+        className="w-full accent-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
       />
     </div>
   );

@@ -14,7 +14,8 @@ echo "  python3: $(python3 --version)"
 
 echo ""
 echo "Installing Python dependencies..."
-pip3 install marker-pdf kokoro soundfile mlx-lm
+pip3 install marker-pdf kokoro soundfile mlx-lm mlx numpy huggingface_hub
+pip3 install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"
 
 echo ""
 echo "Verifying marker..."
@@ -27,6 +28,10 @@ python3 -c "from kokoro import KPipeline; print('  kokoro: OK')"
 echo ""
 echo "Caching Qwen2.5 model for chapter detection..."
 python3 -c "from mlx_lm import load; load('mlx-community/Qwen2.5-1.5B-Instruct-4bit'); print('  qwen2.5: OK')" 2>/dev/null || echo "  qwen2.5: download manually with: python3 -c \"from mlx_lm import load; load('mlx-community/Qwen2.5-1.5B-Instruct-4bit')\""
+
+echo ""
+echo "Caching Bulgarian narrator model..."
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download('raditotev/bg-tts-v5-mlx'); print('  bg-tts-v5-mlx: OK')" 2>/dev/null || echo "  bg-tts-v5-mlx: download manually with: python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('raditotev/bg-tts-v5-mlx')\""
 
 echo ""
 echo "Creating data directories..."

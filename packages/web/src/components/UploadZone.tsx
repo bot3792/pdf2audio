@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, type DragEvent } from "react";
 import { VoicePicker } from "./VoicePicker.tsx";
 import { SpeedSlider } from "./SpeedSlider.tsx";
+import { getVoiceById, voiceSupportsSpeedControl } from "../lib/voices.ts";
 
 type UploadZoneProps = {
   onUploadComplete: () => void;
@@ -17,7 +18,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [customTitle, setCustomTitle] = useState("");
-  const [voice, setVoice] = useState("af_heart");
+  const [voice, setVoice] = useState("kokoro:af_heart");
   const [speed, setSpeed] = useState(1.0);
   const [forceOcr, setForceOcr] = useState(false);
   const [llmChapterDetection, setLlmChapterDetection] = useState(false);
@@ -70,7 +71,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
         formData.append("title", customTitle.trim());
       }
       formData.append("voice", voice);
-      formData.append("speed", String(speed));
+      formData.append("speed", String(voiceSupportsSpeedControl(voice) ? speed : 1.0));
       formData.append("forceOcr", String(forceOcr));
       formData.append("llmChapterDetection", String(llmChapterDetection));
       formData.append("skipSynthesis", String(skipSynthesis));
@@ -143,6 +144,8 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
 
   const hasFiles = stagedFiles.length > 0;
   const isMultiFile = stagedFiles.length > 1;
+  const selectedVoice = getVoiceById(voice);
+  const speedEnabled = voiceSupportsSpeedControl(voice);
 
   return (
     <div className="space-y-4">
@@ -237,8 +240,12 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
 
       <div className="flex gap-6 items-end">
         <VoicePicker value={voice} onChange={setVoice} />
-        <SpeedSlider value={speed} onChange={setSpeed} />
+        <SpeedSlider value={speed} onChange={setSpeed} disabled={!speedEnabled} />
       </div>
+
+      {!speedEnabled && selectedVoice && (
+        <p className="text-xs text-(--text-muted)">{selectedVoice.label} uses a fixed speed in v1.</p>
+      )}
 
       <div className="flex gap-6">
         <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Only needed for scanned PDFs without selectable text">
