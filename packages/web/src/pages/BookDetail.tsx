@@ -83,6 +83,7 @@ export function BookDetail() {
             <h1 className="text-2xl font-bold text-(--text-primary)">{book.title}</h1>
             <p className="text-sm text-(--text-muted) mt-1">
               {book.filename} &middot; Voice: {book.voice} &middot; Speed: {book.speed}x
+              {book.skipSynthesis ? " · Reader mode" : ""}
               &middot; 4 worker slots
             </p>
           </div>

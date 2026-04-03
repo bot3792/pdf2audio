@@ -20,6 +20,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
   const [speed, setSpeed] = useState(1.0);
   const [forceOcr, setForceOcr] = useState(false);
   const [llmChapterDetection, setLlmChapterDetection] = useState(false);
+  const [skipSynthesis, setSkipSynthesis] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +46,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
       formData.append("speed", String(speed));
       formData.append("forceOcr", String(forceOcr));
       formData.append("llmChapterDetection", String(llmChapterDetection));
+      formData.append("skipSynthesis", String(skipSynthesis));
 
       const res = await fetch("/upload", { method: "POST", body: formData });
       if (!res.ok) {
@@ -152,6 +154,10 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
           <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
           LLM chapter detection
         </label>
+        <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Extract chapters and reader view only. You can still queue audio later if needed.">
+          <input type="checkbox" checked={skipSynthesis} onChange={(e) => setSkipSynthesis(e.target.checked)} className="rounded" />
+          Skip synthesis
+        </label>
       </div>
 
       {stagedFile && (
@@ -161,7 +167,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
           disabled={isUploading}
           className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
         >
-          {isUploading ? "Uploading..." : "Convert"}
+          {isUploading ? "Uploading..." : skipSynthesis ? "Extract" : "Convert"}
         </button>
       )}
 

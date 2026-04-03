@@ -14,6 +14,7 @@ export const books = pgTable("books", {
   error: text("error"),
   forceOcr: boolean("force_ocr").notNull().default(false),
   llmChapterDetection: boolean("llm_chapter_detection").notNull().default(false),
+  skipSynthesis: boolean("skip_synthesis").notNull().default(false),
   totalChapters: integer("total_chapters").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -44,15 +44,17 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
           bookId,
           index: i,
           title: ch.title,
-          rawText: ch.text,
-          pageStart: ch.pageStart,
-          pageEnd: ch.pageEnd,
-          sourceBlocks: ch.sourceBlocks,
-          status: "pending",
-        })
-        .returning();
+            rawText: ch.text,
+            pageStart: ch.pageStart,
+            pageEnd: ch.pageEnd,
+            sourceBlocks: ch.sourceBlocks,
+            status: book.skipSynthesis ? "suspended" : "pending",
+          })
+          .returning();
 
-      await addJob("normalize", { chapterId: inserted.id, bookId }, { maxAttempts: 1 });
+      if (!book.skipSynthesis) {
+        await addJob("normalize", { chapterId: inserted.id, bookId }, { maxAttempts: 1 });
+      }
     }
 
     await db
@@ -60,7 +62,11 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
       .set({ totalChapters: extractedChapters.length, updatedAt: new Date() })
       .where(eq(books.id, bookId));
 
-    await log("Extraction complete, queuing normalization");
+    await log(
+      book.skipSynthesis
+        ? "Extraction complete in reader mode — chapters are suspended. Queue selected chapters when ready."
+        : "Extraction complete, queuing normalization"
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await log(`Extraction failed: ${message}`);

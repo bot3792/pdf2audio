@@ -380,6 +380,17 @@ export function ChapterTable({
                           {playingChapterId === chapter.id && isAudioPlaying ? "\u23F8" : "\u25B6"}
                         </button>
                       ) : null}
+                      {chapter.hasSourceBlocks ? (
+                        <a
+                          href={`/read/chapter/${chapter.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                          title="Open reader view in a new tab"
+                        >
+                          Read
+                        </a>
+                      ) : null}
                       {canQueue ? (
                         <button
                           onClick={() => onQueue(chapter.id)}

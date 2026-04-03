@@ -7,9 +7,10 @@ import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import { appRouter } from "./router.ts";
 import { createContext } from "./trpc.ts";
 import { startWorker, stopWorker } from "./workers/setup.ts";
+import { registerChapterReaderRoute, type ChapterReaderLookupResult } from "./lib/chapter-reader-route.ts";
 import { ensureDataDirs, uploadsDir, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
-import { books, assemblies } from "./schema.ts";
+import { books, assemblies, chapters } from "./schema.ts";
 import { eq } from "drizzle-orm";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -58,6 +59,7 @@ async function main() {
     const speed = parseFloat((data.fields.speed as any)?.value ?? "1.0");
     const forceOcr = (data.fields.forceOcr as any)?.value === "true";
     const llmChapterDetection = (data.fields.llmChapterDetection as any)?.value === "true";
+    const skipSynthesis = (data.fields.skipSynthesis as any)?.value === "true";
 
     const [book] = await db
       .insert(books)
@@ -70,6 +72,7 @@ async function main() {
         speed,
         forceOcr,
         llmChapterDetection,
+        skipSynthesis,
       })
       .returning();
 
@@ -102,14 +105,40 @@ async function main() {
 
   fastify.get("/audio/chapter/:chapterId", async (request, reply) => {
     const { chapterId } = request.params as { chapterId: string };
-    const { chapters: chaptersTable } = await import("./schema.ts");
-    const [chapter] = await db.select().from(chaptersTable).where(eq(chaptersTable.id, chapterId));
+    const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
 
     if (!chapter?.audioPath) {
       return reply.code(404).send({ error: "Chapter audio not found" });
     }
 
     return reply.sendFile(path.relative(outputDir, chapter.audioPath), outputDir);
+  });
+
+  registerChapterReaderRoute(fastify, async (chapterId): Promise<ChapterReaderLookupResult> => {
+    const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
+    if (!chapter) {
+      return { kind: "not-found", message: "Chapter not found" };
+    }
+
+    const [book] = await db.select().from(books).where(eq(books.id, chapter.bookId));
+    if (!book) {
+      return { kind: "not-found", message: "Book not found" };
+    }
+
+    if (!Array.isArray(chapter.sourceBlocks)) {
+      return { kind: "not-found", message: "Chapter source blocks not found" };
+    }
+
+    return {
+      kind: "ok",
+      chapter: {
+        bookTitle: book.title,
+        chapterTitle: chapter.title,
+        pageStart: chapter.pageStart,
+        pageEnd: chapter.pageEnd,
+        sourceBlocks: chapter.sourceBlocks,
+      },
+    };
   });
 
   const previewGenerating = new Set<string>();

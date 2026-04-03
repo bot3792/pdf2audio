@@ -64,6 +64,13 @@
       "when": 1772565000000,
       "tag": "0008_add_extraction_options",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775194895319,
+      "tag": "0009_add_skip_synthesis",
+      "breakpoints": true
     }
   ]
 }

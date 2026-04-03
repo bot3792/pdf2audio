@@ -75,7 +75,7 @@ export const booksRouter = router({
         const wordCount = text.split(/\s+/).filter(Boolean).length;
         const hasCleanText = !!ch.cleanText;
         const hasCustomText = !!ch.customText;
-        const hasSourceBlocks = !!ch.sourceBlocks;
+        const hasSourceBlocks = Array.isArray(ch.sourceBlocks);
         return { ...ch, wordCount, hasCleanText, hasCustomText, hasSourceBlocks, rawText: undefined, cleanText: undefined, customText: undefined, sourceBlocks: undefined };
       });
 
@@ -116,6 +116,7 @@ export const booksRouter = router({
         filename: z.string().min(1),
         voice: z.string().default("af_heart"),
         speed: z.number().min(0.5).max(2.0).default(1.0),
+        skipSynthesis: z.boolean().default(false),
       })
     )
     .mutation(async ({ input }) => {
@@ -133,6 +134,7 @@ export const booksRouter = router({
           pdfPath,
           voice: input.voice,
           speed: input.speed,
+          skipSynthesis: input.skipSynthesis,
         })
         .returning();
 
