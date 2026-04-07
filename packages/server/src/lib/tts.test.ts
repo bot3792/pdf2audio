@@ -27,9 +27,19 @@ describe("parseTtsVoice", () => {
     });
   });
 
+  it("parses the Meta MMS Bulgarian voice", () => {
+    expect(parseTtsVoice("bg-mms:bul")).toEqual({
+      engine: "bg-mms",
+      voice: "bul",
+      raw: "bg-mms:bul",
+    });
+  });
+
   it("rejects unsupported or empty prefixed voice ids", () => {
     expect(() => parseTtsVoice("bg-mlx:")).toThrow(/unsupported voice/i);
     expect(() => parseTtsVoice("bg-mlx:other")).toThrow(/unsupported voice/i);
+    expect(() => parseTtsVoice("bg-mms:")).toThrow(/unsupported voice/i);
+    expect(() => parseTtsVoice("bg-mms:other")).toThrow(/unsupported voice/i);
     expect(() => parseTtsVoice("kokoro:")).toThrow(/unsupported voice/i);
   });
 
@@ -44,6 +54,10 @@ describe("getPreviewTextForVoice", () => {
     expect(getPreviewTextForVoice("bg-mlx:narrator")).toMatch(/пролетна|утрин/i);
   });
 
+  it("returns Bulgarian sample text for the MMS voice", () => {
+    expect(getPreviewTextForVoice("bg-mms:bul")).toMatch(/пролетна|утрин/i);
+  });
+
   it("returns an English sample for Kokoro voices", () => {
     expect(getPreviewTextForVoice("kokoro:af_heart")).toMatch(/quick brown fox/i);
   });
@@ -52,6 +66,10 @@ describe("getPreviewTextForVoice", () => {
 describe("voiceSupportsSpeed", () => {
   it("disables speed control for the Bulgarian MLX narrator", () => {
     expect(voiceSupportsSpeed("bg-mlx:narrator")).toBe(false);
+  });
+
+  it("disables speed control for the Meta MMS Bulgarian voice", () => {
+    expect(voiceSupportsSpeed("bg-mms:bul")).toBe(false);
   });
 
   it("keeps speed control enabled for Kokoro", () => {

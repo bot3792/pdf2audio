@@ -39,6 +39,7 @@ export const chapters = pgTable("chapters", {
   pageEnd: integer("page_end"),
   sourceBlocks: jsonb("source_blocks"),
   sourceFileIndex: integer("source_file_index"),
+  synthesizedWith: jsonb("synthesized_with").$type<{ voice?: string; speed?: number | null }>(),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

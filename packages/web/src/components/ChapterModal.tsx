@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
+import { getVoiceLabel } from "../lib/voices.ts";
 import type { ChapterRow } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
@@ -148,6 +149,12 @@ export function ChapterModal({
               ) : null}
               {chapter.progress && chapter.status === "synthesizing" ? (
                 <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
+              ) : null}
+              {chapter.synthesizedWith?.voice ? (
+                <span>{getVoiceLabel(chapter.synthesizedWith.voice)}</span>
+              ) : null}
+              {chapter.synthesizedWith?.speed !== null && chapter.synthesizedWith?.speed !== undefined ? (
+                <span>{chapter.synthesizedWith.speed}x</span>
               ) : null}
             </div>
           </div>

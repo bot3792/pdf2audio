@@ -19,6 +19,7 @@ export type ChapterRow = {
   pageStart: number | null;
   pageEnd: number | null;
   sourceFileIndex: number | null;
+  synthesizedWith: { voice?: string; speed?: number | null } | null;
 };
 
 export type FileInfo = {

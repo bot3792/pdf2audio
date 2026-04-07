@@ -42,7 +42,7 @@ export function VoicePicker({ value, onChange }: VoicePickerProps) {
   }, [playingId]);
 
   return (
-    <div className="flex-1">
+    <div className="relative flex-1">
       <label className="block text-sm font-medium text-(--text-secondary) mb-1">Voice</label>
       <button
         type="button"
@@ -53,7 +53,7 @@ export function VoicePicker({ value, onChange }: VoicePickerProps) {
         className="w-full flex items-center justify-between rounded-md border border-(--border-input) bg-(--bg-input) px-3 py-2 text-sm shadow-sm hover:border-(--text-faint) focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
       >
         <span>
-          {selected ? `${selected.label} (${selected.gender}) — ${selected.grade}` : value}
+          {selected ? `${selected.label}${selected.gender ? ` (${selected.gender})` : ""} — ${selected.grade}` : value}
         </span>
         <svg
           className={`h-4 w-4 text-(--text-faint) transition-transform ${expanded ? "rotate-180" : ""}`}
@@ -65,7 +65,7 @@ export function VoicePicker({ value, onChange }: VoicePickerProps) {
       </button>
 
       {expanded && (
-        <div className="mt-2 rounded-lg border border-(--border) bg-(--bg-card) shadow-lg max-h-80 overflow-y-auto">
+        <div className="absolute z-50 left-0 right-0 mt-2 rounded-lg border border-(--border) bg-(--bg-card) shadow-lg max-h-80 overflow-y-auto">
           {voiceGroups.map((group) => (
             <div key={group.label}>
               <div className="sticky top-0 bg-(--bg-subtle) px-3 py-1.5 text-xs font-semibold text-(--text-muted) uppercase tracking-wider border-b border-(--border)">
@@ -134,7 +134,7 @@ function VoiceRow({
       <div className="flex-1 min-w-0">
         <div className="text-sm text-(--text-primary)">{voice.label}</div>
         <div className="text-xs text-(--text-faint)">
-          ({voice.gender})
+          {voice.gender ? `(${voice.gender})` : "Model voice"}
           {voice.note ? ` · ${voice.note}` : ""}
         </div>
       </div>

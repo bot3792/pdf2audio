@@ -80,6 +80,8 @@ async function main() {
     const title = fields.title
       || firstFile.filename.replace(/\.pdf$/i, "").replace(/[_-]/g, " ");
     const voice = fields.voice ?? "kokoro:af_heart";
+    const { parseTtsVoice } = await import("./lib/tts.ts");
+    parseTtsVoice(voice);
     const speed = parseFloat(fields.speed ?? "1.0");
     const forceOcr = fields.forceOcr === "true";
     const llmChapterDetection = fields.llmChapterDetection === "true";

@@ -1,7 +1,7 @@
 import { db } from "../db.ts";
 import { chapters, books } from "../schema.ts";
 import { eq, and, ne, notInArray } from "drizzle-orm";
-import { synthesize as ttsSynthesize, TtsAbortedError } from "../lib/tts.ts";
+import { synthesize as ttsSynthesize, TtsAbortedError, voiceSupportsSpeed } from "../lib/tts.ts";
 import { wavToMp3 } from "../lib/ffmpeg.ts";
 import { bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
@@ -124,7 +124,16 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
 
     await db
       .update(chapters)
-      .set({ audioPath: mp3Path, durationMs, status: "done", progress: null })
+      .set({
+        audioPath: mp3Path,
+        durationMs,
+        status: "done",
+        progress: null,
+        synthesizedWith: {
+          voice: book.voice,
+          speed: voiceSupportsSpeed(book.voice) ? book.speed : null,
+        },
+      })
       .where(eq(chapters.id, chapterId));
 
     const totalSec = Math.round(durationMs / 1000);

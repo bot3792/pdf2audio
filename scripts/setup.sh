@@ -14,7 +14,7 @@ echo "  python3: $(python3 --version)"
 
 echo ""
 echo "Installing Python dependencies..."
-pip3 install marker-pdf kokoro soundfile mlx-lm mlx numpy huggingface_hub
+pip3 install marker-pdf kokoro soundfile mlx-lm mlx numpy huggingface_hub transformers torch
 pip3 install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"
 
 echo ""
@@ -32,6 +32,14 @@ python3 -c "from mlx_lm import load; load('mlx-community/Qwen2.5-1.5B-Instruct-4
 echo ""
 echo "Caching Bulgarian narrator model..."
 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('raditotev/bg-tts-v5-mlx'); print('  bg-tts-v5-mlx: OK')" 2>/dev/null || echo "  bg-tts-v5-mlx: download manually with: python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('raditotev/bg-tts-v5-mlx')\""
+
+echo ""
+echo "Verifying Meta MMS runtime..."
+python3 -c "from transformers import AutoTokenizer, VitsModel; print('  mms runtime: OK')"
+
+echo ""
+echo "Caching Meta MMS Bulgarian model..."
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/mms-tts-bul'); print('  mms-tts-bul: OK')" 2>/dev/null || echo "  mms-tts-bul: download manually with: python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('facebook/mms-tts-bul')\""
 
 echo ""
 echo "Creating data directories..."

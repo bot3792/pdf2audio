@@ -7,6 +7,7 @@ import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
 import { uploadsDir, bookTmpDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { redetectChaptersFromExistingMarkerOutput } from "../lib/marker.ts";
+import { parseTtsVoice } from "../lib/tts.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, unlink, rm } from "node:fs/promises";
@@ -150,6 +151,23 @@ export const booksRouter = router({
       return { success: true };
     }),
 
+  updateSettings: publicProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      voice: z.string().optional(),
+      speed: z.number().min(0.5).max(2.0).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const updates: Record<string, unknown> = { updatedAt: new Date() };
+      if (input.voice !== undefined) {
+        parseTtsVoice(input.voice);
+        updates.voice = input.voice;
+      }
+      if (input.speed !== undefined) updates.speed = input.speed;
+      await db.update(books).set(updates).where(eq(books.id, input.id));
+      return { success: true };
+    }),
+
   upload: publicProcedure
     .input(
       z.object({
@@ -161,6 +179,8 @@ export const booksRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      parseTtsVoice(input.voice);
+
       const id = randomUUID();
       const pdfDir = path.join(uploadsDir, id);
       await mkdir(pdfDir, { recursive: true });
@@ -201,7 +221,10 @@ export const booksRouter = router({
         outputPath: null,
         updatedAt: new Date(),
       };
-      if (input.voice) updates.voice = input.voice;
+      if (input.voice) {
+        parseTtsVoice(input.voice);
+        updates.voice = input.voice;
+      }
       if (input.speed) updates.speed = input.speed;
       if (input.forceOcr !== undefined) updates.forceOcr = input.forceOcr;
       if (input.llmChapterDetection !== undefined) updates.llmChapterDetection = input.llmChapterDetection;

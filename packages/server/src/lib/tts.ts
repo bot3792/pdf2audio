@@ -9,6 +9,7 @@ import { synthesize as kokoroSynthesize, KokoroAbortedError } from "./kokoro.ts"
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
 const BG_MLX_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_bg_tts_mlx.py");
+const BG_MMS_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_mms_tts.py");
 
 type LogFn = (message: string) => Promise<void>;
 type ProgressFn = (chunk: number, totalChunks: number) => Promise<void>;
@@ -24,7 +25,7 @@ type SynthesizeOptions = {
 };
 
 type ParsedTtsVoice = {
-  engine: "kokoro" | "bg-mlx";
+  engine: "kokoro" | "bg-mlx" | "bg-mms";
   voice: string;
   raw: string;
 };
@@ -35,6 +36,7 @@ const noopProgress: ProgressFn = async () => {};
 const ENGLISH_PREVIEW_TEXT = "The quick brown fox jumps over the lazy dog. A wonderful serenity has taken possession of my entire soul, like these sweet mornings of spring which I enjoy with my whole heart.";
 const BULGARIAN_PREVIEW_TEXT = "В тиха пролетна утрин светът изглеждаше мек и ясен, а гласът на разказвача трябваше да носи спокойствие, ритъм и увереност през всяка страница.";
 const BG_MLX_VOICES = new Set(["narrator"]);
+const BG_MMS_VOICES = new Set(["bul"]);
 const KOKORO_VOICE_PATTERN = /^[a-z]{2}_[a-z]+$/;
 
 export class TtsAbortedError extends Error {
@@ -61,6 +63,14 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
     return { engine: "bg-mlx", voice, raw: rawVoice };
   }
 
+  if (rawVoice.startsWith("bg-mms:")) {
+    const voice = rawVoice.slice("bg-mms:".length);
+    if (!BG_MMS_VOICES.has(voice)) {
+      throw new Error(`Unsupported voice ID: ${rawVoice}`);
+    }
+    return { engine: "bg-mms", voice, raw: rawVoice };
+  }
+
   if (rawVoice.includes(":")) {
     throw new Error(`Unsupported voice ID: ${rawVoice}`);
   }
@@ -73,7 +83,7 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
 }
 
 export function getPreviewTextForVoice(voice: string): string {
-  return parseTtsVoice(voice).engine === "bg-mlx" ? BULGARIAN_PREVIEW_TEXT : ENGLISH_PREVIEW_TEXT;
+  return parseTtsVoice(voice).engine === "kokoro" ? ENGLISH_PREVIEW_TEXT : BULGARIAN_PREVIEW_TEXT;
 }
 
 export function voiceSupportsSpeed(voice: string): boolean {
@@ -95,10 +105,47 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
     }
   }
 
-  await synthesizeBulgarianMlx({ inputText, outputPath, voice: resolved.voice, speed, log, onProgress, signal });
+  if (resolved.engine === "bg-mlx") {
+    await synthesizeBulgarianBackend({
+      backendName: "Bulgarian MLX",
+      scriptPath: BG_MLX_SCRIPT,
+      inputText,
+      outputPath,
+      voice: resolved.voice,
+      speed,
+      log,
+      onProgress,
+      signal,
+    });
+    return;
+  }
+
+  await synthesizeBulgarianBackend({
+    backendName: "Bulgarian MMS",
+    scriptPath: BG_MMS_SCRIPT,
+    inputText,
+    outputPath,
+    voice: resolved.voice,
+    speed,
+    log,
+    onProgress,
+    signal,
+  });
 }
 
-async function synthesizeBulgarianMlx({ inputText, outputPath, voice, log = noopLog, onProgress = noopProgress, signal }: SynthesizeOptions): Promise<void> {
+async function synthesizeBulgarianBackend({
+  backendName,
+  scriptPath,
+  inputText,
+  outputPath,
+  voice,
+  log = noopLog,
+  onProgress = noopProgress,
+  signal,
+}: SynthesizeOptions & {
+  backendName: string;
+  scriptPath: string;
+}): Promise<void> {
   const chunks = chunkTextForBulgarianNarrator(inputText);
   if (chunks.length === 0) {
     throw new Error("Bulgarian narrator input is empty after chunking");
@@ -109,7 +156,7 @@ async function synthesizeBulgarianMlx({ inputText, outputPath, voice, log = noop
 
   const pythonBin = path.join(CONDA_BIN, "python");
   const wordCount = inputText.split(/\s+/).filter(Boolean).length;
-  await log(`Starting Bulgarian MLX synthesis (${wordCount.toLocaleString()} words, voice: ${voice}, fixed speed)`);
+  await log(`Starting ${backendName} synthesis (${wordCount.toLocaleString()} words, voice: ${voice}, fixed speed)`);
 
   await new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
@@ -119,11 +166,12 @@ async function synthesizeBulgarianMlx({ inputText, outputPath, voice, log = noop
 
     const proc = spawn(
       pythonBin,
-      [BG_MLX_SCRIPT, "--input", textPath, "--output", outputPath, "--voice", voice],
+      [scriptPath, "--input", textPath, "--output", outputPath, "--voice", voice],
       {
         env: {
           ...process.env,
           HF_HUB_OFFLINE: "1",
+          PYTORCH_ENABLE_MPS_FALLBACK: "1",
           PATH: `${CONDA_BIN}:${process.env.PATH}`,
         },
       }
@@ -131,7 +179,7 @@ async function synthesizeBulgarianMlx({ inputText, outputPath, voice, log = noop
 
     const timeout = setTimeout(() => {
       proc.kill("SIGKILL");
-      reject(new Error("Bulgarian MLX synthesis timed out after 3 hours"));
+      reject(new Error(`${backendName} synthesis timed out after 3 hours`));
     }, 3 * 60 * 60 * 1000);
 
     let aborted = false;
@@ -147,7 +195,7 @@ async function synthesizeBulgarianMlx({ inputText, outputPath, voice, log = noop
       try {
         const data = JSON.parse(line);
         if (data.type === "chunks") {
-          void log(`Prepared ${data.total} Bulgarian narrator chunks`);
+          void log(`Prepared ${data.total} ${backendName} chunks`);
         } else if (data.type === "progress") {
           void log(`Chunk ${data.chunk}/${data.totalChunks} — ${data.audioSeconds}s of audio`);
           void onProgress(data.chunk, data.totalChunks);
@@ -179,7 +227,7 @@ async function synthesizeBulgarianMlx({ inputText, outputPath, voice, log = noop
       }
 
       if (code !== 0) {
-        reject(new Error(`Bulgarian MLX synthesis failed: ${stderrBuf.trim()}`));
+        reject(new Error(`${backendName} synthesis failed: ${stderrBuf.trim()}`));
         return;
       }
 

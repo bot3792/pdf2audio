@@ -1,7 +1,7 @@
 export type Voice = {
   id: string;
   label: string;
-  gender: "F" | "M";
+  gender: "F" | "M" | null;
   grade: string;
   supportsSpeed?: boolean;
   note?: string;
@@ -87,7 +87,8 @@ export const voiceGroups: VoiceGroup[] = [
   {
     label: "Bulgarian",
     voices: [
-      { id: "bg-mlx:narrator", label: "Narrator", gender: "F", grade: "MLX", supportsSpeed: false, note: "Apple Silicon narrator" },
+      { id: "bg-mlx:narrator", label: "BG-TTS V5 (Radi Totev MLX port)", gender: null, grade: "MLX", supportsSpeed: false, note: "Apple Silicon narrator" },
+      { id: "bg-mms:bul", label: "MMS Bulgarian (Meta)", gender: null, grade: "VITS", supportsSpeed: false, note: "Meta MMS" },
     ],
   },
 ];
@@ -104,9 +105,10 @@ export function getVoiceById(voiceId: string): Voice | null {
 
 export function getVoiceLabel(voiceId: string): string {
   const voice = getVoiceById(voiceId);
-  return voice ? `${voice.label} (${voice.gender})` : voiceId;
+  if (!voice) return voiceId;
+  return voice.gender ? `${voice.label} (${voice.gender})` : voice.label;
 }
 
 export function voiceSupportsSpeedControl(voiceId: string): boolean {
-  return getVoiceById(voiceId)?.supportsSpeed ?? !voiceId.startsWith("bg-mlx:");
+  return getVoiceById(voiceId)?.supportsSpeed ?? !voiceId.startsWith("bg-");
 }
