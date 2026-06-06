@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { readFile, readdir, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 
 import { env } from "../env.ts";
 import { detectChaptersWithLlm } from "./chapter-detect.ts";
@@ -340,7 +341,7 @@ function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu",
     const proc = spawn(
       path.join(CONDA_BIN, "marker_single"),
       args,
-      { env: { ...process.env, TORCH_DEVICE: device, HF_HUB_OFFLINE: "1", PATH: `${CONDA_BIN}:${process.env.PATH}` } }
+      { env: { ...process.env, TORCH_DEVICE: device, HF_HUB_OFFLINE: "1", OMP_NUM_THREADS: String(os.availableParallelism()), MKL_NUM_THREADS: String(os.availableParallelism()), PATH: `${CONDA_BIN}:${process.env.PATH}` } }
     );
 
     const timeout = setTimeout(() => {

@@ -19,6 +19,8 @@ type SynthesizeOptions = {
   outputPath: string;
   voice: string;
   speed: number;
+  chunkPreviewDir?: string | null;
+  chunkPreviewUrlBase?: string | null;
   log?: LogFn;
   onProgress?: ProgressFn;
   signal?: AbortSignal;
@@ -32,6 +34,7 @@ type ParsedTtsVoice = {
 
 const noopLog: LogFn = async () => {};
 const noopProgress: ProgressFn = async () => {};
+let bgMlxSynthesisQueue: Promise<void> = Promise.resolve();
 
 const ENGLISH_PREVIEW_TEXT = "The quick brown fox jumps over the lazy dog. A wonderful serenity has taken possession of my entire soul, like these sweet mornings of spring which I enjoy with my whole heart.";
 const BULGARIAN_PREVIEW_TEXT = "В тиха пролетна утрин светът изглеждаше мек и ясен, а гласът на разказвача трябваше да носи спокойствие, ритъм и увереност през всяка страница.";
@@ -90,12 +93,12 @@ export function voiceSupportsSpeed(voice: string): boolean {
   return parseTtsVoice(voice).engine === "kokoro";
 }
 
-export async function synthesize({ inputText, outputPath, voice, speed, log = noopLog, onProgress = noopProgress, signal }: SynthesizeOptions): Promise<void> {
+export async function synthesize({ inputText, outputPath, voice, speed, chunkPreviewDir = null, chunkPreviewUrlBase = null, log = noopLog, onProgress = noopProgress, signal }: SynthesizeOptions): Promise<void> {
   const resolved = parseTtsVoice(voice);
 
   if (resolved.engine === "kokoro") {
     try {
-      await kokoroSynthesize({ inputText, outputPath, voice: resolved.voice, speed, log, onProgress, signal });
+      await kokoroSynthesize({ inputText, outputPath, voice: resolved.voice, speed, chunkPreviewDir, chunkPreviewUrlBase, log, onProgress, signal });
       return;
     } catch (error) {
       if (error instanceof KokoroAbortedError) {
@@ -106,17 +109,19 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
   }
 
   if (resolved.engine === "bg-mlx") {
-    await synthesizeBulgarianBackend({
+    await runExclusiveBgMlxSynthesis(() => synthesizeBulgarianBackend({
       backendName: "Bulgarian MLX",
       scriptPath: BG_MLX_SCRIPT,
       inputText,
       outputPath,
       voice: resolved.voice,
       speed,
+      chunkPreviewDir,
+      chunkPreviewUrlBase,
       log,
       onProgress,
       signal,
-    });
+    }));
     return;
   }
 
@@ -127,10 +132,28 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
     outputPath,
     voice: resolved.voice,
     speed,
+    chunkPreviewDir,
+    chunkPreviewUrlBase,
     log,
     onProgress,
     signal,
   });
+}
+
+async function runExclusiveBgMlxSynthesis<T>(run: () => Promise<T>): Promise<T> {
+  let release = () => {};
+  const waitForTurn = bgMlxSynthesisQueue;
+  bgMlxSynthesisQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await waitForTurn;
+
+  try {
+    return await run();
+  } finally {
+    release();
+  }
 }
 
 async function synthesizeBulgarianBackend({
@@ -139,6 +162,8 @@ async function synthesizeBulgarianBackend({
   inputText,
   outputPath,
   voice,
+  chunkPreviewDir = null,
+  chunkPreviewUrlBase = null,
   log = noopLog,
   onProgress = noopProgress,
   signal,
@@ -157,6 +182,9 @@ async function synthesizeBulgarianBackend({
   const pythonBin = path.join(CONDA_BIN, "python");
   const wordCount = inputText.split(/\s+/).filter(Boolean).length;
   await log(`Starting ${backendName} synthesis (${wordCount.toLocaleString()} words, voice: ${voice}, fixed speed)`);
+  if (chunkPreviewUrlBase) {
+    await log(`Chunk previews: ${chunkPreviewUrlBase}/chunk-001.wav`);
+  }
 
   await new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
@@ -166,7 +194,13 @@ async function synthesizeBulgarianBackend({
 
     const proc = spawn(
       pythonBin,
-      [scriptPath, "--input", textPath, "--output", outputPath, "--voice", voice],
+      [
+        scriptPath,
+        "--input", textPath,
+        "--output", outputPath,
+        "--voice", voice,
+        ...(chunkPreviewDir ? ["--chunks-dir", chunkPreviewDir] : []),
+      ],
       {
         env: {
           ...process.env,
@@ -197,7 +231,8 @@ async function synthesizeBulgarianBackend({
         if (data.type === "chunks") {
           void log(`Prepared ${data.total} ${backendName} chunks`);
         } else if (data.type === "progress") {
-          void log(`Chunk ${data.chunk}/${data.totalChunks} — ${data.audioSeconds}s of audio`);
+          const previewSuffix = chunkPreviewUrlBase ? ` — ${chunkPreviewUrlBase}/chunk-${String(data.chunk).padStart(3, "0")}.wav` : "";
+          void log(`Chunk ${data.chunk}/${data.totalChunks} — ${data.audioSeconds}s of audio${previewSuffix}`);
           void onProgress(data.chunk, data.totalChunks);
         } else if (data.type === "done") {
           void log(`Synthesis complete — ${data.audioSeconds}s of audio in ${data.chunks} chunks`);

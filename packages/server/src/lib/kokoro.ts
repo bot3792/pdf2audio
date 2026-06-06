@@ -23,6 +23,8 @@ type SynthesizeOptions = {
   outputPath: string;
   voice: string;
   speed: number;
+  chunkPreviewDir?: string | null;
+  chunkPreviewUrlBase?: string | null;
   log?: LogFn;
   onProgress?: ProgressFn;
   signal?: AbortSignal;
@@ -35,13 +37,16 @@ export class KokoroAbortedError extends Error {
   }
 }
 
-export async function synthesize({ inputText, outputPath, voice, speed, log = noopLog, onProgress = noopProgress, signal }: SynthesizeOptions): Promise<void> {
+export async function synthesize({ inputText, outputPath, voice, speed, chunkPreviewDir = null, chunkPreviewUrlBase = null, log = noopLog, onProgress = noopProgress, signal }: SynthesizeOptions): Promise<void> {
   const textPath = outputPath.replace(/\.wav$/, ".txt");
   await writeFile(textPath, inputText, "utf-8");
 
   const pythonBin = path.join(CONDA_BIN, "python");
   const wordCount = inputText.split(/\s+/).filter(Boolean).length;
   await log(`Starting Kokoro synthesis (${wordCount.toLocaleString()} words, voice: ${voice}, speed: ${speed}x)`);
+  if (chunkPreviewUrlBase) {
+    await log(`Chunk previews: ${chunkPreviewUrlBase}/chunk-001.wav`);
+  }
 
   await new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
@@ -51,7 +56,14 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
 
     const proc = spawn(
       pythonBin,
-      [SYNTHESIZE_SCRIPT, "--input", textPath, "--output", outputPath, "--voice", voice, "--speed", String(speed)],
+      [
+        SYNTHESIZE_SCRIPT,
+        "--input", textPath,
+        "--output", outputPath,
+        "--voice", voice,
+        "--speed", String(speed),
+        ...(chunkPreviewDir ? ["--chunks-dir", chunkPreviewDir] : []),
+      ],
       {
         env: {
           ...process.env,
@@ -83,7 +95,8 @@ export async function synthesize({ inputText, outputPath, voice, speed, log = no
           totalChunks = data.total;
           log(`Phonemized into ${totalChunks} chunks`);
         } else if (data.type === "progress") {
-          log(`Chunk ${data.chunk}/${data.totalChunks} — ${data.audioSeconds}s of audio`);
+          const previewSuffix = chunkPreviewUrlBase ? ` — ${chunkPreviewUrlBase}/chunk-${String(data.chunk).padStart(3, "0")}.wav` : "";
+          log(`Chunk ${data.chunk}/${data.totalChunks} — ${data.audioSeconds}s of audio${previewSuffix}`);
           onProgress(data.chunk, data.totalChunks);
         } else if (data.type === "done") {
           log(`Synthesis complete — ${data.audioSeconds}s of audio in ${data.chunks} chunks`);

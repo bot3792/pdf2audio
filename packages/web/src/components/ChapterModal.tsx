@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { getVoiceLabel } from "../lib/voices.ts";
@@ -39,14 +39,33 @@ export function ChapterModal({
   const [viewMode, setViewMode] = useState<ViewMode>(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
+  const [selectedChunkPreviewUrl, setSelectedChunkPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     setViewMode(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
     setIsEditing(false);
+    setSelectedChunkPreviewUrl(null);
   }, [chapterIndex]);
 
-  const { data: fullChapter, isLoading } = trpc.chapters.get.useQuery({ id: chapter.id });
+  const { data: fullChapter, isLoading } = trpc.chapters.get.useQuery(
+    { id: chapter.id },
+    { refetchInterval: chapter.status === "synthesizing" ? 1000 : false },
+  );
   const utils = trpc.useUtils();
+
+  useEffect(() => {
+    const latestUrl = fullChapter?.chunkPreviews.at(-1)?.url ?? null;
+    if (!latestUrl) {
+      setSelectedChunkPreviewUrl(null);
+      return;
+    }
+
+    setSelectedChunkPreviewUrl((current) => {
+      if (!current) return latestUrl;
+      const exists = fullChapter?.chunkPreviews.some((preview) => preview.url === current);
+      return exists ? current : latestUrl;
+    });
+  }, [fullChapter?.chunkPreviews]);
 
   const updateTextMutation = trpc.chapters.updateText.useMutation({
     onSuccess: () => {
@@ -94,6 +113,18 @@ export function ChapterModal({
     if (!confirm("Reset to original text? Your edits will be lost.")) return;
     resetTextMutation.mutate({ id: chapter.id });
   }
+
+  // Clickable chunk ranges for the text panel — only when the active view renders the same text
+  // the chunk offsets point into (chunkTextSource). Selecting a span mirrors the chunk buttons.
+  const activeChunkUrl = selectedChunkPreviewUrl ?? fullChapter?.chunkPreviews.at(-1)?.url ?? null;
+  const chunkRanges =
+    fullChapter && viewMode === fullChapter.chunkTextSource
+      ? fullChapter.chunkPreviews.flatMap((p) =>
+          typeof p.start === "number" && typeof p.end === "number"
+            ? [{ start: p.start, end: p.end, url: p.url }]
+            : [],
+        )
+      : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -232,6 +263,15 @@ export function ChapterModal({
           )}
         </div>
 
+        {fullChapter?.chunkPreviews.length ? (
+          <ChunkPreviewPanel
+            chunkPreviews={fullChapter.chunkPreviews}
+            selectedUrl={selectedChunkPreviewUrl}
+            onSelect={setSelectedChunkPreviewUrl}
+            isSynthesizing={chapter.status === "synthesizing"}
+          />
+        ) : null}
+
         <div className="flex-1 min-h-[40vh] flex flex-col p-5">
           {isLoading ? (
             <div className="flex items-center justify-center flex-1 text-sm text-(--text-faint)">
@@ -252,6 +292,9 @@ export function ChapterModal({
                 cleanText={fullChapter.cleanText}
                 customText={fullChapter.customText}
                 viewMode={viewMode}
+                chunkRanges={chunkRanges}
+                selectedChunkUrl={activeChunkUrl}
+                onSelectChunk={setSelectedChunkPreviewUrl}
               />
             )
           ) : (
@@ -261,6 +304,63 @@ export function ChapterModal({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ChunkPreviewPanel({
+  chunkPreviews,
+  selectedUrl,
+  onSelect,
+  isSynthesizing,
+}: {
+  chunkPreviews: Array<{ index: number; fileName: string; url: string }>;
+  selectedUrl: string | null;
+  onSelect: (url: string) => void;
+  isSynthesizing: boolean;
+}) {
+  const activeUrl = selectedUrl ?? chunkPreviews.at(-1)?.url ?? null;
+
+  return (
+    <div className="border-b border-(--border) px-5 py-3 bg-(--bg-card)">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-xs font-medium text-(--text-primary)">
+          Chunk previews {isSynthesizing ? `(live: ${chunkPreviews.length} ready)` : `(${chunkPreviews.length})`}
+        </div>
+        <a
+          href={chunkPreviews.at(-1)?.url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-blue-600 hover:text-blue-700"
+        >
+          Open latest file
+        </a>
+      </div>
+
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {chunkPreviews.map((preview) => {
+          const active = preview.url === activeUrl;
+          return (
+            <button
+              key={preview.fileName}
+              onClick={() => onSelect(preview.url)}
+              className={`rounded px-2 py-1 text-xs font-medium ${
+                active
+                  ? "bg-blue-600 text-white"
+                  : "bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border)"
+              }`}
+            >
+              Chunk {preview.index}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeUrl ? (
+        <audio key={activeUrl} controls preload="none" className="h-8 w-full max-w-xl">
+          <source src={activeUrl} type="audio/wav" />
+        </audio>
+      ) : null}
     </div>
   );
 }
@@ -306,16 +406,24 @@ function ViewModeTabs({
   );
 }
 
+type ChunkRange = { start: number; end: number; url: string };
+
 function TextPreview({
   rawText,
   cleanText,
   customText,
   viewMode,
+  chunkRanges,
+  selectedChunkUrl,
+  onSelectChunk,
 }: {
   rawText: string;
   cleanText: string | null;
   customText: string | null;
   viewMode: ViewMode;
+  chunkRanges: ChunkRange[];
+  selectedChunkUrl: string | null;
+  onSelectChunk: (url: string) => void;
 }) {
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
@@ -366,19 +474,78 @@ function TextPreview({
 
   if (viewMode === "custom" && customText) {
     return (
-      <div className={textClass + " border-(--border-custom-text) bg-(--bg-custom-text)"}>
-        {customText}
-      </div>
+      <ChunkedText
+        text={customText}
+        chunkRanges={chunkRanges}
+        selectedChunkUrl={selectedChunkUrl}
+        onSelectChunk={onSelectChunk}
+        className={textClass + " border-(--border-custom-text) bg-(--bg-custom-text)"}
+      />
     );
   }
 
   const text = viewMode === "clean" && cleanText ? cleanText : rawText;
 
   return (
-    <div className={textClass}>
-      {text}
-    </div>
+    <ChunkedText
+      text={text}
+      chunkRanges={chunkRanges}
+      selectedChunkUrl={selectedChunkUrl}
+      onSelectChunk={onSelectChunk}
+      className={textClass}
+    />
   );
+}
+
+function ChunkedText({
+  text,
+  chunkRanges,
+  selectedChunkUrl,
+  onSelectChunk,
+  className,
+}: {
+  text: string;
+  chunkRanges: ChunkRange[];
+  selectedChunkUrl: string | null;
+  onSelectChunk: (url: string) => void;
+  className: string;
+}) {
+  const selectedRef = useRef<HTMLElement>(null);
+
+  // Scroll the selected chunk into view whenever the selection changes.
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: "center" });
+  }, [selectedChunkUrl]);
+
+  if (chunkRanges.length === 0) {
+    return <div className={className}>{text}</div>;
+  }
+
+  // Sort by start and drop overlaps so segments tile the text cleanly.
+  const ordered = [...chunkRanges].sort((a, b) => a.start - b.start);
+  const parts: ReactNode[] = [];
+  let pos = 0;
+  ordered.forEach((range, i) => {
+    if (range.start < pos) return;
+    if (range.start > pos) parts.push(text.slice(pos, range.start));
+    const isSelected = range.url === selectedChunkUrl;
+    parts.push(
+      <span
+        key={`${range.url}-${i}`}
+        ref={isSelected ? selectedRef : undefined}
+        onClick={() => onSelectChunk(range.url)}
+        className={`cursor-pointer rounded-sm ${
+          isSelected ? "bg-yellow-300/70 text-(--text-primary)" : "hover:bg-yellow-300/20"
+        }`}
+      >
+        {text.slice(range.start, range.end)}
+      </span>,
+    );
+    pos = range.end;
+  });
+  if (pos < text.length) parts.push(text.slice(pos));
+
+  return <div className={className}>{parts}</div>;
 }
 
 function BlocksPreview({ sourceBlocks }: { sourceBlocks: SourceBlock[] }) {

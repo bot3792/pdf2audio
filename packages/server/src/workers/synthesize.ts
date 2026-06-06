@@ -6,9 +6,10 @@ import { wavToMp3 } from "../lib/ffmpeg.ts";
 import { bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { parseFile } from "music-metadata";
-import { mkdir, unlink } from "node:fs/promises";
+import { mkdir, rm, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { WorkerUtils } from "graphile-worker";
+import { chapterChunkPreviewDir, chapterChunkPreviewUrlBase } from "../lib/chunk-previews.ts";
 
 export type SynthesizePayload = {
   chapterId: string;
@@ -64,6 +65,10 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
 
     const wavPath = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.wav`);
     const mp3Path = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.mp3`);
+    const chunkPreviewDir = chapterChunkPreviewDir(bookId, chapter.index);
+    const chunkPreviewUrlBase = chapterChunkPreviewUrlBase(bookId, chapter.index);
+    await rm(chunkPreviewDir, { recursive: true, force: true });
+    await mkdir(chunkPreviewDir, { recursive: true });
 
     cancelPoll = setInterval(async () => {
       if (cancelCheckInFlight) return;
@@ -86,6 +91,8 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
       outputPath: wavPath,
       voice: book.voice,
       speed: book.speed,
+      chunkPreviewDir,
+      chunkPreviewUrlBase,
       log: chLog,
       signal: abortController.signal,
       onProgress: async (chunk, totalChunks) => {

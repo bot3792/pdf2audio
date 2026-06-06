@@ -5,3 +5,5 @@ data/
 *.tsbuildinfo
 .turbo/
 .DS_Store
+__pycache__/
+.claude/

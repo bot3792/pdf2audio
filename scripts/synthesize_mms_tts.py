@@ -27,6 +27,13 @@ def read_chunks(input_path: str) -> list[str]:
     return [chunk.strip() for chunk in text.split(CHUNK_SEPARATOR) if chunk.strip()]
 
 
+def write_chunk_manifest(chunks_dir: str, chunks: list[str]) -> None:
+    os.makedirs(chunks_dir, exist_ok=True)
+    manifest = [{"index": index, "text": chunk} for index, chunk in enumerate(chunks, start=1)]
+    with open(os.path.join(chunks_dir, "chunks.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False)
+
+
 def select_device() -> torch.device:
     if torch.backends.mps.is_available():
         return torch.device("mps")
@@ -38,6 +45,7 @@ def main() -> None:
     parser.add_argument("--input", required=True, help="Path to chunked input text file")
     parser.add_argument("--output", required=True, help="Path to output WAV file")
     parser.add_argument("--voice", required=True, help="Voice name")
+    parser.add_argument("--chunks-dir", default=None, help="Optional directory to persist per-chunk WAV previews")
     args = parser.parse_args()
 
     if args.voice not in VOICE_IDS:
@@ -52,6 +60,8 @@ def main() -> None:
     model.eval()
 
     chunks = read_chunks(args.input)
+    if args.chunks_dir:
+        write_chunk_manifest(args.chunks_dir, chunks)
     print(json.dumps({"type": "chunks", "total": len(chunks)}), flush=True)
 
     audio_parts: list[np.ndarray] = []
@@ -63,6 +73,10 @@ def main() -> None:
 
         with torch.no_grad():
             waveform = model(**inputs).waveform.squeeze(0).detach().to("cpu").float().numpy()
+
+        if args.chunks_dir:
+            os.makedirs(args.chunks_dir, exist_ok=True)
+            sf.write(os.path.join(args.chunks_dir, f"chunk-{index:03d}.wav"), waveform, sample_rate)
 
         audio_parts.append(waveform)
         if index < len(chunks):

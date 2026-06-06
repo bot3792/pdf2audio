@@ -18,13 +18,14 @@ import { createWriteStream } from "node:fs";
 import { mkdir, access } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { quickAddJob } from "graphile-worker";
+import { createFastifyOptions } from "./fastify-config.ts";
 
 const { PORT, DATABASE_URL: connectionString } = env;
 
 async function main() {
   await ensureDataDirs();
 
-  const fastify = Fastify({ logger: true, maxParamLength: 300 });
+  const fastify = Fastify(createFastifyOptions());
 
   await fastify.register(cors, { origin: true });
   await fastify.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } });

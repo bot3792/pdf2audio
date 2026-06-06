@@ -3,9 +3,18 @@
 
 import argparse
 import json
+import os
 import re
 import sys
 import numpy as np
+
+
+def write_chunk_manifest(chunks_dir, chunk_texts):
+    os.makedirs(chunks_dir, exist_ok=True)
+    manifest = [{"index": index, "text": text} for index, text in enumerate(chunk_texts, start=1)]
+    with open(os.path.join(chunks_dir, "chunks.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Synthesize text to WAV using Kokoro TTS")
@@ -14,6 +23,7 @@ def main():
     parser.add_argument("--voice", default="af_heart", help="Kokoro voice name")
     parser.add_argument("--speed", type=float, default=1.0, help="Speech speed")
     parser.add_argument("--lang", default=None, help="Language code override (a/b/e/f/h/i/j/p/z)")
+    parser.add_argument("--chunks-dir", default=None, help="Optional directory to persist per-chunk WAV previews")
     args = parser.parse_args()
 
     with open(args.input, "r", encoding="utf-8") as f:
@@ -31,6 +41,7 @@ def main():
     pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
 
     phoneme_chunks = []
+    chunk_texts = []
     for segment in re.split(r'\n+', text):
         segment = segment.strip()
         if not segment:
@@ -40,27 +51,35 @@ def main():
             for gs, ps, tks in pipeline.en_tokenize(tokens):
                 if ps.strip():
                     phoneme_chunks.append(ps)
+                    chunk_texts.append(gs.strip())
         except Exception as e:
             print(f"G2P error on segment: {e}", file=sys.stderr)
             continue
 
     MAX_PHONEMES = 510
     safe_chunks = []
-    for ps in phoneme_chunks:
+    safe_texts = []
+    for ps, gs in zip(phoneme_chunks, chunk_texts):
         while len(ps) > MAX_PHONEMES:
             split_at = ps.rfind(' ', 0, MAX_PHONEMES)
             if split_at <= 0:
                 split_at = MAX_PHONEMES
             safe_chunks.append(ps[:split_at])
+            safe_texts.append(gs)
             ps = ps[split_at:].lstrip()
         if ps.strip():
             safe_chunks.append(ps)
+            safe_texts.append(gs)
     phoneme_chunks = safe_chunks
+    chunk_texts = safe_texts
 
     total_chunks = len(phoneme_chunks)
     if total_chunks == 0:
         print("Error: no phoneme chunks produced", file=sys.stderr)
         sys.exit(1)
+
+    if args.chunks_dir:
+        write_chunk_manifest(args.chunks_dir, chunk_texts)
 
     print(json.dumps({
         "type": "chunks",
@@ -71,7 +90,11 @@ def main():
     audio_chunks = []
     for i, ps in enumerate(phoneme_chunks):
         output = KPipeline.infer(pipeline.model, ps, voice_pack, args.speed)
-        audio_chunks.append(output.audio.numpy())
+        chunk_audio = output.audio.numpy()
+        audio_chunks.append(chunk_audio)
+        if args.chunks_dir:
+            os.makedirs(args.chunks_dir, exist_ok=True)
+            sf.write(os.path.join(args.chunks_dir, f"chunk-{i + 1:03d}.wav"), chunk_audio, 24000)
         seconds = sum(len(c) for c in audio_chunks) / 24000
         print(json.dumps({
             "type": "progress",

@@ -84,6 +84,8 @@ describe("synthesize worker", () => {
     expect(mockSynthesizeAudio).toHaveBeenCalledWith(expect.objectContaining({
       voice: "bg-mlx:narrator",
       speed: 1.0,
+      chunkPreviewDir: `/tmp/test-output-${bookId}/chunks/ch000`,
+      chunkPreviewUrlBase: `/files/${bookId}/chunks/ch000`,
     }));
 
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
@@ -155,6 +157,8 @@ describe("synthesize worker", () => {
     expect(mockSynthesizeAudio).toHaveBeenCalledWith(expect.objectContaining({
       voice: "bg-mms:bul",
       speed: 1.0,
+      chunkPreviewDir: `/tmp/test-output-${bookId}/chunks/ch000`,
+      chunkPreviewUrlBase: `/files/${bookId}/chunks/ch000`,
     }));
 
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));

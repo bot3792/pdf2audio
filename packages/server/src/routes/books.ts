@@ -4,7 +4,7 @@ import { db } from "../db.ts";
 import { books, bookFiles, chapters, bookLogs, assemblies } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
-import { uploadsDir, bookTmpDir } from "../lib/paths.ts";
+import { uploadsDir, bookTmpDir, bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { redetectChaptersFromExistingMarkerOutput } from "../lib/marker.ts";
 import { parseTtsVoice } from "../lib/tts.ts";
@@ -230,7 +230,9 @@ export const booksRouter = router({
       if (input.llmChapterDetection !== undefined) updates.llmChapterDetection = input.llmChapterDetection;
 
       await db.update(books).set(updates).where(eq(books.id, input.id));
+      await rm(bookOutputDir(input.id), { recursive: true, force: true }).catch(() => {});
       await db.delete(chapters).where(eq(chapters.bookId, input.id));
+      await db.delete(assemblies).where(eq(assemblies.bookId, input.id));
       await db.update(bookFiles).set({ status: "pending", error: null }).where(eq(bookFiles.bookId, input.id));
       await db.delete(bookLogs).where(eq(bookLogs.bookId, input.id));
       await appendLog(input.id, "Re-extracting from scratch");
@@ -267,7 +269,6 @@ export const booksRouter = router({
 
       const allChapters = await db
         .select({
-          id: chapters.id,
           audioPath: chapters.audioPath,
           title: chapters.title,
           pageStart: chapters.pageStart,
@@ -285,15 +286,8 @@ export const booksRouter = router({
         .from(assemblies)
         .where(eq(assemblies.bookId, input.id));
 
-      let deletedAudioFiles = 0;
-      for (const ch of allChapters) {
-        if (ch.audioPath) await unlink(ch.audioPath).catch(() => {});
-        if (ch.audioPath) deletedAudioFiles++;
-      }
-      for (const assembly of bookAssemblies) {
-        if (assembly.outputPath) await unlink(assembly.outputPath).catch(() => {});
-      }
-      if (book.outputPath) await unlink(book.outputPath).catch(() => {});
+      const deletedAudioFiles = allChapters.filter((ch) => ch.audioPath).length;
+      await rm(bookOutputDir(input.id), { recursive: true, force: true }).catch(() => {});
 
       await db.delete(assemblies).where(eq(assemblies.bookId, input.id));
       await db.delete(chapters).where(eq(chapters.bookId, input.id));
@@ -389,30 +383,43 @@ export const booksRouter = router({
         .orderBy(asc(chapters.index));
 
       const processable = selectedChapters.filter(
-        (ch) => ch.status === "failed" || ch.status === "suspended" || ch.status === "pending"
+        (ch) => ch.status === "failed" || ch.status === "suspended" || ch.status === "pending" || ch.status === "done"
       );
 
       if (processable.length === 0) {
-        throw new Error("No selected chapters need processing");
+        throw new Error("No selected chapters are ready for synthesis");
       }
 
       await db.delete(bookLogs).where(eq(bookLogs.bookId, input.id));
 
       let queued = 0;
+      let resynthesized = 0;
       for (const ch of processable) {
+        if (ch.status === "done") {
+          resynthesized++;
+        }
+
         if (ch.cleanText) {
-          await db.update(chapters).set({ status: "pending", error: null, audioPath: null, durationMs: null }).where(eq(chapters.id, ch.id));
+          await db
+            .update(chapters)
+            .set({ status: "pending", error: null, audioPath: null, durationMs: null, progress: null, synthesizedWith: null })
+            .where(eq(chapters.id, ch.id));
           await quickAddJob({ connectionString }, "synthesize", { chapterId: ch.id, bookId: input.id }, { maxAttempts: 1 });
           queued++;
         } else {
-          await db.update(chapters).set({ status: "pending", error: null }).where(eq(chapters.id, ch.id));
+          await db
+            .update(chapters)
+            .set({ status: "pending", error: null, audioPath: null, durationMs: null, progress: null, synthesizedWith: null })
+            .where(eq(chapters.id, ch.id));
           await quickAddJob({ connectionString }, "normalize", { chapterId: ch.id, bookId: input.id }, { maxAttempts: 1 });
           queued++;
         }
       }
 
-      const doneCount = selectedChapters.filter((ch) => ch.status === "done").length;
-      await appendLog(input.id, `Processing ${queued} selected chapter${queued !== 1 ? "s" : ""} (${doneCount} already done)`);
+      await appendLog(
+        input.id,
+        `Queued ${queued} selected chapter${queued !== 1 ? "s" : ""} for synthesis with ${book.voice}${resynthesized > 0 ? ` (${resynthesized} re-synthesizing existing audio)` : ""}`
+      );
 
       await db.update(books).set({ error: null, updatedAt: new Date() }).where(eq(books.id, input.id));
 
@@ -495,9 +502,7 @@ export const booksRouter = router({
       if (book?.pdfPath) {
         await rm(path.dirname(book.pdfPath), { recursive: true, force: true }).catch(() => {});
       }
-      if (book?.outputPath) {
-        await rm(path.dirname(book.outputPath), { recursive: true, force: true }).catch(() => {});
-      }
+      await rm(bookOutputDir(input.id), { recursive: true, force: true }).catch(() => {});
       await rm(bookTmpDir(input.id), { recursive: true, force: true }).catch(() => {});
 
       return { success: true };

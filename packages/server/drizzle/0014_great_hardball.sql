@@ -1,0 +1,1 @@
+ALTER TABLE "chapters" ADD COLUMN "synthesized_with" jsonb;

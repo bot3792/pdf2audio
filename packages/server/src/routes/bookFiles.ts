@@ -9,17 +9,18 @@ import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
 import { unlink, rm } from "node:fs/promises";
 import path from "node:path";
+import { removeChapterArtifacts } from "../lib/chapter-artifacts.ts";
 
 const connectionString = env.DATABASE_URL;
 
 async function deleteChaptersForFile(bookId: string, fileIndex: number) {
   const fileChapters = await db
-    .select({ id: chapters.id, audioPath: chapters.audioPath })
+    .select({ id: chapters.id, index: chapters.index, audioPath: chapters.audioPath })
     .from(chapters)
     .where(and(eq(chapters.bookId, bookId), eq(chapters.sourceFileIndex, fileIndex)));
 
   for (const ch of fileChapters) {
-    if (ch.audioPath) await unlink(ch.audioPath).catch(() => {});
+    await removeChapterArtifacts({ bookId, index: ch.index, audioPath: ch.audioPath });
   }
 
   await db

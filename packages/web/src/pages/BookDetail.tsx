@@ -2,7 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { ChapterTable } from "../components/ChapterTable.tsx";
-import { getVoiceLabel, voiceSupportsSpeedControl } from "../lib/voices.ts";
+import { voiceSupportsSpeedControl } from "../lib/voices.ts";
+import { VoicePicker } from "../components/VoicePicker.tsx";
+import { SpeedSlider } from "../components/SpeedSlider.tsx";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -66,6 +68,7 @@ export function BookDetail() {
   const [reExtractForceOcr, setReExtractForceOcr] = useState<boolean | null>(null);
   const [reExtractLlm, setReExtractLlm] = useState<boolean | null>(null);
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
+  const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
   const renameChapterMutation = trpc.chapters.rename.useMutation({ onSuccess: invalidate });
   const reorderChaptersMutation = trpc.chapters.reorder.useMutation({ onSuccess: invalidate });
@@ -90,16 +93,13 @@ export function BookDetail() {
   const isProcessing = hasActiveFiles || hasActiveChapters ||
     book.status === "extracting" || book.status === "assembling";
   const selectedWithAudio = book.chapters.filter((c) => c.selected && c.status === "done" && c.audioPath).length;
-  const selectedNotDone = book.chapters.filter(
-    (c) => c.selected && (c.status === "failed" || c.status === "suspended" || c.status === "pending")
+  const selectedSynthesizable = book.chapters.filter(
+    (c) => c.selected && (c.status === "failed" || c.status === "suspended" || c.status === "pending" || c.status === "done")
   ).length;
   const isAssembling = book.status === "assembling";
   const allSelectedDone = selectedCount > 0 && book.chapters.filter((c) => c.selected).every((c) => c.status === "done" && c.audioPath);
   const canAssemble = allSelectedDone && !isAssembling;
-  const canProcess = selectedNotDone > 0 && !hasActiveChapters && !isAssembling;
-  const voiceLabel = getVoiceLabel(book.voice);
-  const speedLabel = voiceSupportsSpeedControl(book.voice) ? `${book.speed}x` : "Fixed speed";
-
+  const canProcess = selectedSynthesizable > 0 && !hasActiveChapters && !isAssembling;
   return (
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -114,10 +114,9 @@ export function BookDetail() {
                title={book.title}
                onRename={(title) => renameMutation.mutate({ id: book.id, title })}
              />
-             <p className="text-sm text-(--text-muted) mt-1">
-               Voice: {voiceLabel} &middot; Speed: {speedLabel}
-               {book.skipSynthesis ? " · Reader mode" : ""}
-             </p>
+             {book.skipSynthesis && (
+               <p className="text-sm text-(--text-muted) mt-1">Reader mode</p>
+             )}
            </div>
         </div>
 
@@ -157,6 +156,21 @@ export function BookDetail() {
             )}
           </div>
 
+          {/* Voice & speed settings */}
+          <div className="flex items-end gap-4 mb-3">
+            <div className="w-64">
+              <VoicePicker
+                value={book.voice}
+                onChange={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
+              />
+            </div>
+            <SpeedSlider
+              value={book.speed}
+              onChange={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
+              disabled={!voiceSupportsSpeedControl(book.voice)}
+            />
+          </div>
+
           {/* Chapter action toolbar */}
           {book.chapters.length > 0 && (
             <div className="flex gap-3 mb-3">
@@ -164,14 +178,14 @@ export function BookDetail() {
                 onClick={() => processSelectedMutation.mutate({ id: book.id })}
                 disabled={!canProcess || processSelectedMutation.isPending}
                 title={
-                  selectedNotDone === 0 ? "No selected chapters need processing" :
+                  selectedSynthesizable === 0 ? "No selected chapters are ready for synthesis" :
                   hasActiveChapters ? "Wait for active chapters to finish" :
                   isAssembling ? "Wait for assembly to finish" :
-                  undefined
+                  `Use the current selected voice/model to synthesize the selected chapters`
                 }
                 className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Process selected ({selectedNotDone})
+                Synthesize selected ({selectedSynthesizable})
               </button>
               <button
                 onClick={() => assembleMutation.mutate({ id: book.id })}
@@ -508,7 +522,7 @@ function LogViewer({ bookId, isProcessing, files }: { bookId: string; isProcessi
                   {formatLogTime(String(entry.createdAt))}
                 </span>
                 <span className="text-zinc-200 whitespace-pre-wrap break-all">
-                  {entry.message}
+                  <LogMessageText message={entry.message} />
                 </span>
               </div>
             ))
@@ -517,6 +531,28 @@ function LogViewer({ bookId, isProcessing, files }: { bookId: string; isProcessi
       )}
     </div>
   );
+}
+
+function LogMessageText({ message }: { message: string }) {
+  const parts = message.split(/(\/files\/\S+)/g);
+
+  return parts.map((part, index) => {
+    if (!part.startsWith("/files/")) {
+      return <span key={index}>{part}</span>;
+    }
+
+    return (
+      <a
+        key={index}
+        href={part}
+        target="_blank"
+        rel="noreferrer"
+        className="text-blue-400 underline decoration-blue-400/40 underline-offset-2 hover:text-blue-300"
+      >
+        {part}
+      </a>
+    );
+  });
 }
 
 // --- Source Files Section ---

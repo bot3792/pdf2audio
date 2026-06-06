@@ -3,10 +3,11 @@ import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, chapters } from "../schema.ts";
 import { eq, and, inArray } from "drizzle-orm";
-import { unlink } from "node:fs/promises";
 import { appendLog } from "../lib/log.ts";
 import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
+import { listChapterChunkPreviews, locateChunks } from "../lib/chunk-previews.ts";
+import { removeChapterArtifacts } from "../lib/chapter-artifacts.ts";
 
 const connectionString = env.DATABASE_URL;
 
@@ -16,7 +17,23 @@ export const chaptersRouter = router({
     .query(async ({ input }) => {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.id));
       if (!chapter) throw new Error("Chapter not found");
-      return chapter;
+
+      // The synthesized text — and therefore what chunk offsets point into — follows this priority.
+      const chunkTextSource = chapter.customText ? "custom" : chapter.cleanText ? "clean" : "raw";
+      const sourceText = chapter.customText ?? chapter.cleanText ?? chapter.rawText;
+
+      const previews = await listChapterChunkPreviews(chapter.bookId, chapter.index);
+      const ranges = locateChunks(sourceText, previews.map((p) => p.text ?? ""));
+      const chunkPreviews = previews.map((preview, i) => ({
+        ...preview,
+        ...(ranges[i] ? { start: ranges[i].start, end: ranges[i].end } : {}),
+      }));
+
+      return {
+        ...chapter,
+        chunkTextSource,
+        chunkPreviews,
+      };
     }),
 
   queue: publicProcedure
@@ -31,7 +48,7 @@ export const chaptersRouter = router({
 
       await db
         .update(chapters)
-        .set({ status: "pending", error: null, audioPath: null, durationMs: null })
+        .set({ status: "pending", error: null, audioPath: null, durationMs: null, synthesizedWith: null })
         .where(eq(chapters.id, input.id));
 
       if (chapter.cleanText) {
@@ -173,7 +190,7 @@ export const chaptersRouter = router({
       }
 
       for (const ch of selected) {
-        if (ch.audioPath) await unlink(ch.audioPath).catch(() => {});
+        await removeChapterArtifacts({ bookId: ch.bookId, index: ch.index, audioPath: ch.audioPath });
       }
 
       await db
