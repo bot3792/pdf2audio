@@ -2,30 +2,62 @@ import { describe, expect, it } from "vitest";
 
 import { chunkTextForBulgarianNarrator } from "./tts-chunks.ts";
 
+const MAX = 320;
+
 function normalize(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
 
+// ~52-char Bulgarian sentence, used to build inputs of predictable size.
+const SENTENCE = "Малката къща стоеше тихо в края на старото село.";
+
 describe("chunkTextForBulgarianNarrator", () => {
+  it("returns nothing for empty or whitespace-only input", () => {
+    expect(chunkTextForBulgarianNarrator("")).toEqual([]);
+    expect(chunkTextForBulgarianNarrator("   \n\n  ")).toEqual([]);
+  });
+
   it("keeps a short paragraph as a single chunk", () => {
     const text = "Това е кратък български абзац, който трябва да остане цял и да не бъде разделян.";
 
     expect(chunkTextForBulgarianNarrator(text)).toEqual([text]);
   });
 
-  it("packs long prose into narrator-sized chunks", () => {
-    const text = [
-      "Пролетната утрин беше толкова тиха, че човек можеше да чуе как старите дъски на къщата се разтягат под първите лъчи.",
-      "Мария стоеше до прозореца и гледаше към градината, където росата блестеше като ситни стъкълца върху тревата.",
-      "Тя усещаше, че денят ще донесе нещо важно, макар още да не знаеше дали да се страхува от това чувство, или да му се довери.",
-      "В такива сутрини светът изглеждаше почти милостив, сякаш скриваше в себе си възможността човек да започне живота си отново.",
-    ].join(" ");
+  it("merges short paragraphs across blank lines into one chunk when they fit", () => {
+    // Each line alone would be a tiny, mumble-prone chunk; together they still fit under the cap.
+    const text = ["Глава първа.", "", "Беше тиха пролетна сутрин.", "", "Светът мълчеше."].join("\n");
+
+    const chunks = chunkTextForBulgarianNarrator(text);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].length).toBeLessThanOrEqual(MAX);
+    expect(normalize(chunks.join(" "))).toBe(normalize(text));
+  });
+
+  it("packs long prose into balanced narrator-sized chunks", () => {
+    const text = Array(12).fill(SENTENCE).join(" "); // ~635 chars
 
     const chunks = chunkTextForBulgarianNarrator(text);
 
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks.every((chunk) => chunk.length <= 320)).toBe(true);
-    expect(chunks.every((chunk) => chunk.length >= 120)).toBe(true);
+    expect(chunks.every((chunk) => chunk.length <= MAX)).toBe(true);
+    expect(normalize(chunks.join(" "))).toBe(normalize(text));
+
+    // Balanced: no chunk is dramatically shorter than the largest (no tiny leftover tail).
+    const lengths = chunks.map((chunk) => chunk.length);
+    expect(Math.min(...lengths)).toBeGreaterThanOrEqual(0.6 * Math.max(...lengths));
+  });
+
+  it("does not leave a tiny tail chunk when content can be spread evenly", () => {
+    // Greedy-to-max would pack ~6 sentences then leave a small tail; balancing must avoid that.
+    const text = Array(8).fill(SENTENCE).join(" "); // ~423 chars → 2 chunks
+
+    const chunks = chunkTextForBulgarianNarrator(text);
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks.every((chunk) => chunk.length <= MAX)).toBe(true);
+    // Both halves are substantial — neither is an undersized, mumble-prone fragment.
+    expect(chunks.every((chunk) => chunk.length >= 150)).toBe(true);
     expect(normalize(chunks.join(" "))).toBe(normalize(text));
   });
 
@@ -35,7 +67,7 @@ describe("chunkTextForBulgarianNarrator", () => {
     const chunks = chunkTextForBulgarianNarrator(text);
 
     expect(chunks.length).toBeGreaterThan(1);
-    expect(chunks.every((chunk) => chunk.length <= 320)).toBe(true);
+    expect(chunks.every((chunk) => chunk.length <= MAX)).toBe(true);
     expect(normalize(chunks.join(" "))).toBe(normalize(text));
   });
 });
