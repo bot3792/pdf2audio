@@ -216,6 +216,17 @@ async function main() {
     return reply.sendFile(path.relative(outputDir, chapter.audioPath), outputDir);
   });
 
+  fastify.get("/audio/assembly/:assemblyId", async (request, reply) => {
+    const { assemblyId } = request.params as { assemblyId: string };
+    const [assembly] = await db.select().from(assemblies).where(eq(assemblies.id, assemblyId));
+
+    if (!assembly?.outputPath) {
+      return reply.code(404).send({ error: "Assembly not found" });
+    }
+
+    return reply.sendFile(path.relative(outputDir, assembly.outputPath), outputDir);
+  });
+
   registerChapterReaderRoute(fastify, async (chapterId): Promise<ChapterReaderLookupResult> => {
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
     if (!chapter) {

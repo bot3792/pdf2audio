@@ -37,7 +37,7 @@ export const chaptersRouter = router({
     }),
 
   queue: publicProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.string().uuid(), resume: z.boolean().optional() }))
     .mutation(async ({ input }) => {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.id));
       if (!chapter) throw new Error("Chapter not found");
@@ -46,6 +46,7 @@ export const chaptersRouter = router({
         throw new Error("Chapter is already being processed");
       }
 
+      // Resume reuses already-synthesized chunk previews; keep `progress` so the count survives.
       await db
         .update(chapters)
         .set({ status: "pending", error: null, audioPath: null, durationMs: null, synthesizedWith: null })
@@ -55,6 +56,7 @@ export const chaptersRouter = router({
         await quickAddJob({ connectionString }, "synthesize", {
           chapterId: input.id,
           bookId: chapter.bookId,
+          resume: input.resume ?? false,
         }, { maxAttempts: 1 });
       } else {
         await quickAddJob({ connectionString }, "normalize", {
@@ -63,7 +65,7 @@ export const chaptersRouter = router({
         }, { maxAttempts: 1 });
       }
 
-      await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] Queued`);
+      await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] ${input.resume ? "Resuming" : "Queued"}`);
       return { success: true };
     }),
 

@@ -16,6 +16,22 @@ def write_chunk_manifest(chunks_dir, chunk_texts):
         json.dump(manifest, f, ensure_ascii=False)
 
 
+def load_existing_chunk(chunks_dir, index):
+    """Return a previously-synthesized chunk's audio so resume can skip regenerating it."""
+    if not chunks_dir:
+        return None
+    path = os.path.join(chunks_dir, f"chunk-{index:03d}.wav")
+    if not os.path.exists(path):
+        return None
+    try:
+        import soundfile as sf
+
+        data, _ = sf.read(path, dtype="float32")
+        return data if len(data) else None
+    except Exception:
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Synthesize text to WAV using Kokoro TTS")
     parser.add_argument("--input", required=True, help="Path to input text file")
@@ -89,12 +105,14 @@ def main():
     voice_pack = pipeline.load_voice(args.voice)
     audio_chunks = []
     for i, ps in enumerate(phoneme_chunks):
-        output = KPipeline.infer(pipeline.model, ps, voice_pack, args.speed)
-        chunk_audio = output.audio.numpy()
+        chunk_audio = load_existing_chunk(args.chunks_dir, i + 1)
+        if chunk_audio is None:
+            output = KPipeline.infer(pipeline.model, ps, voice_pack, args.speed)
+            chunk_audio = output.audio.numpy()
+            if args.chunks_dir:
+                os.makedirs(args.chunks_dir, exist_ok=True)
+                sf.write(os.path.join(args.chunks_dir, f"chunk-{i + 1:03d}.wav"), chunk_audio, 24000)
         audio_chunks.append(chunk_audio)
-        if args.chunks_dir:
-            os.makedirs(args.chunks_dir, exist_ok=True)
-            sf.write(os.path.join(args.chunks_dir, f"chunk-{i + 1:03d}.wav"), chunk_audio, 24000)
         seconds = sum(len(c) for c in audio_chunks) / 24000
         print(json.dumps({
             "type": "progress",

@@ -238,7 +238,7 @@ export function BookDetail() {
               bookId={book.id}
               chapters={book.chapters}
               files={book.files?.map((f) => ({ index: f.index, filename: f.filename }))}
-              onQueue={(cid) => queueMutation.mutate({ id: cid })}
+              onQueue={(cid, resume) => queueMutation.mutate({ id: cid, resume })}
               onRename={(cid, title) => renameChapterMutation.mutate({ id: cid, title })}
               onReorder={(chapterIds) => reorderChaptersMutation.mutate({ bookId: book.id, chapterIds })}
               onSetSelected={(cid, selected) => setSelectedMutation.mutate({ id: cid, selected })}
@@ -404,8 +404,12 @@ function AssembliesSection({
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
+                      <audio controls preload="none" className="h-8">
+                        <source src={`/audio/assembly/${assembly.id}`} type="audio/mpeg" />
+                      </audio>
                       <a
                         href={`/download/assembly/${assembly.id}`}
+                        download={assembly.outputPath.split("/").pop()}
                         className="text-xs text-green-600 hover:text-green-800 font-medium"
                       >
                         Download

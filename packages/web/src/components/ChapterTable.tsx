@@ -43,7 +43,7 @@ export function ChapterTable({
   bookId: string;
   chapters: ChapterRow[];
   files?: FileInfo[];
-  onQueue: (id: string) => void;
+  onQueue: (id: string, resume?: boolean) => void;
   onRename?: (id: string, title: string) => void;
   onReorder?: (chapterIds: string[]) => void;
   onSetSelected: (id: string, selected: boolean) => void;
@@ -464,12 +464,22 @@ export function ChapterTable({
                           Read
                         </a>
                       ) : null}
+                      {chapter.status === "suspended" || chapter.status === "failed" ? (
+                        <button
+                          onClick={() => onQueue(chapter.id, true)}
+                          title="Continue synthesis from where it stopped — reuses already-synthesized chunks"
+                          className="text-xs text-green-600 hover:text-green-800 font-medium"
+                        >
+                          Continue
+                        </button>
+                      ) : null}
                       <button
                         onClick={() => onQueue(chapter.id)}
-                        disabled={chapter.status !== "done"}
+                        disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status)}
                         title={
-                          chapter.status === "done" ? "Re-synthesize this chapter's audio from text" :
-                          "Only completed chapters can be redone"
+                          ["pending", "normalizing", "synthesizing"].includes(chapter.status)
+                            ? "Can't re-synthesize while it's being processed"
+                            : "Re-synthesize this chapter's audio from text (from scratch)"
                         }
                         className="text-xs text-(--text-faint) hover:text-(--text-tertiary) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
                       >
@@ -557,6 +567,15 @@ function ChapterStatusCell({ chapter }: { chapter: ChapterRow }) {
             style={{ width: `${percent}%` }}
           />
         </div>
+      </div>
+    );
+  }
+
+  if (chapter.status === "suspended" && chapter.progress) {
+    return (
+      <div className="flex items-center gap-2">
+        <StatusBadge status={chapter.status} error={chapter.error} />
+        <span className="text-[10px] text-(--text-muted) tabular-nums">{chapter.progress}</span>
       </div>
     );
   }

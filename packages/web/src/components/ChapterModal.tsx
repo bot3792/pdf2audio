@@ -9,7 +9,7 @@ type ChapterModalProps = {
   chapterIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
-  onQueue: (id: string) => void;
+  onQueue: (id: string, resume?: boolean) => void;
   onSetSelected: (id: string, selected: boolean) => void;
 };
 
@@ -40,6 +40,17 @@ export function ChapterModal({
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [selectedChunkPreviewUrl, setSelectedChunkPreviewUrl] = useState<string | null>(null);
+  // Bumped only on an explicit user selection (clicking a chunk button or its text) so the audio
+  // auto-plays then — but NOT when a chunk is auto-selected programmatically during synthesis.
+  const [playNonce, setPlayNonce] = useState(0);
+
+  const selectChunk = (url: string) => {
+    setSelectedChunkPreviewUrl(url);
+    setPlayNonce((n) => n + 1);
+  };
+
+  // Shared so hovering a chunk button highlights its text span and vice versa.
+  const [hoveredChunkUrl, setHoveredChunkUrl] = useState<string | null>(null);
 
   useEffect(() => {
     setViewMode(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
@@ -54,18 +65,22 @@ export function ChapterModal({
   const utils = trpc.useUtils();
 
   useEffect(() => {
-    const latestUrl = fullChapter?.chunkPreviews.at(-1)?.url ?? null;
-    if (!latestUrl) {
+    const previews = fullChapter?.chunkPreviews ?? [];
+    if (previews.length === 0) {
       setSelectedChunkPreviewUrl(null);
       return;
     }
 
+    // While synthesizing, follow the latest chunk; otherwise default to the first so playback
+    // (and the play button) starts from the beginning of the chapter.
+    const fallbackUrl = chapter.status === "synthesizing" ? previews.at(-1)!.url : previews[0].url;
+
     setSelectedChunkPreviewUrl((current) => {
-      if (!current) return latestUrl;
-      const exists = fullChapter?.chunkPreviews.some((preview) => preview.url === current);
-      return exists ? current : latestUrl;
+      if (!current) return fallbackUrl;
+      const exists = previews.some((preview) => preview.url === current);
+      return exists ? current : fallbackUrl;
     });
-  }, [fullChapter?.chunkPreviews]);
+  }, [fullChapter?.chunkPreviews, chapter.status]);
 
   const updateTextMutation = trpc.chapters.updateText.useMutation({
     onSuccess: () => {
@@ -181,6 +196,9 @@ export function ChapterModal({
               {chapter.progress && chapter.status === "synthesizing" ? (
                 <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
               ) : null}
+              {chapter.progress && chapter.status === "suspended" ? (
+                <span className="text-(--text-muted) font-medium">{chapter.progress} synthesized</span>
+              ) : null}
               {chapter.synthesizedWith?.voice ? (
                 <span>{getVoiceLabel(chapter.synthesizedWith.voice)}</span>
               ) : null}
@@ -205,12 +223,22 @@ export function ChapterModal({
               <source src={`/audio/chapter/${chapter.id}`} type="audio/mpeg" />
             </audio>
           ) : null}
+          {chapter.status === "suspended" || chapter.status === "failed" ? (
+            <button
+              onClick={() => onQueue(chapter.id, true)}
+              title="Continue synthesis from where it stopped — reuses already-synthesized chunks"
+              className="text-xs px-2.5 py-1 rounded bg-green-600 text-white hover:bg-green-700 font-medium"
+            >
+              Continue
+            </button>
+          ) : null}
           <button
             onClick={() => onQueue(chapter.id)}
-            disabled={chapter.status !== "done"}
+            disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status)}
             title={
-              chapter.status === "done" ? "Re-synthesize this chapter's audio from text" :
-              "Only completed chapters can be redone"
+              ["pending", "normalizing", "synthesizing"].includes(chapter.status)
+                ? "Can't re-synthesize while it's being processed"
+                : "Re-synthesize this chapter's audio from text (from scratch)"
             }
             className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
           >
@@ -267,7 +295,10 @@ export function ChapterModal({
           <ChunkPreviewPanel
             chunkPreviews={fullChapter.chunkPreviews}
             selectedUrl={selectedChunkPreviewUrl}
-            onSelect={setSelectedChunkPreviewUrl}
+            onSelect={selectChunk}
+            playNonce={playNonce}
+            hoveredUrl={hoveredChunkUrl}
+            onHover={setHoveredChunkUrl}
             isSynthesizing={chapter.status === "synthesizing"}
           />
         ) : null}
@@ -294,7 +325,9 @@ export function ChapterModal({
                 viewMode={viewMode}
                 chunkRanges={chunkRanges}
                 selectedChunkUrl={activeChunkUrl}
-                onSelectChunk={setSelectedChunkPreviewUrl}
+                onSelectChunk={selectChunk}
+                hoveredChunkUrl={hoveredChunkUrl}
+                onHoverChunk={setHoveredChunkUrl}
               />
             )
           ) : (
@@ -312,20 +345,107 @@ function ChunkPreviewPanel({
   chunkPreviews,
   selectedUrl,
   onSelect,
+  playNonce,
+  hoveredUrl,
+  onHover,
   isSynthesizing,
 }: {
   chunkPreviews: Array<{ index: number; fileName: string; url: string }>;
   selectedUrl: string | null;
   onSelect: (url: string) => void;
+  playNonce: number;
+  hoveredUrl: string | null;
+  onHover: (url: string | null) => void;
   isSynthesizing: boolean;
 }) {
   const activeUrl = selectedUrl ?? chunkPreviews.at(-1)?.url ?? null;
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const activeButtonRef = useRef<HTMLButtonElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+
+  // Ref mirror of the chosen rate so play handlers always read the latest without stale closures.
+  const playbackRateRef = useRef(playbackRate);
+  playbackRateRef.current = playbackRate;
+
+  function playActive() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    // Apply the speed only after play() resolves: by then the load has settled, so the browser
+    // won't snap playbackRate back to 1x (which is what happens if you set it before the load).
+    audio.play().then(() => { audio.playbackRate = playbackRateRef.current; }).catch(() => {});
+  }
+
+  // Apply speed changes immediately while a chunk is already playing.
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+  }, [playbackRate]);
+
+  // Auto-play whenever the user explicitly picks a chunk (playNonce changes), but not on the
+  // initial mount or the programmatic auto-select during synthesis (playNonce stays 0 then).
+  useEffect(() => {
+    if (playNonce > 0) playActive();
+  }, [playNonce]);
+
+  // Keep the active chunk's button visible in the scrollable list when the selection changes.
+  useEffect(() => {
+    activeButtonRef.current?.scrollIntoView({ block: "nearest" });
+  }, [activeUrl]);
+
+  function togglePlay() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) playActive();
+    else audio.pause();
+  }
+
+  // When a chunk finishes, roll on to the next one (audiobook-style). Selecting it bumps playNonce,
+  // which auto-plays it. Pausing stops the chain since a paused chunk never fires "ended".
+  function handleEnded() {
+    const idx = chunkPreviews.findIndex((preview) => preview.url === activeUrl);
+    const next = idx >= 0 ? chunkPreviews[idx + 1] : undefined;
+    if (next) onSelect(next.url);
+    else setIsPlaying(false);
+  }
 
   return (
     <div className="border-b border-(--border) px-5 py-3 bg-(--bg-card)">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="text-xs font-medium text-(--text-primary)">
-          Chunk previews {isSynthesizing ? `(live: ${chunkPreviews.length} ready)` : `(${chunkPreviews.length})`}
+        <div className="flex items-center gap-2">
+          {activeUrl ? (
+            <button
+              onClick={togglePlay}
+              title={isPlaying ? "Pause" : "Play — auto-advances through chunks"}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700"
+            >
+              {isPlaying ? (
+                <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M6 4h3v12H6zM11 4h3v12h-3z" />
+                </svg>
+              ) : (
+                <svg className="h-3.5 w-3.5 translate-x-px" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M6 4l10 6-10 6V4z" />
+                </svg>
+              )}
+            </button>
+          ) : null}
+          {activeUrl ? (
+            <select
+              value={playbackRate}
+              onChange={(e) => setPlaybackRate(Number(e.target.value))}
+              title="Playback speed"
+              className="rounded border border-(--border) bg-(--bg-subtle) px-1 py-0.5 text-xs text-(--text-tertiary)"
+            >
+              {[0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate}x
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <div className="text-xs font-medium text-(--text-primary)">
+            Chunk previews {isSynthesizing ? `(live: ${chunkPreviews.length} ready)` : `(${chunkPreviews.length})`}
+          </div>
         </div>
         <a
           href={chunkPreviews.at(-1)?.url}
@@ -337,17 +457,23 @@ function ChunkPreviewPanel({
         </a>
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-1.5">
+      <div className="mb-3 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto pr-1">
         {chunkPreviews.map((preview) => {
           const active = preview.url === activeUrl;
+          const linked = !active && preview.url === hoveredUrl;
           return (
             <button
               key={preview.fileName}
+              ref={active ? activeButtonRef : undefined}
               onClick={() => onSelect(preview.url)}
-              className={`rounded px-2 py-1 text-xs font-medium ${
+              onMouseEnter={() => onHover(preview.url)}
+              onMouseLeave={() => onHover(null)}
+              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
                 active
                   ? "bg-blue-600 text-white"
-                  : "bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border)"
+                  : linked
+                    ? "bg-yellow-300/40 text-(--text-primary)"
+                    : "bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border)"
               }`}
             >
               Chunk {preview.index}
@@ -357,9 +483,18 @@ function ChunkPreviewPanel({
       </div>
 
       {activeUrl ? (
-        <audio key={activeUrl} controls preload="none" className="h-8 w-full max-w-xl">
-          <source src={activeUrl} type="audio/wav" />
-        </audio>
+        <audio
+          ref={audioRef}
+          src={activeUrl}
+          controls
+          preload="none"
+          className="h-8 w-full max-w-xl"
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          // Scrubbing can reset the rate to 1x; re-assert the chosen speed after a seek.
+          onSeeked={(e) => { e.currentTarget.playbackRate = playbackRateRef.current; }}
+          onEnded={handleEnded}
+        />
       ) : null}
     </div>
   );
@@ -416,6 +551,8 @@ function TextPreview({
   chunkRanges,
   selectedChunkUrl,
   onSelectChunk,
+  hoveredChunkUrl,
+  onHoverChunk,
 }: {
   rawText: string;
   cleanText: string | null;
@@ -424,6 +561,8 @@ function TextPreview({
   chunkRanges: ChunkRange[];
   selectedChunkUrl: string | null;
   onSelectChunk: (url: string) => void;
+  hoveredChunkUrl: string | null;
+  onHoverChunk: (url: string | null) => void;
 }) {
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
@@ -479,6 +618,8 @@ function TextPreview({
         chunkRanges={chunkRanges}
         selectedChunkUrl={selectedChunkUrl}
         onSelectChunk={onSelectChunk}
+        hoveredChunkUrl={hoveredChunkUrl}
+        onHoverChunk={onHoverChunk}
         className={textClass + " border-(--border-custom-text) bg-(--bg-custom-text)"}
       />
     );
@@ -492,6 +633,8 @@ function TextPreview({
       chunkRanges={chunkRanges}
       selectedChunkUrl={selectedChunkUrl}
       onSelectChunk={onSelectChunk}
+      hoveredChunkUrl={hoveredChunkUrl}
+      onHoverChunk={onHoverChunk}
       className={textClass}
     />
   );
@@ -502,12 +645,16 @@ function ChunkedText({
   chunkRanges,
   selectedChunkUrl,
   onSelectChunk,
+  hoveredChunkUrl,
+  onHoverChunk,
   className,
 }: {
   text: string;
   chunkRanges: ChunkRange[];
   selectedChunkUrl: string | null;
   onSelectChunk: (url: string) => void;
+  hoveredChunkUrl: string | null;
+  onHoverChunk: (url: string | null) => void;
   className: string;
 }) {
   const selectedRef = useRef<HTMLElement>(null);
@@ -529,13 +676,20 @@ function ChunkedText({
     if (range.start < pos) return;
     if (range.start > pos) parts.push(text.slice(pos, range.start));
     const isSelected = range.url === selectedChunkUrl;
+    const isHovered = !isSelected && range.url === hoveredChunkUrl;
     parts.push(
       <span
         key={`${range.url}-${i}`}
         ref={isSelected ? selectedRef : undefined}
         onClick={() => onSelectChunk(range.url)}
-        className={`cursor-pointer rounded-sm ${
-          isSelected ? "bg-yellow-300/70 text-(--text-primary)" : "hover:bg-yellow-300/20"
+        onMouseEnter={() => onHoverChunk(range.url)}
+        onMouseLeave={() => onHoverChunk(null)}
+        className={`cursor-pointer rounded-sm transition-colors ${
+          isSelected
+            ? "bg-yellow-300/70 text-(--text-primary)"
+            : isHovered
+              ? "bg-yellow-300/40 text-(--text-primary)"
+              : ""
         }`}
       >
         {text.slice(range.start, range.end)}

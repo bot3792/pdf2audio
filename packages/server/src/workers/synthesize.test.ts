@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
+import { mkdir, writeFile, readdir, rm } from "node:fs/promises";
 
 import { getDb, resetDb } from "../../test/setup.ts";
 import { books, chapters } from "../schema.ts";
@@ -94,6 +95,80 @@ describe("synthesize worker", () => {
     expect(chapter.audioPath).toContain("ch000.mp3");
     expect(chapter.durationMs).toBe(12400);
     expect(chapter.synthesizedWith).toEqual({ voice: "bg-mlx:narrator", speed: null });
+  });
+
+  it("resume keeps existing chunk previews and drops only the last (possibly partial) one", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    const chapterId = crypto.randomUUID();
+
+    await db.insert(books).values({
+      id: bookId,
+      title: "Bulgarian Book",
+      filename: "book.pdf",
+      pdfPath: "/tmp/book.pdf",
+      voice: "bg-mlx:narrator",
+      speed: 1.0,
+    });
+    await db.insert(chapters).values({
+      id: chapterId,
+      bookId,
+      index: 0,
+      title: "Chapter 1",
+      rawText: "Сутринта беше тиха и светла.",
+      cleanText: "Сутринта беше тиха и светла.",
+    });
+
+    const chunkDir = `/tmp/test-output-${bookId}/chunks/ch000`;
+    await mkdir(chunkDir, { recursive: true });
+    await writeFile(`${chunkDir}/chunk-001.wav`, "a");
+    await writeFile(`${chunkDir}/chunk-002.wav`, "b");
+    await writeFile(`${chunkDir}/chunk-003.wav`, "c");
+
+    mockSynthesizeAudio.mockImplementation(async () => {});
+
+    await synthesizeWorker({ bookId, chapterId, resume: true }, { addJob: vi.fn() } as never);
+
+    const remaining = await readdir(chunkDir);
+    expect(remaining).toContain("chunk-001.wav");
+    expect(remaining).toContain("chunk-002.wav");
+    expect(remaining).not.toContain("chunk-003.wav");
+
+    await rm(`/tmp/test-output-${bookId}`, { recursive: true, force: true });
+  });
+
+  it("preserves progress when aborted so the paused chapter can show how far it got", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    const chapterId = crypto.randomUUID();
+
+    await db.insert(books).values({
+      id: bookId,
+      title: "Bulgarian Book",
+      filename: "book.pdf",
+      pdfPath: "/tmp/book.pdf",
+      voice: "bg-mlx:narrator",
+      speed: 1.0,
+    });
+    await db.insert(chapters).values({
+      id: chapterId,
+      bookId,
+      index: 0,
+      title: "Chapter 1",
+      rawText: "Сутринта беше тиха и светла.",
+      cleanText: "Сутринта беше тиха и светла.",
+    });
+
+    mockSynthesizeAudio.mockImplementation(async ({ onProgress }) => {
+      await onProgress?.(313, 322);
+      throw new TtsAbortedError();
+    });
+
+    await synthesizeWorker({ bookId, chapterId }, { addJob: vi.fn() } as never);
+
+    const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
+    expect(chapter.status).toBe("suspended");
+    expect(chapter.progress).toBe("313/322");
   });
 
   it("suspends the chapter when the generic dispatcher aborts", async () => {

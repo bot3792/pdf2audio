@@ -9,15 +9,16 @@ import { parseFile } from "music-metadata";
 import { mkdir, rm, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { WorkerUtils } from "graphile-worker";
-import { chapterChunkPreviewDir, chapterChunkPreviewUrlBase } from "../lib/chunk-previews.ts";
+import { chapterChunkPreviewDir, chapterChunkPreviewUrlBase, listChapterChunkPreviews } from "../lib/chunk-previews.ts";
 
 export type SynthesizePayload = {
   chapterId: string;
   bookId: string;
+  resume?: boolean;
 };
 
 export async function synthesize(payload: SynthesizePayload, { addJob }: { addJob: WorkerUtils["addJob"] }) {
-  const { chapterId, bookId } = payload;
+  const { chapterId, bookId, resume = false } = payload;
   const log = (msg: string) => appendLog(bookId, msg);
 
   const [currentChapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
@@ -28,7 +29,8 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
 
   const transitioned = await db
     .update(chapters)
-    .set({ status: "synthesizing", error: null, progress: null })
+    // On resume keep the prior progress (e.g. "313/322") until the script reports fresh numbers.
+    .set({ status: "synthesizing", error: null, ...(resume ? {} : { progress: null }) })
     .where(and(eq(chapters.id, chapterId), ne(chapters.status, "suspended")))
     .returning({ id: chapters.id });
 
@@ -67,8 +69,20 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
     const mp3Path = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.mp3`);
     const chunkPreviewDir = chapterChunkPreviewDir(bookId, chapter.index);
     const chunkPreviewUrlBase = chapterChunkPreviewUrlBase(bookId, chapter.index);
-    await rm(chunkPreviewDir, { recursive: true, force: true });
-    await mkdir(chunkPreviewDir, { recursive: true });
+    if (resume) {
+      // Keep already-synthesized chunk previews so the Python script can reuse them. Drop only the
+      // last one, which may be a partial write from when the previous run was killed mid-chunk.
+      await mkdir(chunkPreviewDir, { recursive: true });
+      const existing = await listChapterChunkPreviews(bookId, chapter.index);
+      const lastPreview = existing.at(-1);
+      if (lastPreview) {
+        await unlink(path.join(chunkPreviewDir, lastPreview.fileName)).catch(() => {});
+      }
+      await chLog(`Resuming — reusing ${Math.max(existing.length - 1, 0)} already-synthesized chunk(s)`);
+    } else {
+      await rm(chunkPreviewDir, { recursive: true, force: true });
+      await mkdir(chunkPreviewDir, { recursive: true });
+    }
 
     cancelPoll = setInterval(async () => {
       if (cancelCheckInFlight) return;
@@ -178,7 +192,8 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
     }
 
     if (err instanceof TtsAbortedError) {
-      await db.update(chapters).set({ status: "suspended", error: null, progress: null }).where(eq(chapters.id, chapterId));
+      // Keep `progress` (e.g. "313/322") so the UI can show how far we got and offer to continue.
+      await db.update(chapters).set({ status: "suspended", error: null }).where(eq(chapters.id, chapterId));
       await chLog("Stopped — cancelled by user");
       return;
     }

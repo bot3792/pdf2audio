@@ -101,6 +101,22 @@ def write_chunk_manifest(chunks_dir: str, chunks: list[str]) -> None:
         json.dump(manifest, f, ensure_ascii=False)
 
 
+def load_existing_chunk(chunks_dir, index: int):
+    """Return a previously-synthesized chunk's audio so resume can skip regenerating it."""
+    if not chunks_dir:
+        return None
+    path = os.path.join(chunks_dir, f"chunk-{index:03d}.wav")
+    if not os.path.exists(path):
+        return None
+    try:
+        import soundfile as sf
+
+        data, _ = sf.read(path, dtype="float32")
+        return data if len(data) else None
+    except Exception:
+        return None
+
+
 def main() -> None:
     import numpy as np
     import soundfile as sf
@@ -130,10 +146,12 @@ def main() -> None:
 
     with sf.SoundFile(args.output, mode="w", samplerate=SAMPLE_RATE, channels=1, format="WAV", subtype="FLOAT") as out_file:
         for index, chunk in enumerate(chunks, start=1):
-            chunk_audio = synthesize_chunk_audio(mlx_inference, model, tokenizer, codec, chunk, speaker_id)
-            if args.chunks_dir:
-                os.makedirs(args.chunks_dir, exist_ok=True)
-                sf.write(os.path.join(args.chunks_dir, f"chunk-{index:03d}.wav"), chunk_audio, SAMPLE_RATE)
+            chunk_audio = load_existing_chunk(args.chunks_dir, index)
+            if chunk_audio is None:
+                chunk_audio = synthesize_chunk_audio(mlx_inference, model, tokenizer, codec, chunk, speaker_id)
+                if args.chunks_dir:
+                    os.makedirs(args.chunks_dir, exist_ok=True)
+                    sf.write(os.path.join(args.chunks_dir, f"chunk-{index:03d}.wav"), chunk_audio, SAMPLE_RATE)
             out_file.write(chunk_audio)
             total_samples += len(chunk_audio)
 

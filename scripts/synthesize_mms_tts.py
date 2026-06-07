@@ -34,6 +34,20 @@ def write_chunk_manifest(chunks_dir: str, chunks: list[str]) -> None:
         json.dump(manifest, f, ensure_ascii=False)
 
 
+def load_existing_chunk(chunks_dir, index: int):
+    """Return a previously-synthesized chunk's audio so resume can skip regenerating it."""
+    if not chunks_dir:
+        return None
+    path = os.path.join(chunks_dir, f"chunk-{index:03d}.wav")
+    if not os.path.exists(path):
+        return None
+    try:
+        data, _ = sf.read(path, dtype="float32")
+        return data if len(data) else None
+    except Exception:
+        return None
+
+
 def select_device() -> torch.device:
     if torch.backends.mps.is_available():
         return torch.device("mps")
@@ -68,15 +82,17 @@ def main() -> None:
     sample_rate = int(model.config.sampling_rate)
 
     for index, chunk in enumerate(chunks, start=1):
-        inputs = tokenizer(chunk, return_tensors="pt")
-        inputs = {name: tensor.to(device) for name, tensor in inputs.items()}
+        waveform = load_existing_chunk(args.chunks_dir, index)
+        if waveform is None:
+            inputs = tokenizer(chunk, return_tensors="pt")
+            inputs = {name: tensor.to(device) for name, tensor in inputs.items()}
 
-        with torch.no_grad():
-            waveform = model(**inputs).waveform.squeeze(0).detach().to("cpu").float().numpy()
+            with torch.no_grad():
+                waveform = model(**inputs).waveform.squeeze(0).detach().to("cpu").float().numpy()
 
-        if args.chunks_dir:
-            os.makedirs(args.chunks_dir, exist_ok=True)
-            sf.write(os.path.join(args.chunks_dir, f"chunk-{index:03d}.wav"), waveform, sample_rate)
+            if args.chunks_dir:
+                os.makedirs(args.chunks_dir, exist_ok=True)
+                sf.write(os.path.join(args.chunks_dir, f"chunk-{index:03d}.wav"), waveform, sample_rate)
 
         audio_parts.append(waveform)
         if index < len(chunks):
