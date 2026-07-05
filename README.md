@@ -12,7 +12,7 @@ A PDF goes through a four-stage pipeline, each stage running as a background job
 PDF Upload → extract → normalize → synthesize → assemble → MP3
 ```
 
-**extract** parses the PDF with [Marker](https://github.com/VikParuchuri/marker) to get structured text and heading hierarchy. Detects chapter boundaries from section headings (h1 preferred, then h2, then falls back to splitting every ~5000 words). Creates a `chapters` row per detected chapter.
+**extract** parses the PDF with [Marker](https://github.com/VikParuchuri/marker) to get structured text and heading hierarchy. Chapter boundaries are decided by a local LLM ([Qwen2.5-1.5B](https://huggingface.co/mlx-community/Qwen2.5-1.5B-Instruct-4bit) via mlx-lm): it reads the extracted heading list, picks the real chapter starts while ignoring front matter and subsections, and its answers are fuzzy-matched back to document blocks. If the LLM is unavailable or its output doesn't line up with the document, a heading-level heuristic takes over (h1, then h2, then splitting every ~5000 words). Creates a `chapters` row per detected chapter.
 
 **normalize** (runs per chapter, in parallel) cleans up text for TTS input. Strips markdown syntax, reference markers, bare URLs, and rejoins hyphenated line breaks. Kokoro handles numbers and abbreviations natively, so normalization is intentionally minimal.
 
@@ -94,23 +94,23 @@ data/output/{bookId}/     Chapter MP3s and final concatenated MP3
 
 **tRPC routes** (proxied from `:3033/trpc` to `:3034/trpc`):
 
-| Route | Description |
-|-------|-------------|
-| `books.list` | All books with chapter completion count |
-| `books.get` | Single book with all chapters |
-| `books.retry` | Re-extract book, optionally with new voice/speed |
-| `books.cancel` | Mark book + chapters as failed |
-| `books.delete` | Delete book, chapters, and files from disk |
-| `chapters.get` | Single chapter detail |
-| `chapters.retry` | Re-synthesize a single chapter |
+| Route            | Description                                      |
+| ---------------- | ------------------------------------------------ |
+| `books.list`     | All books with chapter completion count          |
+| `books.get`      | Single book with all chapters                    |
+| `books.retry`    | Re-extract book, optionally with new voice/speed |
+| `books.cancel`   | Mark book + chapters as failed                   |
+| `books.delete`   | Delete book, chapters, and files from disk       |
+| `chapters.get`   | Single chapter detail                            |
+| `chapters.retry` | Re-synthesize a single chapter                   |
 
 **HTTP endpoints** on the server (`:3034`):
 
-| Endpoint | Description |
-|----------|-------------|
-| `POST /upload` | Multipart file upload (PDF + voice + speed fields) |
-| `GET /download/:bookId` | Serve final MP3 |
-| `GET /audio/chapter/:chapterId` | Serve individual chapter MP3 |
+| Endpoint                        | Description                                        |
+| ------------------------------- | -------------------------------------------------- |
+| `POST /upload`                  | Multipart file upload (PDF + voice + speed fields) |
+| `GET /download/:bookId`         | Serve final MP3                                    |
+| `GET /audio/chapter/:chapterId` | Serve individual chapter MP3                       |
 
 ## Prerequisites
 
