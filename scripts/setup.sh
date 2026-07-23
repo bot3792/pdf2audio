@@ -14,8 +14,10 @@ echo "  python3: $(python3 --version)"
 
 echo ""
 echo "Installing Python dependencies..."
-pip3 install marker-pdf kokoro soundfile mlx-lm mlx numpy huggingface_hub transformers torch
+pip3 install marker-pdf kokoro soundfile mlx-lm mlx mlx-audio numpy huggingface_hub torch
 pip3 install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"
+# mlx-audio pulls transformers 5.x, which breaks marker-pdf (surya needs transformers.onnx)
+pip3 install "transformers==4.57.6" "regex<2025.0.0"
 
 echo ""
 echo "Verifying marker..."
@@ -26,8 +28,8 @@ echo "Verifying kokoro..."
 python3 -c "from kokoro import KPipeline; print('  kokoro: OK')"
 
 echo ""
-echo "Caching Qwen2.5 model for chapter detection..."
-python3 -c "from mlx_lm import load; load('mlx-community/Qwen2.5-1.5B-Instruct-4bit'); print('  qwen2.5: OK')" 2>/dev/null || echo "  qwen2.5: download manually with: python3 -c \"from mlx_lm import load; load('mlx-community/Qwen2.5-1.5B-Instruct-4bit')\""
+echo "Caching Qwen3.6 model for chapter detection (~16 GB)..."
+python3 -c "from mlx_lm import load; load('mlx-community/Qwen3.6-27B-4bit'); print('  qwen3.6: OK')" 2>/dev/null || echo "  qwen3.6: download manually with: python3 -c \"from mlx_lm import load; load('mlx-community/Qwen3.6-27B-4bit')\""
 
 echo ""
 echo "Caching Bulgarian narrator model..."
@@ -40,6 +42,19 @@ python3 -c "from transformers import AutoTokenizer, VitsModel; print('  mms runt
 echo ""
 echo "Caching Meta MMS Bulgarian model..."
 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/mms-tts-bul'); print('  mms-tts-bul: OK')" 2>/dev/null || echo "  mms-tts-bul: download manually with: python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('facebook/mms-tts-bul')\""
+
+echo ""
+echo "Preparing KugelAudio narrator (downloads ~17 GB once, quantizes to ~5 GB, then deletes the download)..."
+KUGEL_DIR="$HOME/.cache/pdf2audio-models/kugelaudio-0-open-4bit"
+if [ -d "$KUGEL_DIR" ]; then
+  echo "  kugelaudio 4-bit: already present"
+else
+  python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen2.5-7B', allow_patterns=['tokenizer*', 'vocab*', 'merges*', 'config.json'])"
+  python3 -m mlx_audio.convert --hf-path kugelaudio/kugelaudio-0-open --mlx-path "$KUGEL_DIR" -q --q-bits 4 --model-domain tts \
+    && python3 -c "from huggingface_hub import scan_cache_dir; c = scan_cache_dir(); [c.delete_revisions(*[r.commit_hash for r in repo.revisions]).execute() for repo in c.repos if repo.repo_id == 'kugelaudio/kugelaudio-0-open']" \
+    && echo "  kugelaudio 4-bit: OK" \
+    || echo "  kugelaudio: conversion failed — rerun or synthesize with another voice"
+fi
 
 echo ""
 echo "Creating data directories..."

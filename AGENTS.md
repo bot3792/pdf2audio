@@ -48,7 +48,7 @@ PDF Upload → extract → normalize (per chapter) → synthesize (per chapter) 
 
 ### Job Flow (Graphile Worker)
 
-1. **extract** (`workers/extract.ts`) — Runs `marker_single` (Python subprocess) on the PDF, outputs structured JSON into a subdirectory. Flattens ALL blocks (not just kept types) with page numbers, polygon coordinates, and an `included` flag. **Chapter detection**: first attempts LLM-based detection via Qwen2.5-1.5B (sends heading list to `scripts/detect_chapters.py`, fuzzy-matches results to blocks); falls back to heading-level heuristic (h1 → h2 → fallback word-count split). Stores per-chapter `sourceBlocks` (jsonb) with full block metadata, plus `pageStart`/`pageEnd`. Creates chapter rows in DB. Queues normalize jobs.
+1. **extract** (`workers/extract.ts`) — Runs `marker_single` (Python subprocess) on the PDF, outputs structured JSON into a subdirectory. Flattens ALL blocks (not just kept types) with page numbers, polygon coordinates, and an `included` flag. **Chapter detection**: if enabled, first attempts LLM-based detection via Qwen3.6-27B (sends heading list to `scripts/detect_chapters.py`, fuzzy-matches results to blocks); falls back to the numbered-chapter tier (Chapter N / Глава N sequences, ToC listing pages excluded), then the heading-level heuristic (h1 → h2 → fallback word-count split). Stores per-chapter `sourceBlocks` (jsonb) with full block metadata, plus `pageStart`/`pageEnd`. Creates chapter rows in DB. Queues normalize jobs.
 
 2. **normalize** (`workers/normalize.ts`, per chapter, parallel) — Strips markdown, reference markers, URLs, rejoins hyphenated line breaks. Saves clean text. Queues synthesize job.
 
@@ -79,8 +79,9 @@ Chapters can be individually queued (creates Graphile job) or suspended (no job,
 | Tool | Purpose | Called from |
 |------|---------|------------|
 | **Marker** (`marker_single` CLI, `pip install marker-pdf==1.8.5`) | PDF → structured JSON | `lib/marker.ts` |
-| **Qwen2.5-1.5B** (`mlx-community/Qwen2.5-1.5B-Instruct-4bit`, via `mlx-lm`) | LLM chapter detection from headings | `scripts/detect_chapters.py`, called by `lib/chapter-detect.ts` |
+| **Qwen3.6-27B** (`mlx-community/Qwen3.6-27B-4bit`, via `mlx-lm`) | LLM chapter detection from headings | `scripts/detect_chapters.py`, called by `lib/chapter-detect.ts` |
 | **Kokoro TTS** (`pip install kokoro`) | Text → speech via MPS GPU | `scripts/synthesize.py`, called by `lib/kokoro.ts` |
+| **KugelAudio** (`kugelaudio/kugelaudio-0-open` via `pip install mlx-audio`, local 4-bit MLX quant at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit`) | Multilingual TTS narrator (24 EU languages incl. Bulgarian) | `scripts/synthesize_kugel_tts.py`, called by `lib/tts.ts` |
 | **FFmpeg** (system binary) | WAV→MP3, MP3 concatenation | `lib/ffmpeg.ts` |
 | **node-id3** (npm) | ID3v2 chapter markers | `lib/id3-chapters.ts` |
 | **music-metadata** (npm) | Read MP3 duration | `workers/synthesize.ts` |
@@ -141,7 +142,7 @@ packages/server/src/
     log.ts              appendLog() — writes to DB + console
     paths.ts            Data directory path helpers (uploadsDir, tmpDir, outputDir)
     marker.ts           Marker subprocess wrapper + chapter detection logic
-    chapter-detect.ts   Qwen2.5 LLM subprocess wrapper for chapter boundary detection
+    chapter-detect.ts   Qwen3.6 LLM subprocess wrapper for chapter boundary detection
     kokoro.ts           Kokoro TTS subprocess wrapper with onProgress callback
     ffmpeg.ts           FFmpeg WAV→MP3 and concat helpers
     id3-chapters.ts     MP3 chapter marker writing
@@ -214,7 +215,9 @@ Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, 
 
 Waterfall in `lib/marker.ts` -> `extractPdf()`:
 
-1. **LLM-based detection** (primary): Sends all SectionHeader blocks (page, level, text) to Qwen2.5-1.5B via `scripts/detect_chapters.py`. The LLM identifies main chapter boundaries from the heading list, ignoring front matter and subsections. Results are fuzzy-matched back to actual block positions. Falls through if LLM is unavailable, returns <2 chapters, or boundaries don't match blocks.
+1. **LLM-based detection** (when enabled): Sends TOC evidence plus candidate SectionHeader blocks (page, level, text) to Qwen3.6-27B via `scripts/detect_chapters.py` (thinking disabled; selecting ~all candidates is treated as failure). Results are fuzzy-matched back to actual block positions. Falls through if LLM is unavailable, returns <2 chapters, or boundaries don't match blocks.
+
+1b. **Numbered-chapter tier**: `pickNumberedChapterIndices()` finds Chapter N / Глава N heading sequences (digits or roman numerals), excludes ToC listing pages (≥3 chapter headings on one page), and keeps the longest increasing run of chapter numbers. Used when it finds ≥3 chapters.
 
 2. **Heading-level heuristic** (fallback via `detectChaptersFromBlocks()`): Picks the highest heading level present (h1 → h2 → h3), splits at those heading boundaries. If no headings found, falls back to splitting every ~5000 words ("Part 1", "Part 2", etc.). If there's substantial text before the first heading (>50 words), it becomes a "Preface" chapter.
 

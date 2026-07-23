@@ -309,13 +309,15 @@ export const booksRouter = router({
         .orderBy(asc(bookFiles.index));
 
       let totalDetected = 0;
+      let detectionMethod: typeof books.$inferSelect.chapterDetection = null;
 
       if (files.length === 0) {
         // Legacy single-file book
-        const detected = await redetectChaptersFromExistingMarkerOutput(bookTmpDir(input.id), book.pdfPath, (msg) => appendLog(input.id, msg), {
+        const { chapters: detected, method } = await redetectChaptersFromExistingMarkerOutput(bookTmpDir(input.id), book.pdfPath, (msg) => appendLog(input.id, msg), {
           llmChapterDetection: finalLlmSetting,
         });
         totalDetected = detected.length;
+        detectionMethod = method;
         await insertRedetectedChapters(input.id, detected, 0, null);
       } else {
         // Multi-file book: re-detect per file
@@ -323,12 +325,13 @@ export const booksRouter = router({
         for (const file of files) {
           const fileTmpDir = path.join(bookTmpDir(input.id), `file_${file.index}`);
           try {
-            const detected = await redetectChaptersFromExistingMarkerOutput(fileTmpDir, file.pdfPath, (msg) => appendLog(input.id, msg), {
+            const { chapters: detected, method } = await redetectChaptersFromExistingMarkerOutput(fileTmpDir, file.pdfPath, (msg) => appendLog(input.id, msg), {
               llmChapterDetection: finalLlmSetting,
             });
             await insertRedetectedChapters(input.id, detected, chapterOffset, file.index);
             chapterOffset += detected.length;
             totalDetected += detected.length;
+            detectionMethod = method;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             await appendLog(input.id, `Re-detection failed for "${file.filename}": ${message}`);
@@ -340,11 +343,11 @@ export const booksRouter = router({
         throw new Error("No chapters detected from existing extraction output");
       }
 
-      await appendLog(input.id, `Detected ${totalDetected} chapters`);
+      await appendLog(input.id, `Detected ${totalDetected} chapters (${detectionMethod})`);
 
       await db
         .update(books)
-        .set({ totalChapters: totalDetected, updatedAt: new Date() })
+        .set({ totalChapters: totalDetected, chapterDetection: detectionMethod, updatedAt: new Date() })
         .where(eq(books.id, input.id));
 
       // Compare new chapter boundaries with old

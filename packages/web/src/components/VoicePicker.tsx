@@ -109,7 +109,7 @@ function VoiceRow({
   return (
     <div
       onClick={onSelect}
-      className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-blue-50 ${isSelected ? "bg-blue-50" : ""}`}
+      className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-(--bg-selected) ${isSelected ? "bg-(--bg-selected)" : ""}`}
     >
       <button
         type="button"
@@ -117,7 +117,7 @@ function VoiceRow({
           e.stopPropagation();
           onPlay();
         }}
-        className="shrink-0 h-7 w-7 rounded-full flex items-center justify-center border border-(--border) hover:border-blue-400 hover:bg-blue-50 transition-colors"
+        className="shrink-0 h-7 w-7 rounded-full flex items-center justify-center border border-(--border) hover:border-blue-400 hover:bg-(--bg-selected) transition-colors"
         title={`Preview ${voice.label}`}
       >
         {isPlaying ? (

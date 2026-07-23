@@ -148,7 +148,27 @@ export function BookDetail() {
         {/* TIER 2: Chapters */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-(--text-secondary)">Chapters</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-(--text-secondary)">Chapters</h2>
+              {book.chapterDetection && (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full bg-(--bg-subtle) text-(--text-muted)"
+                  title={{
+                    "llm": "Boundaries picked by the local LLM from the table of contents",
+                    "numbered-headings": "Numbered chapter headings (Chapter N) found in the document",
+                    "heading-levels": "Split at the most plausible heading level",
+                    "word-split": "No usable headings — split every ~5000 words",
+                  }[book.chapterDetection]}
+                >
+                  {{
+                    "llm": "LLM · ToC-matched",
+                    "numbered-headings": "Chapter numbering",
+                    "heading-levels": "Heading heuristic",
+                    "word-split": "Word-count split",
+                  }[book.chapterDetection]}
+                </span>
+              )}
+            </div>
             {book.chapters.length > 0 && (
               <span className="text-sm text-(--text-muted)">
                 {selectedCount} of {book.chapters.length} selected
@@ -744,7 +764,7 @@ function BookFilesSection({
                         file.status === "pending" ? "File hasn't been extracted yet" :
                         "Re-extract this file"
                       }
-                      className="p-1 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-20 disabled:cursor-not-allowed"
+                      className="p-1 rounded text-blue-600 hover:bg-(--bg-selected) disabled:opacity-20 disabled:cursor-not-allowed"
                     >
                       <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
                         <path d="M11.534 7h3.932a.25.25 0 01.192.41l-1.966 2.36a.25.25 0 01-.384 0l-1.966-2.36A.25.25 0 0111.534 7zM.534 9h3.932a.25.25 0 00.192-.41L2.692 6.23a.25.25 0 00-.384 0L.342 8.59A.25.25 0 00.534 9z"/>

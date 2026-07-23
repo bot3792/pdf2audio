@@ -89,6 +89,7 @@ export const voiceGroups: VoiceGroup[] = [
     voices: [
       { id: "bg-mlx:narrator", label: "BG-TTS V5 (Radi Totev MLX port)", gender: null, grade: "MLX", supportsSpeed: false, note: "Apple Silicon narrator" },
       { id: "bg-mms:bul", label: "MMS Bulgarian (Meta)", gender: null, grade: "VITS", supportsSpeed: false, note: "Meta MMS" },
+      { id: "kugel:default", label: "KugelAudio (7B, 24 EU languages)", gender: null, grade: "MLX", supportsSpeed: false, note: "Multilingual narrator" },
     ],
   },
 ];

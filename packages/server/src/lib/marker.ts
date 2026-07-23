@@ -49,6 +49,13 @@ export type ExtractedChapter = {
   sourceBlocks: SourceBlock[];
 };
 
+export type ChapterDetectionMethod = "llm" | "numbered-headings" | "heading-levels" | "word-split";
+
+export type DetectionResult = {
+  chapters: ExtractedChapter[];
+  method: ChapterDetectionMethod;
+};
+
 const KEEP_BLOCK_TYPES = new Set([
   "Text",
   "SectionHeader",
@@ -68,7 +75,7 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-type FlatBlock = {
+export type FlatBlock = {
   type: string;
   text: string;
   hierarchy: Record<string, string> | null;
@@ -196,10 +203,66 @@ function pickChapterHeadingIndices(allBlocks: FlatBlock[]): number[] {
   return bestIndices;
 }
 
-function detectChaptersFromBlocks(allBlocks: FlatBlock[]): ExtractedChapter[] {
-  const chapterHeadingIndices = pickChapterHeadingIndices(allBlocks);
+const CHAPTER_NUMBER_PATTERN = /^(chapter|part|глава|раздел|част)\s+(\d{1,3}|[IVXLCDM]{1,7})\b/i;
+
+function parseChapterNumber(raw: string): number {
+  if (/^\d+$/.test(raw)) return Number(raw);
+  const values: Record<string, number> = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+  let total = 0;
+  const s = raw.toLowerCase();
+  for (let i = 0; i < s.length; i++) {
+    const cur = values[s[i]];
+    const next = values[s[i + 1]] ?? 0;
+    total += cur < next ? -cur : cur;
+  }
+  return total;
+}
+
+export function pickNumberedChapterIndices(allBlocks: FlatBlock[]): number[] {
+  const matches: { index: number; page: number; num: number; kind: string }[] = [];
+  for (let i = 0; i < allBlocks.length; i++) {
+    const b = allBlocks[i];
+    if (!b.included || b.type !== "SectionHeader") continue;
+    const m = CHAPTER_NUMBER_PATTERN.exec(b.text.trim());
+    if (m) matches.push({ index: i, page: b.page, num: parseChapterNumber(m[2]), kind: m[1].toLowerCase() });
+  }
+  if (matches.length < 3) return [];
+
+  // Mixed part/chapter books: the dominant kind is the chapter-level unit
+  const byKind = new Map<string, typeof matches>();
+  for (const m of matches) byKind.set(m.kind, [...(byKind.get(m.kind) ?? []), m]);
+  const dominant = [...byKind.values()].reduce((a, b) => (b.length > a.length ? b : a));
+
+  // A ToC page lists many chapters on one page; body chapter headings are spread out
+  const perPage = new Map<number, number>();
+  for (const m of dominant) perPage.set(m.page, (perPage.get(m.page) ?? 0) + 1);
+  const body = dominant.filter((m) => (perPage.get(m.page) ?? 0) < 3);
+
+  // Leftover ToC stragglers duplicate a body chapter's number; the body heading comes later
+  const lastByNum = new Map<number, (typeof matches)[number]>();
+  for (const m of body) lastByNum.set(m.num, m);
+  const deduped = [...lastByNum.values()].sort((a, b) => a.index - b.index);
+
+  // Longest strictly-increasing run of chapter numbers drops listing stragglers
+  const best: number[][] = deduped.map(() => []);
+  for (let i = 0; i < deduped.length; i++) {
+    best[i] = [i];
+    for (let j = 0; j < i; j++) {
+      if (deduped[j].num < deduped[i].num && best[j].length + 1 > best[i].length) {
+        best[i] = [...best[j], i];
+      }
+    }
+  }
+  const increasing = best.reduce((a, b) => (b.length > a.length ? b : a), []);
+  if (increasing.length < 3) return [];
+  return increasing.map((i) => deduped[i].index);
+}
+
+function detectChaptersFromBlocks(allBlocks: FlatBlock[]): DetectionResult {
+  const numberedIndices = pickNumberedChapterIndices(allBlocks);
+  const chapterHeadingIndices = numberedIndices.length >= 3 ? numberedIndices : pickChapterHeadingIndices(allBlocks);
   if (chapterHeadingIndices.length < 2) {
-    return splitByWordCount(allBlocks);
+    return { chapters: splitByWordCount(allBlocks), method: "word-split" };
   }
 
   const chapters: ExtractedChapter[] = [];
@@ -221,7 +284,7 @@ function detectChaptersFromBlocks(allBlocks: FlatBlock[]): ExtractedChapter[] {
     }
   }
 
-  return chapters;
+  return { chapters, method: numberedIndices.length >= 3 ? "numbered-headings" : "heading-levels" };
 }
 
 function splitByWordCount(allBlocks: FlatBlock[], wordsPerChapter = 5000): ExtractedChapter[] {
@@ -430,7 +493,7 @@ async function findMarkerJson(outDir: string): Promise<string> {
   return path.join(searchDir, jsonFile);
 }
 
-async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath: string, log: LogFn, options: ExtractOptions): Promise<ExtractedChapter[]> {
+async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath: string, log: LogFn, options: ExtractOptions): Promise<DetectionResult> {
   const raw = await readFile(markerJsonPath, "utf-8");
   const doc: MarkerOutput = JSON.parse(raw);
 
@@ -469,7 +532,7 @@ async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath:
         const chapters = chaptersFromLlmBoundaries(allBlocks, boundaries);
         if (chapters) {
           await log(`LLM detected ${chapters.length} chapters`);
-          return chapters;
+          return { chapters, method: "llm" };
         }
         await log("LLM boundaries didn't match blocks, falling back to heuristic");
       } else {
@@ -485,7 +548,7 @@ async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath:
   return detectChaptersFromBlocks(allBlocks);
 }
 
-export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = noopLog, options: ExtractOptions = {}): Promise<ExtractedChapter[]> {
+export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = noopLog, options: ExtractOptions = {}): Promise<DetectionResult> {
   await mkdir(outDir, { recursive: true });
 
   const disableOcr = !options.forceOcr;
@@ -502,7 +565,7 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
   return detectChaptersFromMarkerJsonPath(markerJsonPath, pdfPath, log, options);
 }
 
-export async function redetectChaptersFromExistingMarkerOutput(outDir: string, pdfPath: string, log: LogFn = noopLog, options: ExtractOptions = {}): Promise<ExtractedChapter[]> {
+export async function redetectChaptersFromExistingMarkerOutput(outDir: string, pdfPath: string, log: LogFn = noopLog, options: ExtractOptions = {}): Promise<DetectionResult> {
   const markerJsonPath = await findMarkerJson(outDir);
   await log("Re-detecting chapters from existing Marker output");
   return detectChaptersFromMarkerJsonPath(markerJsonPath, pdfPath, log, options);

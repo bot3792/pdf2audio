@@ -29,13 +29,16 @@ import { extractPdf } from "../lib/marker.ts";
 const mockExtractPdf = vi.mocked(extractPdf);
 
 function fakeChapters(count: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    title: `Chapter ${i + 1}`,
-    text: `Content of chapter ${i + 1} with enough words`,
-    pageStart: i * 10 + 1,
-    pageEnd: (i + 1) * 10,
-    sourceBlocks: [{ type: "Text", text: `Content ${i + 1}`, page: i * 10 + 1, included: true }],
-  }));
+  return {
+    chapters: Array.from({ length: count }, (_, i) => ({
+      title: `Chapter ${i + 1}`,
+      text: `Content of chapter ${i + 1} with enough words`,
+      pageStart: i * 10 + 1,
+      pageEnd: (i + 1) * 10,
+      sourceBlocks: [{ type: "Text", text: `Content ${i + 1}`, page: i * 10 + 1, included: true }],
+    })),
+    method: "heading-levels" as const,
+  };
 }
 
 describe("extract worker", () => {
