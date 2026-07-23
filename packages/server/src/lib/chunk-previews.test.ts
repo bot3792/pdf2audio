@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 
-import { chapterChunkPreviewDir, chapterChunkPreviewUrlBase, listChapterChunkPreviews, locateChunks } from "./chunk-previews.ts";
+import { chapterChunkPreviewDir, chapterChunkPreviewUrlBase, listChapterChunkPreviews, locateChunks, pageAtOffset } from "./chunk-previews.ts";
+import type { SourceBlock } from "./marker.ts";
 
 describe("chunk previews", () => {
   const bookId = `test-book-${crypto.randomUUID()}`;
@@ -87,5 +88,45 @@ describe("locateChunks", () => {
 
   it("returns null for a chunk absent from the source", () => {
     expect(locateChunks("Hello world.", ["Not present"])).toEqual([null]);
+  });
+});
+
+describe("pageAtOffset", () => {
+  function block(text: string, page: number, included = true): SourceBlock {
+    return { type: "Text", text, page, included };
+  }
+
+  const blocks = [block("First page text.", 1), block("Second page text!", 2), block("Third.", 3)];
+  // rawText replays the extraction-time join of included blocks
+  const rawText = "First page text.\n\nSecond page text!\n\nThird.";
+
+  it("maps offsets to the page of the containing block", () => {
+    expect(pageAtOffset(blocks, rawText.length, 0)).toBe(1);
+    expect(pageAtOffset(blocks, rawText.length, rawText.indexOf("Second"))).toBe(2);
+    expect(pageAtOffset(blocks, rawText.length, rawText.indexOf("Third"))).toBe(3);
+  });
+
+  it("attributes the join gap between blocks to the earlier block's page", () => {
+    expect(pageAtOffset(blocks, rawText.length, "First page text.\n".length)).toBe(1);
+  });
+
+  it("ignores excluded blocks, matching rawText construction", () => {
+    const withExcluded = [block("Header", 1, false), ...blocks];
+    expect(pageAtOffset(withExcluded, rawText.length, 0)).toBe(1);
+    expect(pageAtOffset(withExcluded, rawText.length, rawText.indexOf("Third"))).toBe(3);
+  });
+
+  it("clamps offsets past the end to the last page", () => {
+    expect(pageAtOffset(blocks, rawText.length, rawText.length + 100)).toBe(3);
+  });
+
+  it("scales proportionally when blocks no longer reconstruct rawText exactly", () => {
+    expect(pageAtOffset(blocks, rawText.length * 2, rawText.length * 2 - 1)).toBe(3);
+    expect(pageAtOffset(blocks, rawText.length * 2, 0)).toBe(1);
+  });
+
+  it("returns null when there are no included blocks", () => {
+    expect(pageAtOffset([], 100, 0)).toBeNull();
+    expect(pageAtOffset([block("Skipped", 1, false)], 100, 0)).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import { ChapterTable } from "../components/ChapterTable.tsx";
 import { voiceSupportsSpeedControl } from "../lib/voices.ts";
 import { VoicePicker } from "../components/VoicePicker.tsx";
 import { SpeedSlider } from "../components/SpeedSlider.tsx";
+import { PdfPreviewModal } from "../components/PdfPreviewModal.tsx";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -257,7 +258,7 @@ export function BookDetail() {
             <ChapterTable
               bookId={book.id}
               chapters={book.chapters}
-              files={book.files?.map((f) => ({ index: f.index, filename: f.filename }))}
+              files={book.files?.map((f) => ({ id: f.id, index: f.index, filename: f.filename }))}
               onQueue={(cid, resume) => queueMutation.mutate({ id: cid, resume })}
               onRename={(cid, title) => renameChapterMutation.mutate({ id: cid, title })}
               onReorder={(chapterIds) => reorderChaptersMutation.mutate({ bookId: book.id, chapterIds })}
@@ -796,28 +797,11 @@ function BookFilesSection({
       </div>
 
       {previewFileId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPreviewFileId(null)}>
-          <div className="bg-(--bg-card) rounded-lg shadow-xl w-[90vw] h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-(--border)">
-              <span className="text-sm font-medium text-(--text-primary)">
-                {files.find((f) => f.id === previewFileId)?.filename}
-              </span>
-              <button
-                onClick={() => setPreviewFileId(null)}
-                className="text-(--text-faint) hover:text-(--text-tertiary) p-1"
-              >
-                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                </svg>
-              </button>
-            </div>
-            <iframe
-              src={`/pdf/${previewFileId}`}
-              className="flex-1 w-full"
-              title="PDF Preview"
-            />
-          </div>
-        </div>
+        <PdfPreviewModal
+          fileId={previewFileId}
+          filename={files.find((f) => f.id === previewFileId)?.filename}
+          onClose={() => setPreviewFileId(null)}
+        />
       )}
     </div>
   );

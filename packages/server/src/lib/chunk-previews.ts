@@ -2,6 +2,7 @@ import path from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 
 import { bookOutputDir } from "./paths.ts";
+import type { SourceBlock } from "./marker.ts";
 
 export type ChunkPreview = {
   index: number;
@@ -10,6 +11,7 @@ export type ChunkPreview = {
   text?: string;
   start?: number;
   end?: number;
+  page?: number;
 };
 
 type ChunkManifestEntry = { index: number; text: string };
@@ -110,4 +112,28 @@ export function locateChunks(
     cursor = at + needle.length;
     return { start: map[at], end: map[at + needle.length - 1] + 1 };
   });
+}
+
+/**
+ * Map a character offset in a chapter's rawText to its PDF page. rawText was built at extraction
+ * time as includedBlocks.map(b => b.text).join("\n\n"), so replaying that join recovers each
+ * block's offset range. If the stored blocks no longer reconstruct rawText exactly (older
+ * extractions), the offset is scaled proportionally to stay approximately right.
+ */
+export function pageAtOffset(sourceBlocks: SourceBlock[], rawTextLength: number, offset: number): number | null {
+  const included = sourceBlocks.filter((b) => b.included);
+  if (included.length === 0) return null;
+
+  const joinedLength = included.reduce((sum, b) => sum + b.text.length + 2, -2);
+  const scaled =
+    joinedLength === rawTextLength || rawTextLength <= 0
+      ? offset
+      : (offset / rawTextLength) * joinedLength;
+
+  let pos = 0;
+  for (const block of included) {
+    pos += block.text.length + 2;
+    if (scaled < pos) return block.page;
+  }
+  return included[included.length - 1].page;
 }

@@ -23,6 +23,7 @@ export type ChapterRow = {
 };
 
 export type FileInfo = {
+  id: string;
   index: number;
   filename: string;
 };
@@ -539,6 +540,7 @@ export function ChapterTable({
       {modalChapterIndex !== null ? (
         <ChapterModal
           chapters={chapters}
+          files={files}
           chapterIndex={modalChapterIndex}
           onClose={() => setModalChapterIndex(null)}
           onNavigate={setModalChapterIndex}
