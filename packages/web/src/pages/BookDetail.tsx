@@ -6,6 +6,7 @@ import { voiceSupportsSpeedControl } from "../lib/voices.ts";
 import { VoicePicker } from "../components/VoicePicker.tsx";
 import { SpeedSlider } from "../components/SpeedSlider.tsx";
 import { PdfPreviewModal } from "../components/PdfPreviewModal.tsx";
+import { StructureModal } from "../components/StructureModal.tsx";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -25,7 +26,8 @@ export function BookDetail() {
           ["synthesizing", "normalizing", "pending"].includes(c.status)
         );
         const bookActive = data.status === "extracting" || data.status === "assembling";
-        return (hasActiveFiles || hasActiveChapters || bookActive) ? 2000 : false;
+        const proposalRunning = data.chapterProposal?.status === "running";
+        return (hasActiveFiles || hasActiveChapters || bookActive || proposalRunning) ? 2000 : false;
       },
     }
   );
@@ -68,6 +70,7 @@ export function BookDetail() {
 
   const [reExtractForceOcr, setReExtractForceOcr] = useState<boolean | null>(null);
   const [reExtractLlm, setReExtractLlm] = useState<boolean | null>(null);
+  const [showStructure, setShowStructure] = useState(false);
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
@@ -159,6 +162,7 @@ export function BookDetail() {
                     "numbered-headings": "Numbered chapter headings (Chapter N) found in the document",
                     "heading-levels": "Split at the most plausible heading level",
                     "word-split": "No usable headings — split every ~5000 words",
+                    "manual": "Boundaries chosen by hand in the structure view",
                   }[book.chapterDetection]}
                 >
                   {{
@@ -166,9 +170,18 @@ export function BookDetail() {
                     "numbered-headings": "Chapter numbering",
                     "heading-levels": "Heading heuristic",
                     "word-split": "Word-count split",
+                    "manual": "Manual boundaries",
                   }[book.chapterDetection]}
                 </span>
               )}
+              <button
+                onClick={() => setShowStructure(true)}
+                className="text-xs px-2 py-0.5 rounded-full border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
+                title="Review every detected heading and edit chapter boundaries by hand"
+                data-testid="open-structure"
+              >
+                Structure
+              </button>
             </div>
             {book.chapters.length > 0 && (
               <span className="text-sm text-(--text-muted)">
@@ -359,6 +372,17 @@ export function BookDetail() {
             </button>
           </div>
         </div>
+
+        {showStructure && (
+          <StructureModal
+            bookId={book.id}
+            isProcessing={isProcessing}
+            chapterProposal={book.chapterProposal ?? null}
+            files={book.files?.map((f) => ({ id: f.id, index: f.index, filename: f.filename }))}
+            onClose={() => setShowStructure(false)}
+            onChanged={invalidate}
+          />
+        )}
       </div>
     </div>
   );

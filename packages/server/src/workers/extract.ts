@@ -44,7 +44,7 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
 
     await db
       .update(books)
-      .set({ totalChapters, updatedAt: new Date() })
+      .set({ totalChapters, status: "pending", updatedAt: new Date() })
       .where(eq(books.id, bookId));
 
     if (totalChapters === 0) {
