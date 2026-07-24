@@ -238,10 +238,22 @@ export function pickNumberedChapterIndices(allBlocks: FlatBlock[]): number[] {
   for (const m of dominant) perPage.set(m.page, (perPage.get(m.page) ?? 0) + 1);
   const body = dominant.filter((m) => (perPage.get(m.page) ?? 0) < 3);
 
-  // Leftover ToC stragglers duplicate a body chapter's number; the body heading comes later
-  const lastByNum = new Map<number, (typeof matches)[number]>();
-  for (const m of body) lastByNum.set(m.num, m);
-  const deduped = [...lastByNum.values()].sort((a, b) => a.index - b.index);
+  // Duplicate numbers come from ToC stragglers or endnotes sections; the body
+  // copy is the one followed by the most content before the next match
+  const contentWords = body.map((m, i) => {
+    const end = i + 1 < body.length ? body[i + 1].index : allBlocks.length;
+    let words = 0;
+    for (let j = m.index + 1; j < end; j++) {
+      if (allBlocks[j].included) words += allBlocks[j].text.split(/\s+/).filter(Boolean).length;
+    }
+    return words;
+  });
+  const bestByNum = new Map<number, { m: (typeof matches)[number]; words: number }>();
+  body.forEach((m, i) => {
+    const cur = bestByNum.get(m.num);
+    if (!cur || contentWords[i] >= cur.words) bestByNum.set(m.num, { m, words: contentWords[i] });
+  });
+  const deduped = [...bestByNum.values()].map((x) => x.m).sort((a, b) => a.index - b.index);
 
   // Longest strictly-increasing run of chapter numbers drops listing stragglers
   const best: number[][] = deduped.map(() => []);

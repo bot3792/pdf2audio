@@ -53,6 +53,24 @@ describe("pickNumberedChapterIndices", () => {
     expect(pickNumberedChapterIndices(blocks)).toEqual([2, 3, 4]);
   });
 
+  it("keeps body chapters when an endnotes section repeats every chapter number", () => {
+    const blocks: FlatBlock[] = [];
+    const bodyIndices: number[] = [];
+    const bodyPages = [14, 32, 74, 119, 179, 214, 256, 316, 380];
+    bodyPages.forEach((page, i) => {
+      bodyIndices.push(blocks.length);
+      blocks.push(heading(`Chapter ${i + 1} Title ${i + 1}`, page));
+      for (let p = page + 1; p < page + 6; p++) blocks.push(paragraph(p));
+    });
+    const notesPages = [434, 437, 441, 446, 451, 454, 457, 461, 471];
+    notesPages.forEach((page, i) => {
+      blocks.push(heading(`Chapter ${i + 1}: Title ${i + 1}`, page));
+      blocks.push(paragraph(page));
+    });
+
+    expect(pickNumberedChapterIndices(blocks)).toEqual(bodyIndices);
+  });
+
   it("supports roman numerals and Bulgarian глава headings", () => {
     const roman = [
       heading("Chapter I The Beginning", 5),
