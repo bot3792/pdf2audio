@@ -3,10 +3,9 @@ import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, bookFiles, chapters, bookLogs, assemblies } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
-import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
+import { eq, desc, asc, gt, and, ne, sql } from "drizzle-orm";
 import { uploadsDir, bookTmpDir, bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
-import { redetectChaptersFromExistingMarkerOutput } from "../lib/marker.ts";
 import { parseTtsVoice } from "../lib/tts.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -34,34 +33,6 @@ function computeBookStatus(
   if (statuses.some((s) => s === "failed")) return "failed";
   if (statuses.every((s) => s === "suspended" || s === "done")) return "suspended";
   return book.status;
-}
-
-async function insertRedetectedChapters(
-  bookId: string,
-  detected: { title: string; text: string; pageStart: number | null; pageEnd: number | null; sourceBlocks: unknown }[],
-  chapterOffset: number,
-  sourceFileIndex: number | null,
-) {
-  for (let i = 0; i < detected.length; i++) {
-    const ch = detected[i];
-    const globalIndex = chapterOffset + i;
-    const wordCount = ch.text.split(/\s+/).filter(Boolean).length;
-    await appendLog(bookId, `Chapter ${globalIndex + 1}: "${ch.title}" (${wordCount.toLocaleString()} words)`);
-
-    await db
-      .insert(chapters)
-      .values({
-        bookId,
-        index: globalIndex,
-        title: ch.title,
-        rawText: ch.text,
-        pageStart: ch.pageStart,
-        pageEnd: ch.pageEnd,
-        sourceBlocks: ch.sourceBlocks,
-        sourceFileIndex,
-        status: "suspended",
-      });
-  }
 }
 
 export const booksRouter = router({
@@ -258,116 +229,19 @@ export const booksRouter = router({
         throw new Error("Cannot re-detect chapters while book is processing");
       }
 
+      // "extracting" immediately so the UI starts polling and double-enqueue is blocked
       const updates: Record<string, unknown> = {
-        status: "pending",
+        status: "extracting",
         error: null,
         outputPath: null,
         updatedAt: new Date(),
       };
       if (input.forceOcr !== undefined) updates.forceOcr = input.forceOcr;
       if (input.llmChapterDetection !== undefined) updates.llmChapterDetection = input.llmChapterDetection;
-
-      const allChapters = await db
-        .select({
-          audioPath: chapters.audioPath,
-          title: chapters.title,
-          pageStart: chapters.pageStart,
-          pageEnd: chapters.pageEnd,
-        })
-        .from(chapters)
-        .where(eq(chapters.bookId, input.id));
-
-      const oldSignature = allChapters
-        .map((c) => `${c.title}|${c.pageStart ?? ""}|${c.pageEnd ?? ""}`)
-        .join("\n");
-
-      const bookAssemblies = await db
-        .select({ id: assemblies.id, outputPath: assemblies.outputPath })
-        .from(assemblies)
-        .where(eq(assemblies.bookId, input.id));
-
-      const deletedAudioFiles = allChapters.filter((ch) => ch.audioPath).length;
-      await rm(bookOutputDir(input.id), { recursive: true, force: true }).catch(() => {});
-
-      await db.delete(assemblies).where(eq(assemblies.bookId, input.id));
-      await db.delete(chapters).where(eq(chapters.bookId, input.id));
       await db.update(books).set(updates).where(eq(books.id, input.id));
 
-      await appendLog(input.id, "Re-detecting chapters from existing extraction output");
-      await appendLog(
-        input.id,
-        `Removed ${allChapters.length} existing chapter${allChapters.length === 1 ? "" : "s"}, ${bookAssemblies.length} assembl${bookAssemblies.length === 1 ? "y" : "ies"}, and ${deletedAudioFiles} chapter audio file${deletedAudioFiles === 1 ? "" : "s"}`
-      );
-
-      const finalLlmSetting = input.llmChapterDetection ?? book.llmChapterDetection;
-
-      // Check if this is a multi-file book
-      const files = await db
-        .select()
-        .from(bookFiles)
-        .where(eq(bookFiles.bookId, input.id))
-        .orderBy(asc(bookFiles.index));
-
-      let totalDetected = 0;
-      let detectionMethod: typeof books.$inferSelect.chapterDetection = null;
-
-      if (files.length === 0) {
-        // Legacy single-file book
-        const { chapters: detected, method } = await redetectChaptersFromExistingMarkerOutput(bookTmpDir(input.id), book.pdfPath, (msg) => appendLog(input.id, msg), {
-          llmChapterDetection: finalLlmSetting,
-        });
-        totalDetected = detected.length;
-        detectionMethod = method;
-        await insertRedetectedChapters(input.id, detected, 0, null);
-      } else {
-        // Multi-file book: re-detect per file
-        let chapterOffset = 0;
-        for (const file of files) {
-          const fileTmpDir = path.join(bookTmpDir(input.id), `file_${file.index}`);
-          try {
-            const { chapters: detected, method } = await redetectChaptersFromExistingMarkerOutput(fileTmpDir, file.pdfPath, (msg) => appendLog(input.id, msg), {
-              llmChapterDetection: finalLlmSetting,
-            });
-            await insertRedetectedChapters(input.id, detected, chapterOffset, file.index);
-            chapterOffset += detected.length;
-            totalDetected += detected.length;
-            detectionMethod = method;
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            await appendLog(input.id, `Re-detection failed for "${file.filename}": ${message}`);
-          }
-        }
-      }
-
-      if (totalDetected === 0) {
-        throw new Error("No chapters detected from existing extraction output");
-      }
-
-      await appendLog(input.id, `Detected ${totalDetected} chapters (${detectionMethod})`);
-
-      await db
-        .update(books)
-        .set({ totalChapters: totalDetected, chapterDetection: detectionMethod, updatedAt: new Date() })
-        .where(eq(books.id, input.id));
-
-      // Compare new chapter boundaries with old
-      const newChapters = await db
-        .select({ title: chapters.title, pageStart: chapters.pageStart, pageEnd: chapters.pageEnd })
-        .from(chapters)
-        .where(eq(chapters.bookId, input.id))
-        .orderBy(asc(chapters.index));
-
-      const newSignature = newChapters
-        .map((c) => `${c.title}|${c.pageStart ?? ""}|${c.pageEnd ?? ""}`)
-        .join("\n");
-
-      if (oldSignature === newSignature) {
-        await appendLog(input.id, "Chapter boundaries unchanged from previous detection");
-      } else {
-        await appendLog(input.id, "Chapter boundaries updated");
-      }
-
-      await appendLog(input.id, "Chapter re-detection complete — chapters are suspended. Queue selected chapters when ready.");
+      await appendLog(input.id, "Queued chapter re-detection");
+      await quickAddJob({ connectionString }, "redetect", { bookId: input.id }, { maxAttempts: 1 });
 
       const [updated] = await db.select().from(books).where(eq(books.id, input.id));
       return updated;
