@@ -18,7 +18,7 @@ export type ChapterBoundary = {
 
 type LogFn = (message: string) => Promise<void>;
 
-const TIMEOUT_MS = 120_000;
+const TIMEOUT_MS = 600_000;
 
 export async function detectChaptersWithLlm(
   markerJsonPath: string,

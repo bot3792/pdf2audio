@@ -10,6 +10,7 @@ import { synthesize as kokoroSynthesize, KokoroAbortedError } from "./kokoro.ts"
 const CONDA_BIN = env.CONDA_ENV_PATH;
 const BG_MLX_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_bg_tts_mlx.py");
 const BG_MMS_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_mms_tts.py");
+const KUGEL_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_kugel_tts.py");
 
 type LogFn = (message: string) => Promise<void>;
 type ProgressFn = (chunk: number, totalChunks: number) => Promise<void>;
@@ -27,19 +28,20 @@ type SynthesizeOptions = {
 };
 
 type ParsedTtsVoice = {
-  engine: "kokoro" | "bg-mlx" | "bg-mms";
+  engine: "kokoro" | "bg-mlx" | "bg-mms" | "kugel";
   voice: string;
   raw: string;
 };
 
 const noopLog: LogFn = async () => {};
 const noopProgress: ProgressFn = async () => {};
-let bgMlxSynthesisQueue: Promise<void> = Promise.resolve();
+let mlxSynthesisQueue: Promise<void> = Promise.resolve();
 
 const ENGLISH_PREVIEW_TEXT = "The quick brown fox jumps over the lazy dog. A wonderful serenity has taken possession of my entire soul, like these sweet mornings of spring which I enjoy with my whole heart.";
 const BULGARIAN_PREVIEW_TEXT = "В тиха пролетна утрин светът изглеждаше мек и ясен, а гласът на разказвача трябваше да носи спокойствие, ритъм и увереност през всяка страница.";
 const BG_MLX_VOICES = new Set(["narrator"]);
 const BG_MMS_VOICES = new Set(["bul"]);
+const KUGEL_VOICES = new Set(["default"]);
 const KOKORO_VOICE_PATTERN = /^[a-z]{2}_[a-z]+$/;
 
 export class TtsAbortedError extends Error {
@@ -72,6 +74,14 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
       throw new Error(`Unsupported voice ID: ${rawVoice}`);
     }
     return { engine: "bg-mms", voice, raw: rawVoice };
+  }
+
+  if (rawVoice.startsWith("kugel:")) {
+    const voice = rawVoice.slice("kugel:".length);
+    if (!KUGEL_VOICES.has(voice)) {
+      throw new Error(`Unsupported voice ID: ${rawVoice}`);
+    }
+    return { engine: "kugel", voice, raw: rawVoice };
   }
 
   if (rawVoice.includes(":")) {
@@ -108,10 +118,10 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
     }
   }
 
-  if (resolved.engine === "bg-mlx") {
-    await runExclusiveBgMlxSynthesis(() => synthesizeBulgarianBackend({
-      backendName: "Bulgarian MLX",
-      scriptPath: BG_MLX_SCRIPT,
+  if (resolved.engine === "bg-mlx" || resolved.engine === "kugel") {
+    await runExclusiveMlxSynthesis(() => synthesizeChunkedBackend({
+      backendName: resolved.engine === "kugel" ? "KugelAudio" : "Bulgarian MLX",
+      scriptPath: resolved.engine === "kugel" ? KUGEL_SCRIPT : BG_MLX_SCRIPT,
       inputText,
       outputPath,
       voice: resolved.voice,
@@ -125,7 +135,7 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
     return;
   }
 
-  await synthesizeBulgarianBackend({
+  await synthesizeChunkedBackend({
     backendName: "Bulgarian MMS",
     scriptPath: BG_MMS_SCRIPT,
     inputText,
@@ -140,10 +150,10 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
   });
 }
 
-async function runExclusiveBgMlxSynthesis<T>(run: () => Promise<T>): Promise<T> {
+async function runExclusiveMlxSynthesis<T>(run: () => Promise<T>): Promise<T> {
   let release = () => {};
-  const waitForTurn = bgMlxSynthesisQueue;
-  bgMlxSynthesisQueue = new Promise<void>((resolve) => {
+  const waitForTurn = mlxSynthesisQueue;
+  mlxSynthesisQueue = new Promise<void>((resolve) => {
     release = resolve;
   });
 
@@ -156,7 +166,7 @@ async function runExclusiveBgMlxSynthesis<T>(run: () => Promise<T>): Promise<T> 
   }
 }
 
-async function synthesizeBulgarianBackend({
+async function synthesizeChunkedBackend({
   backendName,
   scriptPath,
   inputText,
@@ -173,7 +183,7 @@ async function synthesizeBulgarianBackend({
 }): Promise<void> {
   const chunks = chunkTextForBulgarianNarrator(inputText);
   if (chunks.length === 0) {
-    throw new Error("Bulgarian narrator input is empty after chunking");
+    throw new Error("Narrator input is empty after chunking");
   }
 
   const textPath = outputPath.replace(/\.wav$/, ".txt");

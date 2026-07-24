@@ -12,7 +12,7 @@ A PDF goes through a four-stage pipeline, each stage running as a background job
 PDF Upload → extract → normalize → synthesize → assemble → MP3
 ```
 
-**extract** parses the PDF with [Marker](https://github.com/VikParuchuri/marker) to get structured text and heading hierarchy. Chapter boundaries are decided by a local LLM ([Qwen2.5-1.5B](https://huggingface.co/mlx-community/Qwen2.5-1.5B-Instruct-4bit) via mlx-lm): it reads the extracted heading list, picks the real chapter starts while ignoring front matter and subsections, and its answers are fuzzy-matched back to document blocks. If the LLM is unavailable or its output doesn't line up with the document, a heading-level heuristic takes over (h1, then h2, then splitting every ~5000 words). Creates a `chapters` row per detected chapter.
+**extract** parses the PDF with [Marker](https://github.com/VikParuchuri/marker) to get structured text and heading hierarchy. Chapter boundaries are detected in tiers: a deterministic pass first looks for numbered chapter headings (Chapter N / Глава N, excluding ToC listing pages); when the LLM option is enabled, a local LLM ([Qwen3.6-27B](https://huggingface.co/mlx-community/Qwen3.6-27B-4bit) via mlx-lm) matches the ToC evidence against the extracted heading list, and its answers are fuzzy-matched back to document blocks. If those don't produce a result, a heading-level heuristic takes over (h1, then h2, then splitting every ~5000 words). Creates a `chapters` row per detected chapter.
 
 **normalize** (runs per chapter, in parallel) cleans up text for TTS input. Strips markdown syntax, reference markers, bare URLs, and rejoins hyphenated line breaks. Kokoro handles numbers and abbreviations natively, so normalization is intentionally minimal.
 
@@ -123,6 +123,7 @@ data/output/{bookId}/     Chapter MP3s and final concatenated MP3
 - Kokoro — `pip install kokoro soundfile`
 - Bulgarian narrator — `pip install mlx numpy huggingface_hub` and `pip install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"`
 - Meta MMS Bulgarian — `pip install transformers torch`
+- KugelAudio narrator — `pip install mlx-audio`, then `pip install "transformers==4.57.6" "regex<2025.0.0"` (mlx-audio pulls transformers 5.x, which breaks marker-pdf)
 
 ## Setup
 
@@ -164,8 +165,9 @@ pnpm setup            # Full setup (system deps check, Python/Node deps, data di
 - Retry deletes all chapters and re-extracts from the PDF.
 - Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.
 - The Kokoro model (`hexgrad/Kokoro-82M`, 82M params, Apache-2.0) auto-downloads on first run.
-- The Bulgarian narrator options are `BG-TTS V5 (Radi Totev MLX port)` and `MMS Bulgarian (Meta)`.
+- The Bulgarian-capable narrator options are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, and `KugelAudio (7B, 24 EU languages)`.
 - `raditotev/bg-tts-v5-mlx` and `facebook/mms-tts-bul` should both be cached before offline use.
+- KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm setup` downloads and converts it. Audio length tracks text length, so it avoids the bg-mlx short-chunk mumble; ~1.5x realtime on an M4 Pro.
 - Bulgarian voice speed is fixed in this phase; the UI disables speed control for those voices.
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.
 - `PYTORCH_ENABLE_MPS_FALLBACK=1` is set for MPS compatibility.

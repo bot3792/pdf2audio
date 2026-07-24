@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
+import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 import { getVoiceLabel } from "../lib/voices.ts";
-import type { ChapterRow } from "./ChapterTable.tsx";
+import type { ChapterRow, FileInfo } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
   chapters: ChapterRow[];
+  files?: FileInfo[];
   chapterIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
@@ -26,6 +28,7 @@ type ViewMode = "custom" | "clean" | "raw" | "split" | "blocks";
 
 export function ChapterModal({
   chapters,
+  files,
   chapterIndex,
   onClose,
   onNavigate,
@@ -52,10 +55,13 @@ export function ChapterModal({
   // Shared so hovering a chunk button highlights its text span and vice versa.
   const [hoveredChunkUrl, setHoveredChunkUrl] = useState<string | null>(null);
 
+  const [pdfPage, setPdfPage] = useState<number | null>(null);
+
   useEffect(() => {
     setViewMode(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
     setIsEditing(false);
     setSelectedChunkPreviewUrl(null);
+    setPdfPage(null);
   }, [chapterIndex]);
 
   const { data: fullChapter, isLoading } = trpc.chapters.get.useQuery(
@@ -105,13 +111,16 @@ export function ChapterModal({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (isEditing) return;
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (pdfPage !== null) setPdfPage(null);
+        else onClose();
+      }
       if (e.key === "ArrowLeft" && hasPrev) onNavigate(chapterIndex - 1);
       if (e.key === "ArrowRight" && hasNext) onNavigate(chapterIndex + 1);
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose, isEditing, hasPrev, hasNext, chapterIndex, onNavigate]);
+  }, [onClose, isEditing, hasPrev, hasNext, chapterIndex, onNavigate, pdfPage]);
 
   function startEditing() {
     if (!fullChapter) return;
@@ -132,6 +141,9 @@ export function ChapterModal({
   // Clickable chunk ranges for the text panel — only when the active view renders the same text
   // the chunk offsets point into (chunkTextSource). Selecting a span mirrors the chunk buttons.
   const activeChunkUrl = selectedChunkPreviewUrl ?? fullChapter?.chunkPreviews.at(-1)?.url ?? null;
+  const sourceFile =
+    files?.find((f) => f.index === chapter.sourceFileIndex) ?? (files?.length === 1 ? files[0] : undefined);
+  const activeChunkPage = fullChapter?.chunkPreviews.find((p) => p.url === activeChunkUrl)?.page ?? null;
   const chunkRanges =
     fullChapter && viewMode === fullChapter.chunkTextSource
       ? fullChapter.chunkPreviews.flatMap((p) =>
@@ -300,6 +312,9 @@ export function ChapterModal({
             hoveredUrl={hoveredChunkUrl}
             onHover={setHoveredChunkUrl}
             isSynthesizing={chapter.status === "synthesizing"}
+            sourcePage={activeChunkPage}
+            canOpenPdf={sourceFile !== undefined}
+            onOpenPdf={setPdfPage}
           />
         ) : null}
 
@@ -337,6 +352,14 @@ export function ChapterModal({
           )}
         </div>
       </div>
+      {pdfPage !== null && sourceFile ? (
+        <PdfPreviewModal
+          fileId={sourceFile.id}
+          page={pdfPage}
+          filename={sourceFile.filename}
+          onClose={() => setPdfPage(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -349,14 +372,20 @@ function ChunkPreviewPanel({
   hoveredUrl,
   onHover,
   isSynthesizing,
+  sourcePage,
+  canOpenPdf,
+  onOpenPdf,
 }: {
-  chunkPreviews: Array<{ index: number; fileName: string; url: string }>;
+  chunkPreviews: Array<{ index: number; fileName: string; url: string; page?: number }>;
   selectedUrl: string | null;
   onSelect: (url: string) => void;
   playNonce: number;
   hoveredUrl: string | null;
   onHover: (url: string | null) => void;
   isSynthesizing: boolean;
+  sourcePage: number | null;
+  canOpenPdf: boolean;
+  onOpenPdf: (page: number) => void;
 }) {
   const activeUrl = selectedUrl ?? chunkPreviews.at(-1)?.url ?? null;
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -447,14 +476,30 @@ function ChunkPreviewPanel({
             Chunk previews {isSynthesizing ? `(live: ${chunkPreviews.length} ready)` : `(${chunkPreviews.length})`}
           </div>
         </div>
-        <a
-          href={chunkPreviews.at(-1)?.url}
-          target="_blank"
-          rel="noreferrer"
-          className="text-xs text-blue-600 hover:text-blue-700"
-        >
-          Open latest file
-        </a>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => onOpenPdf(sourcePage!)}
+            disabled={!canOpenPdf || sourcePage === null}
+            title={
+              !canOpenPdf
+                ? "Source PDF unknown for this chapter"
+                : sourcePage === null
+                  ? "No page info for this chunk"
+                  : "Open the source PDF at this chunk's page"
+            }
+            className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            PDF{sourcePage !== null ? ` p.${sourcePage}` : ""}
+          </button>
+          <a
+            href={chunkPreviews.at(-1)?.url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-blue-600 hover:text-blue-700"
+          >
+            Open latest file
+          </a>
+        </div>
       </div>
 
       <div className="mb-3 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto pr-1">
@@ -468,6 +513,7 @@ function ChunkPreviewPanel({
               onClick={() => onSelect(preview.url)}
               onMouseEnter={() => onHover(preview.url)}
               onMouseLeave={() => onHover(null)}
+              title={preview.page !== undefined ? `PDF page ${preview.page}` : undefined}
               className={`rounded px-2 py-1 text-xs font-medium transition-colors ${
                 active
                   ? "bg-blue-600 text-white"

@@ -9,6 +9,7 @@
   --bg-subtle: var(--color-zinc-50);
   --bg-input: var(--color-white);
   --bg-drag: var(--color-blue-50);
+  --bg-selected: var(--color-blue-50);
 
   --border: var(--color-zinc-200);
   --border-input: var(--color-zinc-300);
@@ -53,6 +54,7 @@
     --bg-subtle: oklch(0.274 0.006 286 / 0.5);
     --bg-input: var(--color-zinc-800);
     --bg-drag: var(--color-blue-950);
+    --bg-selected: var(--color-blue-950);
 
     --border: var(--color-zinc-700);
     --border-input: var(--color-zinc-600);

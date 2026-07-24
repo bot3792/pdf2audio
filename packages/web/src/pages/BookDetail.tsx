@@ -5,6 +5,7 @@ import { ChapterTable } from "../components/ChapterTable.tsx";
 import { voiceSupportsSpeedControl } from "../lib/voices.ts";
 import { VoicePicker } from "../components/VoicePicker.tsx";
 import { SpeedSlider } from "../components/SpeedSlider.tsx";
+import { PdfPreviewModal } from "../components/PdfPreviewModal.tsx";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -148,7 +149,27 @@ export function BookDetail() {
         {/* TIER 2: Chapters */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-(--text-secondary)">Chapters</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-(--text-secondary)">Chapters</h2>
+              {book.chapterDetection && (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full bg-(--bg-subtle) text-(--text-muted)"
+                  title={{
+                    "llm": "Boundaries picked by the local LLM from the table of contents",
+                    "numbered-headings": "Numbered chapter headings (Chapter N) found in the document",
+                    "heading-levels": "Split at the most plausible heading level",
+                    "word-split": "No usable headings — split every ~5000 words",
+                  }[book.chapterDetection]}
+                >
+                  {{
+                    "llm": "LLM · ToC-matched",
+                    "numbered-headings": "Chapter numbering",
+                    "heading-levels": "Heading heuristic",
+                    "word-split": "Word-count split",
+                  }[book.chapterDetection]}
+                </span>
+              )}
+            </div>
             {book.chapters.length > 0 && (
               <span className="text-sm text-(--text-muted)">
                 {selectedCount} of {book.chapters.length} selected
@@ -237,7 +258,7 @@ export function BookDetail() {
             <ChapterTable
               bookId={book.id}
               chapters={book.chapters}
-              files={book.files?.map((f) => ({ index: f.index, filename: f.filename }))}
+              files={book.files?.map((f) => ({ id: f.id, index: f.index, filename: f.filename }))}
               onQueue={(cid, resume) => queueMutation.mutate({ id: cid, resume })}
               onRename={(cid, title) => renameChapterMutation.mutate({ id: cid, title })}
               onReorder={(chapterIds) => reorderChaptersMutation.mutate({ bookId: book.id, chapterIds })}
@@ -744,7 +765,7 @@ function BookFilesSection({
                         file.status === "pending" ? "File hasn't been extracted yet" :
                         "Re-extract this file"
                       }
-                      className="p-1 rounded text-blue-600 hover:bg-blue-50 disabled:opacity-20 disabled:cursor-not-allowed"
+                      className="p-1 rounded text-blue-600 hover:bg-(--bg-selected) disabled:opacity-20 disabled:cursor-not-allowed"
                     >
                       <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
                         <path d="M11.534 7h3.932a.25.25 0 01.192.41l-1.966 2.36a.25.25 0 01-.384 0l-1.966-2.36A.25.25 0 0111.534 7zM.534 9h3.932a.25.25 0 00.192-.41L2.692 6.23a.25.25 0 00-.384 0L.342 8.59A.25.25 0 00.534 9z"/>
@@ -776,28 +797,11 @@ function BookFilesSection({
       </div>
 
       {previewFileId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPreviewFileId(null)}>
-          <div className="bg-(--bg-card) rounded-lg shadow-xl w-[90vw] h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-4 py-3 border-b border-(--border)">
-              <span className="text-sm font-medium text-(--text-primary)">
-                {files.find((f) => f.id === previewFileId)?.filename}
-              </span>
-              <button
-                onClick={() => setPreviewFileId(null)}
-                className="text-(--text-faint) hover:text-(--text-tertiary) p-1"
-              >
-                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                </svg>
-              </button>
-            </div>
-            <iframe
-              src={`/pdf/${previewFileId}`}
-              className="flex-1 w-full"
-              title="PDF Preview"
-            />
-          </div>
-        </div>
+        <PdfPreviewModal
+          fileId={previewFileId}
+          filename={files.find((f) => f.id === previewFileId)?.filename}
+          onClose={() => setPreviewFileId(null)}
+        />
       )}
     </div>
   );

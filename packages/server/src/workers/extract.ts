@@ -73,12 +73,13 @@ async function extractSinglePdf(
   sourceFileIndex: number | null,
   skipSynthesis: boolean,
 ) {
-  const extractedChapters = await extractPdf(book.pdfPath, tmpOut, log, {
+  const { chapters: extractedChapters, method } = await extractPdf(book.pdfPath, tmpOut, log, {
     forceOcr: book.forceOcr,
     llmChapterDetection: book.llmChapterDetection,
   });
 
-  await log(`Detected ${extractedChapters.length} chapters`);
+  await log(`Detected ${extractedChapters.length} chapters (${method})`);
+  await db.update(books).set({ chapterDetection: method, updatedAt: new Date() }).where(eq(books.id, book.id));
 
   for (let i = 0; i < extractedChapters.length; i++) {
     const ch = extractedChapters[i];
