@@ -7,6 +7,9 @@ import { eq, desc, asc, gt, and, ne, sql } from "drizzle-orm";
 import { uploadsDir, bookTmpDir, bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { parseTtsVoice } from "../lib/tts.ts";
+import { collectBlocksFromMarkerOutput, sliceChaptersAtIndices, type ExtractedChapter } from "../lib/marker.ts";
+import { listMarkerSources } from "../lib/marker-sources.ts";
+import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, unlink, rm } from "node:fs/promises";
@@ -242,6 +245,165 @@ export const booksRouter = router({
 
       await appendLog(input.id, "Queued chapter re-detection");
       await quickAddJob({ connectionString }, "redetect", { bookId: input.id }, { maxAttempts: 1 });
+
+      const [updated] = await db.select().from(books).where(eq(books.id, input.id));
+      return updated;
+    }),
+
+  structure: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+
+      const bookChapters = await db
+        .select({ title: chapters.title, pageStart: chapters.pageStart, sourceFileIndex: chapters.sourceFileIndex })
+        .from(chapters)
+        .where(eq(chapters.bookId, input.id));
+
+      const sources = await listMarkerSources(book);
+      const files = [];
+
+      for (const source of sources) {
+        let allBlocks;
+        try {
+          allBlocks = await collectBlocksFromMarkerOutput(source.outDir);
+        } catch {
+          files.push({ fileIndex: source.fileIndex, filename: source.filename, missing: true, totalWords: 0, totalPages: 0, headings: [] });
+          continue;
+        }
+
+        const currentStarts = new Set(
+          bookChapters
+            .filter((c) => c.sourceFileIndex === source.fileIndex)
+            .map((c) => `${c.pageStart}|${c.title}`)
+        );
+
+        const headings = [];
+        let cumWords = 0;
+        for (let i = 0; i < allBlocks.length; i++) {
+          const b = allBlocks[i];
+          if (b.included && b.type === "SectionHeader") {
+            headings.push({
+              blockIndex: i,
+              page: b.page,
+              level: b.level ?? null,
+              text: b.text,
+              wordsBefore: cumWords,
+              isChapterStart: currentStarts.has(`${b.page}|${b.text}`),
+            });
+          }
+          if (b.included) cumWords += b.text.split(/\s+/).filter(Boolean).length;
+        }
+
+        files.push({
+          fileIndex: source.fileIndex,
+          filename: source.filename,
+          missing: false,
+          totalWords: cumWords,
+          totalPages: allBlocks.length > 0 ? Math.max(...allBlocks.map((b) => b.page)) : 0,
+          headings,
+        });
+      }
+
+      return { files };
+    }),
+
+  proposeChapters: publicProcedure
+    .input(z.object({ id: z.string().uuid(), method: z.enum(["llm", "deterministic"]) }))
+    .mutation(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+
+      // Stale-running escape hatch in case a propose job died without writing back
+      const runningSince = book.chapterProposal?.status === "running" ? new Date(book.chapterProposal.createdAt).getTime() : null;
+      if (runningSince && Date.now() - runningSince < 15 * 60_000) {
+        throw new Error("A chapter proposal is already running");
+      }
+
+      await db
+        .update(books)
+        .set({ chapterProposal: { status: "running", method: input.method, createdAt: new Date().toISOString() }, updatedAt: new Date() })
+        .where(eq(books.id, input.id));
+
+      await appendLog(input.id, `Queued ${input.method === "llm" ? "LLM" : "deterministic"} chapter proposal`);
+      await quickAddJob({ connectionString }, "propose", { bookId: input.id, method: input.method }, { maxAttempts: 1 });
+
+      const [updated] = await db.select().from(books).where(eq(books.id, input.id));
+      return updated;
+    }),
+
+  applyChapterBoundaries: publicProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        boundaries: z
+          .array(z.object({ fileIndex: z.number().int().nullable(), blockIndex: z.number().int().nonnegative() }))
+          .min(1),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+      if (book.status === "extracting" || book.status === "assembling") {
+        throw new Error("Cannot apply chapter boundaries while book is processing");
+      }
+
+      const sources = await listMarkerSources(book);
+      const knownFiles = new Set(sources.map((s) => s.fileIndex));
+      for (const b of input.boundaries) {
+        if (!knownFiles.has(b.fileIndex)) throw new Error(`Unknown file index ${b.fileIndex}`);
+      }
+
+      // Slice everything before deleting so a bad boundary can't destroy existing chapters
+      const perFile: { fileIndex: number | null; sliced: ExtractedChapter[] }[] = [];
+      for (const source of sources) {
+        const indices = input.boundaries.filter((b) => b.fileIndex === source.fileIndex).map((b) => b.blockIndex);
+        const allBlocks = await collectBlocksFromMarkerOutput(source.outDir);
+        for (const i of indices) {
+          if (i >= allBlocks.length) throw new Error(`Block index ${i} out of range for "${source.filename}"`);
+        }
+        perFile.push({ fileIndex: source.fileIndex, sliced: sliceChaptersAtIndices(allBlocks, indices) });
+      }
+
+      const oldChapters = await db
+        .select({ audioPath: chapters.audioPath })
+        .from(chapters)
+        .where(eq(chapters.bookId, input.id));
+      const deletedAudioFiles = oldChapters.filter((ch) => ch.audioPath).length;
+
+      await rm(bookOutputDir(input.id), { recursive: true, force: true }).catch(() => {});
+      await db.delete(assemblies).where(eq(assemblies.bookId, input.id));
+      await db.delete(chapters).where(eq(chapters.bookId, input.id));
+
+      await appendLog(input.id, `Applying ${input.boundaries.length} manual chapter boundaries`);
+      if (oldChapters.length > 0) {
+        await appendLog(
+          input.id,
+          `Removed ${oldChapters.length} existing chapter${oldChapters.length === 1 ? "" : "s"} and ${deletedAudioFiles} chapter audio file${deletedAudioFiles === 1 ? "" : "s"}`
+        );
+      }
+
+      let chapterOffset = 0;
+      for (const { fileIndex, sliced } of perFile) {
+        await insertSuspendedChapters(input.id, sliced, chapterOffset, fileIndex);
+        chapterOffset += sliced.length;
+      }
+
+      await db
+        .update(books)
+        .set({
+          totalChapters: chapterOffset,
+          chapterDetection: "manual",
+          chapterProposal: null,
+          status: "pending",
+          error: null,
+          outputPath: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(books.id, input.id));
+
+      await appendLog(input.id, `Applied chapter boundaries: ${chapterOffset} chapters — chapters are suspended. Queue selected chapters when ready.`);
 
       const [updated] = await db.select().from(books).where(eq(books.id, input.id));
       return updated;

@@ -270,17 +270,16 @@ export function pickNumberedChapterIndices(allBlocks: FlatBlock[]): number[] {
   return increasing.map((i) => deduped[i].index);
 }
 
-function detectChaptersFromBlocks(allBlocks: FlatBlock[]): DetectionResult {
-  const numberedIndices = pickNumberedChapterIndices(allBlocks);
-  const chapterHeadingIndices = numberedIndices.length >= 3 ? numberedIndices : pickChapterHeadingIndices(allBlocks);
-  if (chapterHeadingIndices.length < 2) {
-    return { chapters: splitByWordCount(allBlocks), method: "word-split" };
+export function sliceChaptersAtIndices(allBlocks: FlatBlock[], boundaryIndices: number[]): ExtractedChapter[] {
+  const sorted = [...new Set(boundaryIndices)].sort((a, b) => a - b);
+  if (sorted.length === 0) {
+    return [chapterFromBlocks("Full Text", allBlocks)];
   }
 
   const chapters: ExtractedChapter[] = [];
-  for (let i = 0; i < chapterHeadingIndices.length; i++) {
-    const start = chapterHeadingIndices[i];
-    const end = i + 1 < chapterHeadingIndices.length ? chapterHeadingIndices[i + 1] : allBlocks.length;
+  for (let i = 0; i < sorted.length; i++) {
+    const start = sorted[i];
+    const end = i + 1 < sorted.length ? sorted[i + 1] : allBlocks.length;
     const blocks = allBlocks.slice(start, end);
     const ch = chapterFromBlocks(allBlocks[start].text, blocks);
     if (ch.text.trim()) {
@@ -288,7 +287,7 @@ function detectChaptersFromBlocks(allBlocks: FlatBlock[]): DetectionResult {
     }
   }
 
-  const prefaceBlocks = allBlocks.slice(0, chapterHeadingIndices[0]);
+  const prefaceBlocks = allBlocks.slice(0, sorted[0]);
   if (prefaceBlocks.length > 0) {
     const ch = chapterFromBlocks("Preface", prefaceBlocks);
     if (ch.text.trim().split(/\s+/).length > 50) {
@@ -296,7 +295,23 @@ function detectChaptersFromBlocks(allBlocks: FlatBlock[]): DetectionResult {
     }
   }
 
-  return { chapters, method: numberedIndices.length >= 3 ? "numbered-headings" : "heading-levels" };
+  return chapters;
+}
+
+export function detectBoundaryIndices(allBlocks: FlatBlock[]): { indices: number[]; method: "numbered-headings" | "heading-levels" } | null {
+  const numberedIndices = pickNumberedChapterIndices(allBlocks);
+  if (numberedIndices.length >= 3) return { indices: numberedIndices, method: "numbered-headings" };
+  const headingIndices = pickChapterHeadingIndices(allBlocks);
+  if (headingIndices.length >= 2) return { indices: headingIndices, method: "heading-levels" };
+  return null;
+}
+
+function detectChaptersFromBlocks(allBlocks: FlatBlock[]): DetectionResult {
+  const detected = detectBoundaryIndices(allBlocks);
+  if (!detected) {
+    return { chapters: splitByWordCount(allBlocks), method: "word-split" };
+  }
+  return { chapters: sliceChaptersAtIndices(allBlocks, detected.indices), method: detected.method };
 }
 
 function splitByWordCount(allBlocks: FlatBlock[], wordsPerChapter = 5000): ExtractedChapter[] {
@@ -352,10 +367,10 @@ function similarity(a: string, b: string): number {
   return matches / longer.length;
 }
 
-function chaptersFromLlmBoundaries(
+export function matchBoundariesToBlocks(
   allBlocks: FlatBlock[],
   boundaries: { title: string; page: number }[]
-): ExtractedChapter[] | null {
+): number[] {
   const blockIndices: number[] = [];
 
   for (const boundary of boundaries) {
@@ -378,30 +393,17 @@ function chaptersFromLlmBoundaries(
     }
   }
 
+  return blockIndices.sort((a, b) => a - b);
+}
+
+function chaptersFromLlmBoundaries(
+  allBlocks: FlatBlock[],
+  boundaries: { title: string; page: number }[]
+): ExtractedChapter[] | null {
+  const blockIndices = matchBoundariesToBlocks(allBlocks, boundaries);
   if (blockIndices.length < 2) return null;
 
-  blockIndices.sort((a, b) => a - b);
-
-  const chapters: ExtractedChapter[] = [];
-  for (let i = 0; i < blockIndices.length; i++) {
-    const start = blockIndices[i];
-    const end = i + 1 < blockIndices.length ? blockIndices[i + 1] : allBlocks.length;
-    const blocks = allBlocks.slice(start, end);
-    const title = allBlocks[start].text;
-    const ch = chapterFromBlocks(title, blocks);
-    if (ch.text.trim()) {
-      chapters.push(ch);
-    }
-  }
-
-  const prefaceBlocks = allBlocks.slice(0, blockIndices[0]);
-  if (prefaceBlocks.length > 0) {
-    const ch = chapterFromBlocks("Preface", prefaceBlocks);
-    if (ch.text.trim().split(/\s+/).length > 50) {
-      chapters.unshift(ch);
-    }
-  }
-
+  const chapters = sliceChaptersAtIndices(allBlocks, blockIndices);
   return chapters.length >= 2 ? chapters : null;
 }
 
@@ -479,7 +481,7 @@ export type ExtractOptions = {
   llmChapterDetection?: boolean;
 };
 
-async function findMarkerJson(outDir: string): Promise<string> {
+export async function findMarkerJson(outDir: string): Promise<string> {
   let searchDir = outDir;
   const files = await readdir(outDir);
   let jsonFile = files.find((f) => f.endsWith(".json") && !f.endsWith("_meta.json"));
@@ -505,7 +507,7 @@ async function findMarkerJson(outDir: string): Promise<string> {
   return path.join(searchDir, jsonFile);
 }
 
-async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath: string, log: LogFn, options: ExtractOptions): Promise<DetectionResult> {
+async function collectBlocksFromMarkerJson(markerJsonPath: string): Promise<FlatBlock[]> {
   const raw = await readFile(markerJsonPath, "utf-8");
   const doc: MarkerOutput = JSON.parse(raw);
 
@@ -535,6 +537,16 @@ async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath:
       }
     }
   }
+
+  return allBlocks;
+}
+
+export async function collectBlocksFromMarkerOutput(outDir: string): Promise<FlatBlock[]> {
+  return collectBlocksFromMarkerJson(await findMarkerJson(outDir));
+}
+
+async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath: string, log: LogFn, options: ExtractOptions): Promise<DetectionResult> {
+  const allBlocks = await collectBlocksFromMarkerJson(markerJsonPath);
 
   if (options.llmChapterDetection !== false) {
     await log("Attempting LLM chapter detection...");

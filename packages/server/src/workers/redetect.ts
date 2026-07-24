@@ -4,40 +4,13 @@ import { eq, asc } from "drizzle-orm";
 import { redetectChaptersFromExistingMarkerOutput } from "../lib/marker.ts";
 import { bookTmpDir, bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
+import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 
 export type RedetectPayload = {
   bookId: string;
 };
-
-async function insertRedetectedChapters(
-  bookId: string,
-  detected: { title: string; text: string; pageStart: number | null; pageEnd: number | null; sourceBlocks: unknown }[],
-  chapterOffset: number,
-  sourceFileIndex: number | null,
-) {
-  for (let i = 0; i < detected.length; i++) {
-    const ch = detected[i];
-    const globalIndex = chapterOffset + i;
-    const wordCount = ch.text.split(/\s+/).filter(Boolean).length;
-    await appendLog(bookId, `Chapter ${globalIndex + 1}: "${ch.title}" (${wordCount.toLocaleString()} words)`);
-
-    await db
-      .insert(chapters)
-      .values({
-        bookId,
-        index: globalIndex,
-        title: ch.title,
-        rawText: ch.text,
-        pageStart: ch.pageStart,
-        pageEnd: ch.pageEnd,
-        sourceBlocks: ch.sourceBlocks,
-        sourceFileIndex,
-        status: "suspended",
-      });
-  }
-}
 
 export async function redetect(payload: RedetectPayload) {
   const { bookId } = payload;
@@ -95,7 +68,7 @@ export async function redetect(payload: RedetectPayload) {
       });
       totalDetected = detected.length;
       detectionMethod = method;
-      await insertRedetectedChapters(bookId, detected, 0, null);
+      await insertSuspendedChapters(bookId, detected, 0, null);
     } else {
       // Multi-file book: re-detect per file
       let chapterOffset = 0;
@@ -105,7 +78,7 @@ export async function redetect(payload: RedetectPayload) {
           const { chapters: detected, method } = await redetectChaptersFromExistingMarkerOutput(fileTmpDir, file.pdfPath, log, {
             llmChapterDetection: book.llmChapterDetection,
           });
-          await insertRedetectedChapters(bookId, detected, chapterOffset, file.index);
+          await insertSuspendedChapters(bookId, detected, chapterOffset, file.index);
           chapterOffset += detected.length;
           totalDetected += detected.length;
           detectionMethod = method;

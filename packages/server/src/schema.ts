@@ -1,5 +1,21 @@
 import { pgTable, uuid, text, real, integer, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
 
+export type ChapterProposalBoundary = {
+  fileIndex: number | null;
+  blockIndex: number;
+  title: string;
+  page: number;
+};
+
+export type ChapterProposal = {
+  status: "running" | "done" | "failed";
+  method: "llm" | "deterministic";
+  detection?: "llm" | "numbered-headings" | "heading-levels";
+  boundaries?: ChapterProposalBoundary[];
+  error?: string;
+  createdAt: string;
+};
+
 export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
@@ -14,7 +30,8 @@ export const books = pgTable("books", {
   error: text("error"),
   forceOcr: boolean("force_ocr").notNull().default(false),
   llmChapterDetection: boolean("llm_chapter_detection").notNull().default(false),
-  chapterDetection: text("chapter_detection").$type<"llm" | "numbered-headings" | "heading-levels" | "word-split">(),
+  chapterDetection: text("chapter_detection").$type<"llm" | "numbered-headings" | "heading-levels" | "word-split" | "manual">(),
+  chapterProposal: jsonb("chapter_proposal").$type<ChapterProposal>(),
   skipSynthesis: boolean("skip_synthesis").notNull().default(false),
   totalChapters: integer("total_chapters").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
