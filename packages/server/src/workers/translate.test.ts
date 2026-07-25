@@ -19,13 +19,19 @@ vi.mock("../db.ts", async () => {
 
 import { translate } from "./translate.ts";
 import { translateChunk, splitForTranslation } from "../lib/translate.ts";
+import { createHash } from "node:crypto";
 
 const mockTranslateChunk = vi.mocked(translateChunk);
 
 const PARA = "One sentence here. ".repeat(60).trim();
 const SOURCE = [PARA, PARA, PARA].join("\n\n");
 
-async function insertFixture(db: ReturnType<typeof getDb>, opts?: { status?: "pending" | "suspended"; text?: string; progress?: string }) {
+const SOURCE_HASH = createHash("sha256").update(SOURCE).digest("hex");
+
+async function insertFixture(
+  db: ReturnType<typeof getDb>,
+  opts?: { status?: "pending" | "suspended"; text?: string; progress?: string; sourceHash?: string },
+) {
   const bookId = crypto.randomUUID();
   await db.insert(books).values({ id: bookId, title: "Book", filename: "b.pdf", pdfPath: "/tmp/b.pdf" });
   const chapterId = crypto.randomUUID();
@@ -38,6 +44,7 @@ async function insertFixture(db: ReturnType<typeof getDb>, opts?: { status?: "pe
       status: opts?.status ?? "pending",
       text: opts?.text ?? "",
       progress: opts?.progress,
+      sourceHash: opts?.sourceHash,
     })
     .returning();
   return { bookId, chapterId, translationId: row.id };
@@ -97,6 +104,7 @@ describe("translate worker", () => {
     const { bookId, translationId } = await insertFixture(db, {
       text: "BG-DONE-1",
       progress: `1/${total}`,
+      sourceHash: SOURCE_HASH,
     });
     mockTranslateChunk.mockImplementation(async () => "BG-NEW");
 
@@ -110,7 +118,7 @@ describe("translate worker", () => {
 
   it("starts over when saved progress no longer matches the chunking", async () => {
     const db = getDb();
-    const { bookId, translationId } = await insertFixture(db, { text: "STALE", progress: "1/999" });
+    const { bookId, translationId } = await insertFixture(db, { text: "STALE", progress: "1/999", sourceHash: SOURCE_HASH });
     mockTranslateChunk.mockImplementation(async () => "BG");
 
     await translate({ translationId, bookId });
@@ -119,6 +127,25 @@ describe("translate worker", () => {
     expect(row.status).toBe("done");
     expect(row.text.includes("STALE")).toBe(false);
     expect(mockTranslateChunk).toHaveBeenCalledTimes(splitForTranslation(SOURCE).length);
+  });
+
+  it("starts over when the source text changed since the partial was made", async () => {
+    const db = getDb();
+    const total = splitForTranslation(SOURCE).length;
+    const { bookId, translationId } = await insertFixture(db, {
+      text: "OLD-SOURCE-PARTIAL",
+      progress: `1/${total}`,
+      sourceHash: "hash-of-the-old-text",
+    });
+    mockTranslateChunk.mockImplementation(async () => "BG");
+
+    await translate({ translationId, bookId });
+
+    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    expect(row.status).toBe("done");
+    expect(row.text.includes("OLD-SOURCE-PARTIAL")).toBe(false);
+    expect(row.sourceHash).toBe(SOURCE_HASH);
+    expect(mockTranslateChunk).toHaveBeenCalledTimes(total);
   });
 
   it("does nothing when the translation was suspended before start", async () => {

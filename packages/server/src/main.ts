@@ -10,7 +10,7 @@ import { startWorker, stopWorker } from "./workers/setup.ts";
 import { registerChapterReaderRoute, type ChapterReaderLookupResult } from "./lib/chapter-reader-route.ts";
 import { ensureDataDirs, uploadsDir, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
-import { books, bookFiles, assemblies, chapters } from "./schema.ts";
+import { books, bookFiles, assemblies, chapters, chapterTranslations } from "./schema.ts";
 import { eq, desc } from "drizzle-orm";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -214,6 +214,17 @@ async function main() {
     }
 
     return reply.sendFile(path.relative(outputDir, chapter.audioPath), outputDir);
+  });
+
+  fastify.get("/audio/translation/:translationId", async (request, reply) => {
+    const { translationId } = request.params as { translationId: string };
+    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+
+    if (!row?.audioPath) {
+      return reply.code(404).send({ error: "Translation audio not found" });
+    }
+
+    return reply.sendFile(path.relative(outputDir, row.audioPath), outputDir);
   });
 
   fastify.get("/audio/assembly/:assemblyId", async (request, reply) => {

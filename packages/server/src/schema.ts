@@ -73,6 +73,15 @@ export const chapterTranslations = pgTable("chapter_translations", {
   }).notNull().default("pending"),
   progress: text("progress"),
   error: text("error"),
+  sourceHash: text("source_hash"),
+  audioPath: text("audio_path"),
+  audioDurationMs: integer("audio_duration_ms"),
+  audioStatus: text("audio_status", {
+    enum: ["pending", "synthesizing", "done", "failed", "suspended"],
+  }),
+  audioProgress: text("audio_progress"),
+  audioError: text("audio_error"),
+  synthesizedWith: jsonb("synthesized_with").$type<{ voice?: string; speed?: number | null }>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [unique("chapter_translations_chapter_language").on(t.chapterId, t.language)]);
@@ -103,6 +112,7 @@ export const bookFiles = pgTable("book_files", {
 export const assemblies = pgTable("assemblies", {
   id: uuid("id").primaryKey().defaultRandom(),
   bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  language: text("language"),
   outputPath: text("output_path").notNull(),
   durationMs: integer("duration_ms").notNull(),
   chapterCount: integer("chapter_count").notNull(),

@@ -73,6 +73,36 @@ export function BookDetail() {
   const [reExtractLlm, setReExtractLlm] = useState<boolean | null>(null);
   const [showStructure, setShowStructure] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [activeLanguage, setActiveLanguage] = useState<string | null>(null);
+
+  const { data: languages = [] } = trpc.translations.languages.useQuery(
+    { bookId: id! },
+    { enabled: !!id },
+  );
+
+  const { data: translationRows = [] } = trpc.translations.listForBook.useQuery(
+    { bookId: id!, language: activeLanguage! },
+    {
+      enabled: !!id && !!activeLanguage,
+      refetchInterval: (query) => {
+        const active = query.state.data?.some((t) =>
+          t.status === "translating" || t.status === "pending" ||
+          t.audioStatus === "synthesizing" || t.audioStatus === "pending"
+        );
+        return active ? 2000 : false;
+      },
+    },
+  );
+
+  const invalidateTranslations = () => {
+    utils.translations.listForBook.invalidate();
+    utils.translations.languages.invalidate();
+    utils.books.assemblies.invalidate({ bookId: id! });
+  };
+  const queueAudioMutation = trpc.translations.queueAudio.useMutation({ onSuccess: invalidateTranslations });
+  const processSelectedAudioMutation = trpc.translations.processSelectedAudio.useMutation({ onSuccess: invalidateTranslations });
+  const stopAudioMutation = trpc.translations.stopAudio.useMutation({ onSuccess: invalidateTranslations });
+  const assembleTranslationMutation = trpc.translations.assemble.useMutation({ onSuccess: invalidateTranslations });
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
@@ -91,21 +121,51 @@ export function BookDetail() {
   }
 
   // Derived state
-  const selectedCount = book.chapters.filter((c) => c.selected).length;
   const hasActiveFiles = book.files?.some((f) => f.status === "extracting" || f.status === "pending") ?? false;
-  const hasActiveChapters = book.chapters.some((c) =>
+  const isAssembling = book.status === "assembling";
+
+  // Translation view: replace every chapter row with its <activeLanguage> counterpart — no fallback to the original
+  const translationByChapter = new Map(translationRows.map((t) => [t.chapterId, t]));
+  const viewChapters = !activeLanguage
+    ? book.chapters
+    : book.chapters.map((c) => {
+        const t = translationByChapter.get(c.id);
+        const translated = t?.status === "done";
+        return {
+          ...c,
+          // null audioStatus = never queued; "suspended" is this app's idle-awaiting-action state
+          status: translated ? (t.audioStatus ?? "suspended") : "untranslated",
+          wordCount: t ? t.wordCount : 0,
+          durationMs: translated ? t.audioDurationMs : null,
+          audioPath: translated && t.hasAudio ? "translated" : null,
+          progress: translated ? t.audioProgress : t?.progress ?? null,
+          error: translated ? t.audioError : t?.error ?? null,
+          selected: c.selected && translated,
+          selectable: translated,
+          hasCustomText: false,
+          hasCleanText: false,
+          hasSourceBlocks: false,
+          synthesizedWith: null,
+          audioUrl: t && translated ? `/audio/translation/${t.id}` : undefined,
+        };
+      });
+
+  const selectedCount = viewChapters.filter((c) => c.selected).length;
+  const hasActiveChapters = viewChapters.some((c) =>
     ["synthesizing", "normalizing", "pending"].includes(c.status)
   );
   const isProcessing = hasActiveFiles || hasActiveChapters ||
     book.status === "extracting" || book.status === "assembling";
-  const selectedWithAudio = book.chapters.filter((c) => c.selected && c.status === "done" && c.audioPath).length;
-  const selectedSynthesizable = book.chapters.filter(
+  const selectedWithAudio = viewChapters.filter((c) => c.selected && c.status === "done" && c.audioPath).length;
+  const selectedSynthesizable = viewChapters.filter(
     (c) => c.selected && (c.status === "failed" || c.status === "suspended" || c.status === "pending" || c.status === "done")
   ).length;
-  const isAssembling = book.status === "assembling";
-  const allSelectedDone = selectedCount > 0 && book.chapters.filter((c) => c.selected).every((c) => c.status === "done" && c.audioPath);
+  const allSelectedDone = selectedCount > 0 && viewChapters.filter((c) => c.selected).every((c) => c.status === "done" && c.audioPath);
   const canAssemble = allSelectedDone && !isAssembling;
   const canProcess = selectedSynthesizable > 0 && !hasActiveChapters && !isAssembling;
+  const translationsRunning = activeLanguage
+    ? translationRows.some((t) => t.status === "translating" || t.status === "pending")
+    : false;
   return (
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -201,6 +261,56 @@ export function BookDetail() {
             )}
           </div>
 
+          {/* Language view switcher */}
+          {languages.length > 0 && (
+            <div className="flex items-center gap-2 mb-3" data-testid="language-switcher">
+              <button
+                onClick={() => setActiveLanguage(null)}
+                className={`text-xs px-3 py-1 rounded-full border font-medium ${
+                  !activeLanguage
+                    ? "bg-blue-600 border-blue-600 text-white"
+                    : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
+                }`}
+              >
+                Original
+              </button>
+              {languages.map((l) => (
+                <button
+                  key={l.language}
+                  onClick={() => setActiveLanguage(l.language)}
+                  className={`text-xs px-3 py-1 rounded-full border font-medium ${
+                    activeLanguage === l.language
+                      ? "bg-blue-600 border-blue-600 text-white"
+                      : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
+                  }`}
+                  title={`${l.done} of ${book.chapters.length} chapters translated`}
+                >
+                  {l.language} ({l.done}/{book.chapters.length})
+                </button>
+              ))}
+            </div>
+          )}
+
+          {activeLanguage && (
+            <div
+              className="flex items-center gap-2 mb-3 px-4 py-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-sm text-blue-800 dark:text-blue-200"
+              data-testid="translation-view-banner"
+            >
+              <span className="font-semibold">{activeLanguage} translation view</span>
+              <span className="text-blue-700/80 dark:text-blue-300/80">
+                — text, audio, and assemblies below are the {activeLanguage} version. Untranslated chapters are greyed out.
+                {translationsRunning ? " Translation in progress..." : ""}
+              </span>
+              <div className="flex-1" />
+              <button
+                onClick={() => setActiveLanguage(null)}
+                className="text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline shrink-0"
+              >
+                Back to original
+              </button>
+            </div>
+          )}
+
           {/* Voice & speed settings */}
           <div className="flex items-end gap-4 mb-3">
             <div className="w-64">
@@ -220,21 +330,29 @@ export function BookDetail() {
           {book.chapters.length > 0 && (
             <div className="flex gap-3 mb-3">
               <button
-                onClick={() => processSelectedMutation.mutate({ id: book.id })}
-                disabled={!canProcess || processSelectedMutation.isPending}
+                onClick={() =>
+                  activeLanguage
+                    ? processSelectedAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
+                    : processSelectedMutation.mutate({ id: book.id })
+                }
+                disabled={!canProcess || processSelectedMutation.isPending || processSelectedAudioMutation.isPending}
                 title={
                   selectedSynthesizable === 0 ? "No selected chapters are ready for synthesis" :
                   hasActiveChapters ? "Wait for active chapters to finish" :
                   isAssembling ? "Wait for assembly to finish" :
-                  `Use the current selected voice/model to synthesize the selected chapters`
+                  `Use the current selected voice/model to synthesize the selected chapters${activeLanguage ? ` (${activeLanguage} text)` : ""}`
                 }
                 className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Synthesize selected ({selectedSynthesizable})
+                Synthesize selected ({selectedSynthesizable}){activeLanguage ? ` · ${activeLanguage}` : ""}
               </button>
               <button
-                onClick={() => assembleMutation.mutate({ id: book.id })}
-                disabled={!canAssemble || assembleMutation.isPending}
+                onClick={() =>
+                  activeLanguage
+                    ? assembleTranslationMutation.mutate({ bookId: book.id, language: activeLanguage })
+                    : assembleMutation.mutate({ id: book.id })
+                }
+                disabled={!canAssemble || assembleMutation.isPending || assembleTranslationMutation.isPending}
                 title={
                   selectedCount === 0 ? "No chapters selected" :
                   !allSelectedDone ? "All selected chapters must be done with audio" :
@@ -243,11 +361,15 @@ export function BookDetail() {
                 }
                 className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {book.outputPath ? "Re-assemble" : "Assemble"} selected ({selectedWithAudio})
+                {book.outputPath ? "Re-assemble" : "Assemble"} selected ({selectedWithAudio}){activeLanguage ? ` · ${activeLanguage}` : ""}
               </button>
               <button
-                onClick={() => cancelMutation.mutate({ id: book.id })}
-                disabled={!hasActiveChapters || cancelMutation.isPending}
+                onClick={() =>
+                  activeLanguage
+                    ? stopAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
+                    : cancelMutation.mutate({ id: book.id })
+                }
+                disabled={!hasActiveChapters || cancelMutation.isPending || stopAudioMutation.isPending}
                 title={!hasActiveChapters ? "No chapters are actively processing" : undefined}
                 className="px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -259,8 +381,9 @@ export function BookDetail() {
                     deleteChaptersMutation.mutate({ bookId: book.id });
                   }
                 }}
-                disabled={selectedCount === 0 || hasActiveChapters || deleteChaptersMutation.isPending}
+                disabled={selectedCount === 0 || hasActiveChapters || !!activeLanguage || deleteChaptersMutation.isPending}
                 title={
+                  activeLanguage ? "Switch to the Original view to delete chapters" :
                   selectedCount === 0 ? "No chapters selected" :
                   hasActiveChapters ? "Wait for active chapters to finish" :
                   "Delete selected chapters and their audio"
@@ -281,23 +404,28 @@ export function BookDetail() {
           ) : (
             <ChapterTable
               bookId={book.id}
-              chapters={book.chapters}
+              chapters={viewChapters}
               files={book.files?.map((f) => ({ id: f.id, index: f.index, filename: f.filename }))}
-              onQueue={(cid, resume) => queueMutation.mutate({ id: cid, resume })}
-              onRename={(cid, title) => renameChapterMutation.mutate({ id: cid, title })}
-              onReorder={(chapterIds) => reorderChaptersMutation.mutate({ bookId: book.id, chapterIds })}
+              onQueue={(cid, resume) =>
+                activeLanguage
+                  ? queueAudioMutation.mutate({ chapterId: cid, language: activeLanguage, resume })
+                  : queueMutation.mutate({ id: cid, resume })
+              }
+              onRename={activeLanguage ? undefined : (cid, title) => renameChapterMutation.mutate({ id: cid, title })}
+              onReorder={activeLanguage ? undefined : (chapterIds) => reorderChaptersMutation.mutate({ bookId: book.id, chapterIds })}
               onSetSelected={(cid, selected) => setSelectedMutation.mutate({ id: cid, selected })}
               onSetAllSelected={(selected) => setAllSelectedMutation.mutate({ bookId: book.id, selected })}
               onSetSelectedBatch={(ids, selected) => setSelectedBatchMutation.mutate({ ids, selected })}
+              chapterModalDisabled={!!activeLanguage}
             />
           )}
         </div>
 
-        {/* TIER 3: Assemblies */}
-        {bookAssemblies.length > 0 && (
+        {/* TIER 3: Assemblies — scoped to the active language view */}
+        {bookAssemblies.filter((a) => (a.language ?? null) === activeLanguage).length > 0 && (
           <AssembliesSection
-            assemblies={bookAssemblies}
-            latestOutputPath={book.outputPath}
+            assemblies={bookAssemblies.filter((a) => (a.language ?? null) === activeLanguage)}
+            latestOutputPath={activeLanguage ? null : book.outputPath}
             onDelete={(aid) => deleteAssemblyMutation.mutate({ id: aid })}
             isDeleting={deleteAssemblyMutation.isPending}
           />
@@ -400,7 +528,10 @@ export function BookDetail() {
             bookId={book.id}
             chapters={book.chapters.map((c) => ({ id: c.id, index: c.index, title: c.title }))}
             initialLanguage={book.translationLanguage ?? null}
-            onClose={() => setShowTranslation(false)}
+            onClose={() => {
+              setShowTranslation(false);
+              invalidateTranslations();
+            }}
           />
         )}
       </div>

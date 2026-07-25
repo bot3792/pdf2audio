@@ -1,45 +1,80 @@
 import { db } from "../db.ts";
-import { chapters, books, assemblies } from "../schema.ts";
+import { chapters, books, assemblies, chapterTranslations } from "../schema.ts";
 import { eq, asc, and } from "drizzle-orm";
 import { concatMp3s } from "../lib/ffmpeg.ts";
 import { writeChapterMarkers } from "../lib/id3-chapters.ts";
 import { bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
+import { languageSlug } from "./synthesize-translation.ts";
 import path from "node:path";
 
 export type AssemblePayload = {
   bookId: string;
+  language?: string;
 };
 
 export async function assemble(payload: AssemblePayload) {
-  const { bookId } = payload;
+  const { bookId, language } = payload;
   const log = (msg: string) => appendLog(bookId, msg);
 
   await db.update(books).set({ status: "assembling", updatedAt: new Date() }).where(eq(books.id, bookId));
-  await log("Starting assembly");
+  await log(language ? `Starting assembly (${language})` : "Starting assembly");
 
   try {
     const [book] = await db.select().from(books).where(eq(books.id, bookId));
     if (!book) throw new Error(`Book ${bookId} not found`);
 
-    const selectedChapters = await db
-      .select()
-      .from(chapters)
-      .where(and(eq(chapters.bookId, bookId), eq(chapters.selected, true)))
-      .orderBy(asc(chapters.index));
+    let chaptersWithAudio: { id: string; index: number; title: string; audioPath: string; durationMs: number | null }[];
+    let selectedCount: number;
 
-    const chaptersWithAudio = selectedChapters.filter((ch) => ch.audioPath && ch.status === "done");
-    if (chaptersWithAudio.length === 0) {
-      throw new Error("No selected chapters with audio available for assembly");
+    if (language) {
+      const rows = await db
+        .select({
+          id: chapters.id,
+          index: chapters.index,
+          title: chapters.title,
+          audioPath: chapterTranslations.audioPath,
+          durationMs: chapterTranslations.audioDurationMs,
+          audioStatus: chapterTranslations.audioStatus,
+        })
+        .from(chapterTranslations)
+        .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+        .where(and(
+          eq(chapters.bookId, bookId),
+          eq(chapters.selected, true),
+          eq(chapterTranslations.language, language),
+        ))
+        .orderBy(asc(chapters.index));
+      selectedCount = rows.length;
+      chaptersWithAudio = rows
+        .filter((r) => r.audioPath && r.audioStatus === "done")
+        .map((r) => ({ id: r.id, index: r.index, title: r.title, audioPath: r.audioPath!, durationMs: r.durationMs }));
+    } else {
+      const selectedChapters = await db
+        .select()
+        .from(chapters)
+        .where(and(eq(chapters.bookId, bookId), eq(chapters.selected, true)))
+        .orderBy(asc(chapters.index));
+      selectedCount = selectedChapters.length;
+      chaptersWithAudio = selectedChapters
+        .filter((ch) => ch.audioPath && ch.status === "done")
+        .map((ch) => ({ id: ch.id, index: ch.index, title: ch.title, audioPath: ch.audioPath!, durationMs: ch.durationMs }));
     }
 
-    await log(`${chaptersWithAudio.length} of ${selectedChapters.length} selected chapter${selectedChapters.length !== 1 ? "s" : ""} have audio`);
+    if (chaptersWithAudio.length === 0) {
+      throw new Error(language
+        ? `No selected chapters with ${language} audio available for assembly`
+        : "No selected chapters with audio available for assembly");
+    }
 
-    const mp3Paths = chaptersWithAudio.map((ch) => ch.audioPath!);
+    await log(`${chaptersWithAudio.length} of ${selectedCount} selected chapter${selectedCount !== 1 ? "s" : ""} have audio`);
+
+    const mp3Paths = chaptersWithAudio.map((ch) => ch.audioPath);
 
     const outDir = bookOutputDir(bookId);
     const timestamp = formatTimestamp(new Date());
-    const outputPath = path.join(outDir, `${sanitizeFilename(book.title)}_${timestamp}.mp3`);
+    const suffix = language ? `_${languageSlug(language)}` : "";
+    const outputPath = path.join(outDir, `${sanitizeFilename(book.title)}${suffix}_${timestamp}.mp3`);
 
     if (mp3Paths.length === 1) {
       await log("Single chapter — copying to output");
@@ -76,6 +111,7 @@ export async function assemble(payload: AssemblePayload) {
 
     await db.insert(assemblies).values({
       bookId,
+      language: language ?? null,
       outputPath,
       durationMs,
       chapterCount: chaptersWithAudio.length,
@@ -83,9 +119,10 @@ export async function assemble(payload: AssemblePayload) {
       chapterIds: JSON.stringify(chapterIds),
     });
 
+    // books.outputPath tracks the latest original-language output; language assemblies live in their rows
     await db
       .update(books)
-      .set({ status: "done", outputPath, error: null, updatedAt: new Date() })
+      .set({ status: "done", error: null, updatedAt: new Date(), ...(language ? {} : { outputPath }) })
       .where(eq(books.id, bookId));
 
     await log("Done!");

@@ -6,6 +6,7 @@ import { assemble } from "./assemble.ts";
 import { redetect } from "./redetect.ts";
 import { propose } from "./propose.ts";
 import { translate } from "./translate.ts";
+import { synthesizeTranslation } from "./synthesize-translation.ts";
 import { env } from "../env.ts";
 
 const connectionString = env.DATABASE_URL;
@@ -54,6 +55,7 @@ const taskList: TaskList = {
   redetect: wrapTask("redetect", (payload) => redetect(payload as any)),
   propose: wrapTask("propose", (payload) => propose(payload as any)),
   translate: wrapTask("translate", (payload) => translate(payload as any)),
+  synthesizeTranslation: wrapTask("synthesizeTranslation", synthesizeTranslation),
 };
 
 let currentRunner: Runner | null = null;

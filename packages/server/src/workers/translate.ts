@@ -3,6 +3,7 @@ import { chapters, chapterTranslations } from "../schema.ts";
 import { eq, and, ne } from "drizzle-orm";
 import { splitForTranslation, translateChunk } from "../lib/translate.ts";
 import { appendLog } from "../lib/log.ts";
+import { createHash } from "node:crypto";
 
 export type TranslatePayload = {
   translationId: string;
@@ -36,16 +37,17 @@ export async function translate(payload: TranslatePayload) {
     if (!source) throw new Error("Chapter has no text");
 
     const chunks = splitForTranslation(source);
+    const sourceHash = createHash("sha256").update(source).digest("hex");
 
-    // Resume point comes from "n/total"; a total mismatch means the source changed — start over.
+    // Resume only when the source is byte-identical to what the partial was translated from.
     let done = 0;
     const match = row.progress?.match(/^(\d+)\/(\d+)$/);
-    if (row.text && match && Number(match[2]) === chunks.length) {
+    if (row.text && match && Number(match[2]) === chunks.length && row.sourceHash === sourceHash) {
       done = Math.min(Number(match[1]), chunks.length);
     }
     let translated = done > 0 ? row.text : "";
-    if (done === 0 && row.text) {
-      await db.update(chapterTranslations).set({ text: "", progress: null, updatedAt: new Date() })
+    if (done === 0) {
+      await db.update(chapterTranslations).set({ text: "", progress: null, sourceHash, updatedAt: new Date() })
         .where(eq(chapterTranslations.id, translationId));
     }
 

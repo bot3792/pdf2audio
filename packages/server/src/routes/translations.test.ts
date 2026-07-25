@@ -131,6 +131,88 @@ describe("translations router", () => {
     expect(kept.status).toBe("done");
   });
 
+  it("queueAudio enqueues synthesis for a finished translation", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    const [row] = await db
+      .insert(chapterTranslations)
+      .values({ chapterId, language: "Bulgarian", status: "done", text: "bg text" })
+      .returning();
+
+    const updated = await caller.queueAudio({ chapterId, language: "Bulgarian" });
+
+    expect(updated?.audioStatus).toBe("pending");
+    expect(mockQuickAddJob).toHaveBeenCalledWith(
+      expect.anything(),
+      "synthesizeTranslation",
+      { translationId: row.id, bookId, resume: false },
+      { maxAttempts: 1 },
+    );
+  });
+
+  it("queueAudio rejects unfinished translations", async () => {
+    const db = getDb();
+    const { chapterId } = await insertFixture(db);
+    await db.insert(chapterTranslations).values({ chapterId, language: "Bulgarian", status: "suspended", text: "partial" });
+
+    await expect(caller.queueAudio({ chapterId, language: "Bulgarian" })).rejects.toThrow("not finished");
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+
+  it("processSelectedAudio queues only selected chapters with finished translations", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    const otherChapterId = crypto.randomUUID();
+    await db.insert(chapters).values({ id: otherChapterId, bookId, index: 1, title: "Ch2", rawText: "More text.", selected: false });
+    const unselectedDoneId = crypto.randomUUID();
+    await db.insert(chapters).values({ id: unselectedDoneId, bookId, index: 2, title: "Ch3", rawText: "Third.", selected: true });
+
+    await db.insert(chapterTranslations).values([
+      { chapterId, language: "Bulgarian", status: "done", text: "bg" },
+      { chapterId: otherChapterId, language: "Bulgarian", status: "done", text: "bg2" },
+      { chapterId: unselectedDoneId, language: "Bulgarian", status: "suspended", text: "partial" },
+    ]);
+
+    const result = await caller.processSelectedAudio({ bookId, language: "Bulgarian" });
+
+    expect(result.queued).toBe(1);
+    expect(mockQuickAddJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("stopAudio suspends running audio and reports the count", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    await db.insert(chapterTranslations).values({
+      chapterId,
+      language: "Bulgarian",
+      status: "done",
+      text: "bg",
+      audioStatus: "synthesizing",
+    });
+
+    const result = await caller.stopAudio({ bookId, language: "Bulgarian" });
+
+    expect(result.stopped).toBe(1);
+    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.chapterId, chapterId));
+    expect(row.audioStatus).toBe("suspended");
+  });
+
+  it("languages aggregates per-language translation counts", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    await db.insert(chapterTranslations).values([
+      { chapterId, language: "Bulgarian", status: "done", text: "bg" },
+      { chapterId, language: "German", status: "translating" },
+    ]);
+
+    const result = await caller.languages({ bookId });
+
+    expect(result).toEqual([
+      { language: "Bulgarian", total: 1, done: 1 },
+      { language: "German", total: 1, done: 0 },
+    ]);
+  });
+
   it("get returns the row and listForBook filters by language", async () => {
     const db = getDb();
     const { bookId, chapterId } = await insertFixture(db);
