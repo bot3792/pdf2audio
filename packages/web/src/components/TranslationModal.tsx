@@ -1,22 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "../trpc.ts";
-
-const LANGUAGES = [
-  "Bulgarian",
-  "Croatian",
-  "Czech",
-  "French",
-  "German",
-  "Greek",
-  "Italian",
-  "Polish",
-  "Portuguese",
-  "Romanian",
-  "Serbian",
-  "Spanish",
-  "Turkish",
-  "Ukrainian",
-];
+import { TRANSLATION_LANGUAGES } from "../lib/languages.ts";
 
 type ChapterSummary = { id: string; index: number; title: string };
 
@@ -108,7 +92,7 @@ export function TranslationModal({
             className="px-2 py-1 rounded-md border border-(--border) bg-(--bg-card) text-sm text-(--text-primary) disabled:opacity-50"
             data-testid="translation-language"
           >
-            {LANGUAGES.map((l) => (
+            {TRANSLATION_LANGUAGES.map((l) => (
               <option key={l} value={l}>{l}</option>
             ))}
           </select>
