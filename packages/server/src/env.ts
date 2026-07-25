@@ -12,6 +12,7 @@ const envSchema = z.object({
   DATA_DIR: z.string().default("./data"),
   PORT: z.coerce.number().default(3034),
   CONDA_ENV_PATH: z.string().default("/Users/petur/miniconda3/envs/pdf2audio/bin"),
+  DEEPSEEK_API_KEY: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

@@ -7,6 +7,7 @@ import { VoicePicker } from "../components/VoicePicker.tsx";
 import { SpeedSlider } from "../components/SpeedSlider.tsx";
 import { PdfPreviewModal } from "../components/PdfPreviewModal.tsx";
 import { StructureModal } from "../components/StructureModal.tsx";
+import { TranslationModal } from "../components/TranslationModal.tsx";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -71,6 +72,7 @@ export function BookDetail() {
   const [reExtractForceOcr, setReExtractForceOcr] = useState<boolean | null>(null);
   const [reExtractLlm, setReExtractLlm] = useState<boolean | null>(null);
   const [showStructure, setShowStructure] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
@@ -181,6 +183,15 @@ export function BookDetail() {
                 data-testid="open-structure"
               >
                 Structure
+              </button>
+              <button
+                onClick={() => setShowTranslation(true)}
+                disabled={book.chapters.length === 0}
+                title={book.chapters.length === 0 ? "Extract chapters first" : "Translate chapters and review side by side"}
+                className="text-xs px-2 py-0.5 rounded-full border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="open-translation"
+              >
+                Translate
               </button>
             </div>
             {book.chapters.length > 0 && (
@@ -381,6 +392,15 @@ export function BookDetail() {
             files={book.files?.map((f) => ({ id: f.id, index: f.index, filename: f.filename }))}
             onClose={() => setShowStructure(false)}
             onChanged={invalidate}
+          />
+        )}
+
+        {showTranslation && (
+          <TranslationModal
+            bookId={book.id}
+            chapters={book.chapters.map((c) => ({ id: c.id, index: c.index, title: c.title }))}
+            initialLanguage={book.translationLanguage ?? null}
+            onClose={() => setShowTranslation(false)}
           />
         )}
       </div>

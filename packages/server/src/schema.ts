@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, real, integer, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, real, integer, timestamp, boolean, jsonb, unique } from "drizzle-orm/pg-core";
 
 export type ChapterProposalBoundary = {
   fileIndex: number | null;
@@ -32,6 +32,7 @@ export const books = pgTable("books", {
   llmChapterDetection: boolean("llm_chapter_detection").notNull().default(false),
   chapterDetection: text("chapter_detection").$type<"llm" | "numbered-headings" | "heading-levels" | "word-split" | "manual">(),
   chapterProposal: jsonb("chapter_proposal").$type<ChapterProposal>(),
+  translationLanguage: text("translation_language"),
   skipSynthesis: boolean("skip_synthesis").notNull().default(false),
   totalChapters: integer("total_chapters").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -61,6 +62,20 @@ export const chapters = pgTable("chapters", {
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const chapterTranslations = pgTable("chapter_translations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  chapterId: uuid("chapter_id").notNull().references(() => chapters.id, { onDelete: "cascade" }),
+  language: text("language").notNull(),
+  text: text("text").notNull().default(""),
+  status: text("status", {
+    enum: ["pending", "translating", "done", "failed", "suspended"],
+  }).notNull().default("pending"),
+  progress: text("progress"),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [unique("chapter_translations_chapter_language").on(t.chapterId, t.language)]);
 
 export const bookLogs = pgTable("book_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -104,3 +119,4 @@ export type BookLog = typeof bookLogs.$inferSelect;
 export type BookFile = typeof bookFiles.$inferSelect;
 export type NewBookFile = typeof bookFiles.$inferInsert;
 export type Assembly = typeof assemblies.$inferSelect;
+export type ChapterTranslation = typeof chapterTranslations.$inferSelect;
