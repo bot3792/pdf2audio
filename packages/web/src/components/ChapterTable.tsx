@@ -43,7 +43,7 @@ export function ChapterTable({
   onSetSelected,
   onSetAllSelected,
   onSetSelectedBatch,
-  onChapterClick,
+  language,
 }: {
   bookId: string;
   chapters: ChapterRow[];
@@ -54,8 +54,8 @@ export function ChapterTable({
   onSetSelected: (id: string, selected: boolean) => void;
   onSetAllSelected: (selected: boolean) => void;
   onSetSelectedBatch: (ids: string[], selected: boolean) => void;
-  // Overrides the default chapter modal — used by the translation view to open the comparison modal
-  onChapterClick?: (id: string) => void;
+  // When set, the chapter modal shows this language's translation instead of the original
+  language?: string | null;
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
   const toggleAllRef = useRef<HTMLInputElement>(null);
@@ -424,11 +424,7 @@ export function ChapterTable({
                       <EditableChapterTitle
                         title={chapter.title}
                         onRename={onRename ? (title) => onRename(chapter.id, title) : undefined}
-                        onClickTitle={
-                          onChapterClick
-                            ? () => onChapterClick(chapter.id)
-                            : () => setModalChapterIndex(chapters.indexOf(chapter))
-                        }
+                        onClickTitle={() => setModalChapterIndex(chapters.indexOf(chapter))}
                       />
                       {chapter.hasCustomText ? (
                         <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-600">
@@ -561,6 +557,7 @@ export function ChapterTable({
           chapters={chapters}
           files={files}
           chapterIndex={modalChapterIndex}
+          language={language}
           onClose={() => setModalChapterIndex(null)}
           onNavigate={setModalChapterIndex}
           onQueue={onQueue}

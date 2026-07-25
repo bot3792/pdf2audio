@@ -6,6 +6,8 @@ import { eq, and, inArray, sql, asc } from "drizzle-orm";
 import { quickAddJob } from "graphile-worker";
 import { appendLog } from "../lib/log.ts";
 import { env } from "../env.ts";
+import { listChunkPreviewsIn, locateChunks } from "../lib/chunk-previews.ts";
+import { languageSlug, translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
 
 const connectionString = env.DATABASE_URL;
 
@@ -52,6 +54,36 @@ export const translationsRouter = router({
           inArray(chapterTranslations.chapterId, bookChapters),
           eq(chapterTranslations.language, input.language),
         ));
+    }),
+
+  detail: publicProcedure
+    .input(z.object({ chapterId: z.string().uuid(), language: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const [row] = await db
+        .select()
+        .from(chapterTranslations)
+        .where(and(
+          eq(chapterTranslations.chapterId, input.chapterId),
+          eq(chapterTranslations.language, input.language),
+        ));
+      if (!row) throw new Error("Translation not found");
+
+      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.chapterId));
+      if (!chapter) throw new Error("Chapter not found");
+
+      const slug = languageSlug(row.language);
+      const base = `ch${String(chapter.index).padStart(3, "0")}`;
+      const previews = await listChunkPreviewsIn(
+        translationChunkPreviewDir(chapter.bookId, row.language, chapter.index),
+        `/files/${chapter.bookId}/chunks/${slug}/${base}`,
+      );
+      const ranges = locateChunks(row.text, previews.map((p) => p.text ?? ""));
+      const chunkPreviews = previews.map((preview, i) => {
+        const range = ranges[i];
+        return range ? { ...preview, start: range.start, end: range.end } : preview;
+      });
+
+      return { ...row, chunkPreviews };
     }),
 
   languages: publicProcedure

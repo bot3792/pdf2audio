@@ -38,9 +38,10 @@ async function readChunkManifest(dir: string): Promise<Map<number, string>> {
 }
 
 export async function listChapterChunkPreviews(bookId: string, chapterIndex: number): Promise<ChunkPreview[]> {
-  const dir = chapterChunkPreviewDir(bookId, chapterIndex);
-  const urlBase = chapterChunkPreviewUrlBase(bookId, chapterIndex);
+  return listChunkPreviewsIn(chapterChunkPreviewDir(bookId, chapterIndex), chapterChunkPreviewUrlBase(bookId, chapterIndex));
+}
 
+export async function listChunkPreviewsIn(dir: string, urlBase: string): Promise<ChunkPreview[]> {
   let entries: string[] = [];
   try {
     entries = await readdir(dir);

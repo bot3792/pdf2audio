@@ -9,6 +9,8 @@ type ChapterModalProps = {
   chapters: ChapterRow[];
   files?: FileInfo[];
   chapterIndex: number;
+  // When set, the modal shows this language's translation: its text, chunk previews, and audio
+  language?: string | null;
   onClose: () => void;
   onNavigate: (index: number) => void;
   onQueue: (id: string, resume?: boolean) => void;
@@ -30,6 +32,7 @@ export function ChapterModal({
   chapters,
   files,
   chapterIndex,
+  language,
   onClose,
   onNavigate,
   onQueue,
@@ -64,10 +67,30 @@ export function ChapterModal({
     setPdfPage(null);
   }, [chapterIndex]);
 
-  const { data: fullChapter, isLoading } = trpc.chapters.get.useQuery(
+  const isTranslation = !!language;
+  const { data: originalChapter, isLoading: originalLoading } = trpc.chapters.get.useQuery(
     { id: chapter.id },
-    { refetchInterval: chapter.status === "synthesizing" ? 1000 : false },
+    { enabled: !isTranslation, refetchInterval: chapter.status === "synthesizing" ? 1000 : false },
   );
+  const { data: translationDetail, isLoading: translationLoading } = trpc.translations.detail.useQuery(
+    { chapterId: chapter.id, language: language! },
+    {
+      enabled: isTranslation,
+      retry: false,
+      refetchInterval: chapter.status === "synthesizing" ? 1000 : false,
+    },
+  );
+  const fullChapter = isTranslation
+    ? translationDetail && {
+        rawText: translationDetail.text,
+        cleanText: null,
+        customText: null,
+        sourceBlocks: null,
+        chunkTextSource: "raw" as const,
+        chunkPreviews: translationDetail.chunkPreviews,
+      }
+    : originalChapter;
+  const isLoading = isTranslation ? translationLoading : originalLoading;
   const utils = trpc.useUtils();
 
   useEffect(() => {
@@ -231,8 +254,8 @@ export function ChapterModal({
 
         <div className="flex items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
           {chapter.status === "done" && chapter.audioPath ? (
-            <audio key={chapter.id} controls preload="none" className="h-8 mr-2">
-              <source src={`/audio/chapter/${chapter.id}`} type="audio/mpeg" />
+            <audio key={`${chapter.id}-${language ?? "original"}`} controls preload="none" className="h-8 mr-2">
+              <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} type="audio/mpeg" />
             </audio>
           ) : null}
           {chapter.status === "suspended" || chapter.status === "failed" ? (
@@ -246,11 +269,13 @@ export function ChapterModal({
           ) : null}
           <button
             onClick={() => onQueue(chapter.id)}
-            disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status)}
+            disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status) || chapter.selectable === false}
             title={
-              ["pending", "normalizing", "synthesizing"].includes(chapter.status)
-                ? "Can't re-synthesize while it's being processed"
-                : "Re-synthesize this chapter's audio from text (from scratch)"
+              chapter.selectable === false
+                ? "No finished translation for this chapter"
+                : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
+                  ? "Can't re-synthesize while it's being processed"
+                  : "Re-synthesize this chapter's audio from text (from scratch)"
             }
             className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
           >
@@ -284,7 +309,7 @@ export function ChapterModal({
                   Reset
                 </button>
               ) : null}
-              {fullChapter ? (
+              {fullChapter && !isTranslation ? (
                 <button
                   onClick={startEditing}
                   className="text-xs px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium"
@@ -346,8 +371,8 @@ export function ChapterModal({
               />
             )
           ) : (
-            <div className="flex items-center justify-center flex-1 text-sm text-red-400">
-              Failed to load chapter text
+            <div className="flex items-center justify-center flex-1 text-sm text-(--text-muted)">
+              {isTranslation ? `No ${language} translation for this chapter yet.` : "Failed to load chapter text"}
             </div>
           )}
         </div>
