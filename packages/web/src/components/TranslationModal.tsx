@@ -24,16 +24,18 @@ export function TranslationModal({
   bookId,
   chapters,
   initialLanguage,
+  initialChapterId,
   onClose,
 }: {
   bookId: string;
   chapters: ChapterSummary[];
   initialLanguage: string | null;
+  initialChapterId?: string | null;
   onClose: () => void;
 }) {
   const utils = trpc.useUtils();
   const [language, setLanguage] = useState(initialLanguage ?? "Bulgarian");
-  const [selectedId, setSelectedId] = useState<string | null>(chapters[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialChapterId ?? chapters[0]?.id ?? null);
   const translatedPane = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

@@ -73,6 +73,7 @@ export function BookDetail() {
   const [reExtractLlm, setReExtractLlm] = useState<boolean | null>(null);
   const [showStructure, setShowStructure] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [translationModalChapter, setTranslationModalChapter] = useState<string | null>(null);
   const [activeLanguage, setActiveLanguage] = useState<string | null>(null);
 
   const { data: languages = [] } = trpc.translations.languages.useQuery(
@@ -416,7 +417,14 @@ export function BookDetail() {
               onSetSelected={(cid, selected) => setSelectedMutation.mutate({ id: cid, selected })}
               onSetAllSelected={(selected) => setAllSelectedMutation.mutate({ bookId: book.id, selected })}
               onSetSelectedBatch={(ids, selected) => setSelectedBatchMutation.mutate({ ids, selected })}
-              chapterModalDisabled={!!activeLanguage}
+              onChapterClick={
+                activeLanguage
+                  ? (cid) => {
+                      setTranslationModalChapter(cid);
+                      setShowTranslation(true);
+                    }
+                  : undefined
+              }
             />
           )}
         </div>
@@ -527,9 +535,11 @@ export function BookDetail() {
           <TranslationModal
             bookId={book.id}
             chapters={book.chapters.map((c) => ({ id: c.id, index: c.index, title: c.title }))}
-            initialLanguage={book.translationLanguage ?? null}
+            initialLanguage={activeLanguage ?? book.translationLanguage ?? null}
+            initialChapterId={translationModalChapter}
             onClose={() => {
               setShowTranslation(false);
+              setTranslationModalChapter(null);
               invalidateTranslations();
             }}
           />

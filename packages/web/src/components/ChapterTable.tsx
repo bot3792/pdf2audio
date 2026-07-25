@@ -43,7 +43,7 @@ export function ChapterTable({
   onSetSelected,
   onSetAllSelected,
   onSetSelectedBatch,
-  chapterModalDisabled,
+  onChapterClick,
 }: {
   bookId: string;
   chapters: ChapterRow[];
@@ -54,7 +54,8 @@ export function ChapterTable({
   onSetSelected: (id: string, selected: boolean) => void;
   onSetAllSelected: (selected: boolean) => void;
   onSetSelectedBatch: (ids: string[], selected: boolean) => void;
-  chapterModalDisabled?: boolean;
+  // Overrides the default chapter modal — used by the translation view to open the comparison modal
+  onChapterClick?: (id: string) => void;
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
   const toggleAllRef = useRef<HTMLInputElement>(null);
@@ -423,7 +424,11 @@ export function ChapterTable({
                       <EditableChapterTitle
                         title={chapter.title}
                         onRename={onRename ? (title) => onRename(chapter.id, title) : undefined}
-                        onClickTitle={chapterModalDisabled ? undefined : () => setModalChapterIndex(chapters.indexOf(chapter))}
+                        onClickTitle={
+                          onChapterClick
+                            ? () => onChapterClick(chapter.id)
+                            : () => setModalChapterIndex(chapters.indexOf(chapter))
+                        }
                       />
                       {chapter.hasCustomText ? (
                         <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-600">
