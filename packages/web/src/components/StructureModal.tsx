@@ -50,6 +50,8 @@ export function StructureModal({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; page: number; filename?: string } | null>(null);
   const initialized = useRef(false);
+  const lastClickedIndex = useRef<number | null>(null);
+  const toggleAllRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (initialized.current || !structure) return;
@@ -81,14 +83,44 @@ export function StructureModal({
 
   const proposalRunning = chapterProposal?.status === "running";
 
-  function toggle(fileIndex: number | null, blockIndex: number) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      const key = boundaryKey(fileIndex, blockIndex);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const allKeys =
+    structure?.files.flatMap((file) => file.headings.map((h) => boundaryKey(file.fileIndex, h.blockIndex))) ?? [];
+  const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k));
+
+  useEffect(() => {
+    if (toggleAllRef.current) {
+      toggleAllRef.current.indeterminate = !allSelected && selected.size > 0;
+    }
+  }, [allSelected, selected.size]);
+
+  function handleToggleAll() {
+    setSelected(allSelected ? new Set() : new Set(allKeys));
+  }
+
+  function handleCheckboxClick(key: string, e: React.MouseEvent) {
+    const idx = allKeys.indexOf(key);
+    const newValue = !selected.has(key);
+    if (e.shiftKey && lastClickedIndex.current !== null) {
+      const from = Math.min(lastClickedIndex.current, idx);
+      const to = Math.max(lastClickedIndex.current, idx);
+      const range = allKeys.slice(from, to + 1);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        for (const k of range) {
+          if (newValue) next.add(k);
+          else next.delete(k);
+        }
+        return next;
+      });
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (newValue) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    }
+    lastClickedIndex.current = idx;
   }
 
   function useProposal() {
@@ -186,7 +218,21 @@ export function StructureModal({
             {isLoading ? (
               <p className="text-sm text-(--text-muted)">Loading structure...</p>
             ) : (
-              structure?.files.map((file) => (
+              <>
+              {allKeys.length > 0 ? (
+                <label className="flex items-center gap-2 px-2 py-1 mb-1 rounded cursor-pointer text-sm text-(--text-secondary) hover:bg-(--bg-subtle) select-none border-b border-(--border)">
+                  <input
+                    ref={toggleAllRef}
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={handleToggleAll}
+                    className="rounded shrink-0"
+                    data-testid="select-all-headings"
+                  />
+                  Select all ({allKeys.length})
+                </label>
+              ) : null}
+              {structure?.files.map((file) => (
                 <div key={file.fileIndex ?? "legacy"} className="mb-4">
                   {structure.files.length > 1 || file.missing ? (
                     <h3 className="text-xs font-medium text-(--text-muted) uppercase tracking-wider mb-2">
@@ -200,14 +246,15 @@ export function StructureModal({
                     return (
                       <label
                         key={key}
-                        className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-sm hover:bg-(--bg-subtle) ${
+                        className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer text-sm hover:bg-(--bg-subtle) select-none ${
                           selected.has(key) ? "bg-blue-50 dark:bg-blue-950/40" : ""
                         }`}
                       >
                         <input
                           type="checkbox"
                           checked={selected.has(key)}
-                          onChange={() => toggle(file.fileIndex, h.blockIndex)}
+                          onChange={() => {}}
+                          onClick={(e) => handleCheckboxClick(key, e)}
                           className="rounded shrink-0"
                         />
                         {h.level ? (
@@ -239,7 +286,8 @@ export function StructureModal({
                     <p className="text-sm text-(--text-muted)">No headings found in this file.</p>
                   ) : null}
                 </div>
-              ))
+              ))}
+              </>
             )}
           </div>
 
