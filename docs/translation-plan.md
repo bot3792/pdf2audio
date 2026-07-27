@@ -43,25 +43,11 @@ Translate → stop mid-run (partial kept) → resume (seamless continuity) → s
 
 ---
 
-## Next session — the three asks
+## The three asks — all done
 
-### 1. Translate from inside the chapter modal (highest value)
-
-Today: to translate a chapter you must leave the language view, open TranslationModal from Original, translate, switch back, reopen. Fix so a chapter modal opened in a language view can drive translation directly.
-
-- Pass `bookId` into `ChapterModal` (`ChapterTable` already receives it and currently ignores it — see the unused-var warning).
-- In language mode add a **Translate / Stop / Re-translate** control next to Re-synthesize, calling `trpc.translations.start` / `.stop` with `{chapterId, language}` (mutations already exist).
-- Poll while translating: `translations.detail` `refetchInterval` should be 1000 when `status` is `translating`/`pending` (currently only keys off `chapter.status === "synthesizing"`), so translated text streams into the modal the way chunks do.
-- Untranslated chapters currently render "No Bulgarian translation yet" — that empty state should host the Translate button.
-
-### 2. Stack the comparison modal on top of the chapter modal
-
-- Add a **Compare** button in ChapterModal (language mode) that renders `TranslationModal` as a child overlay with `initialChapterId` (the prop exists) and `initialLanguage`.
-- Closing it returns to the chapter modal — because it's a child, that's just local state; make sure the Escape handler closes only the top modal (ChapterModal's key handler must ignore Escape while the child is open, same pattern it already uses for `pdfPage`).
-
-### 3. Languages — done, needs commit
-
-`packages/web/src/lib/languages.ts` now lists 33 languages including **Russian and Hebrew**. It's wired into TranslationModal and builds clean; just commit it.
+1. **Translate from inside the chapter modal** — in language mode ChapterModal has Translate/Resume/Retry/Re-translate + Stop next to Re-synthesize (`trpc.translations.start`/`.stop`), `translations.detail` polls at 1s while `pending`/`translating` so text streams in, and the untranslated empty state hosts its own Translate button.
+2. **Comparison modal stacks on the chapter modal** — a Compare button renders `TranslationModal` as a child overlay (`initialChapterId` + `initialLanguage`); ChapterModal's key handler ignores Escape/arrows while it's open, and closing it invalidates the translation queries.
+3. **Language list** — committed in `3e043bb` (33 languages incl. Russian and Hebrew, wired into TranslationModal).
 
 ---
 
@@ -81,4 +67,5 @@ Today: to translate a chapter you must leave the language view, open Translation
 - Never hand-write migrations: `pnpm db:generate` then `pnpm db:migrate`.
 - Tests use a real Postgres template DB; add new tables to `resetDb` in `packages/server/test/setup.ts` (already done). Mock the queue/filesystem, never Drizzle.
 - New tables need `DELETE` in `resetDb` in FK order.
-- Cancellation everywhere is cooperative: a status flip in the DB plus `DELETE FROM graphile_worker._private_jobs … AND run_at > now()`.
+- Cancellation everywhere is cooperative: a status flip in the DB plus deleting unlocked queued jobs (join `_private_tasks` on `task_id` — the jobs table has no `task_identifier` column).
+- Jobs run with `maxAttempts: 1`, so a server death mid-job used to strand rows in `translating`/`synthesizing` forever. `workers/sweep.ts` now runs at boot: it purges dead jobs (exhausted or orphan-locked) and requeues stranded rows with resume.
