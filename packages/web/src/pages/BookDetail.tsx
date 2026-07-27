@@ -136,7 +136,11 @@ export function BookDetail() {
         return {
           ...c,
           // null audioStatus = never queued; "suspended" is this app's idle-awaiting-action state
-          status: translated ? (t.audioStatus ?? "suspended") : "untranslated",
+          status: translated
+            ? (t.audioStatus ?? "suspended")
+            : t?.status === "translating" || t?.status === "pending"
+              ? "translating"
+              : "untranslated",
           wordCount: t ? t.wordCount : 0,
           durationMs: translated ? t.audioDurationMs : null,
           audioPath: translated && t.hasAudio ? "translated" : null,

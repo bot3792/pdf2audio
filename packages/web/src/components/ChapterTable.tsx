@@ -569,7 +569,7 @@ export function ChapterTable({
 }
 
 function ChapterStatusCell({ chapter }: { chapter: ChapterRow }) {
-  if (chapter.status === "synthesizing" && chapter.progress) {
+  if ((chapter.status === "synthesizing" || chapter.status === "translating") && chapter.progress) {
     const [current, total] = chapter.progress.split("/").map(Number);
     const percent = total > 0 ? (current / total) * 100 : 0;
 
