@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { getDb, resetDb } from "../../test/setup.ts";
+import { getDb, resetDb, ensureGraphileTables } from "../../test/setup.ts";
 import { books, chapters, chapterTranslations } from "../schema.ts";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 const { mockQuickAddJob } = vi.hoisted(() => ({ mockQuickAddJob: vi.fn(async () => {}) }));
 vi.mock("graphile-worker", () => ({ quickAddJob: mockQuickAddJob }));
@@ -30,16 +30,7 @@ async function insertFixture(db: ReturnType<typeof getDb>) {
 describe("translations router", () => {
   // stop() clears queued jobs from the graphile-worker queue, which only exists once a worker has run
   beforeAll(async () => {
-    const db = getDb();
-    await db.execute(sql`CREATE SCHEMA IF NOT EXISTS graphile_worker`);
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS graphile_worker._private_jobs (
-        id serial PRIMARY KEY,
-        task_identifier text NOT NULL,
-        payload jsonb NOT NULL DEFAULT '{}',
-        run_at timestamptz NOT NULL DEFAULT now()
-      )
-    `);
+    await ensureGraphileTables(getDb());
   });
 
   beforeEach(async () => {
@@ -159,6 +150,43 @@ describe("translations router", () => {
     expect(mockQuickAddJob).not.toHaveBeenCalled();
   });
 
+  it("processSelectedTranslations queues selected chapters without a finished translation", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    const doneId = crypto.randomUUID();
+    await db.insert(chapters).values({ id: doneId, bookId, index: 1, title: "Ch2", rawText: "Second." });
+    const suspendedId = crypto.randomUUID();
+    await db.insert(chapters).values({ id: suspendedId, bookId, index: 2, title: "Ch3", rawText: "Third." });
+    const unselectedId = crypto.randomUUID();
+    await db.insert(chapters).values({ id: unselectedId, bookId, index: 3, title: "Ch4", rawText: "Fourth.", selected: false });
+
+    await db.insert(chapterTranslations).values([
+      { chapterId: doneId, language: "Bulgarian", status: "done", text: "bg" },
+      { chapterId: suspendedId, language: "Bulgarian", status: "suspended", text: "partial", progress: "1/3" },
+    ]);
+
+    const result = await caller.processSelectedTranslations({ bookId, language: "Bulgarian" });
+
+    expect(result.queued).toBe(2);
+    expect(mockQuickAddJob).toHaveBeenCalledTimes(2);
+    const [created] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.chapterId, chapterId));
+    expect(created.status).toBe("pending");
+    const [resumed] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.chapterId, suspendedId));
+    expect(resumed.status).toBe("pending");
+    expect(resumed.text).toBe("partial");
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(book.translationLanguage).toBe("Bulgarian");
+  });
+
+  it("processSelectedTranslations leaves a fresh running translation alone", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    await db.insert(chapterTranslations).values({ chapterId, language: "Bulgarian", status: "translating" });
+
+    await expect(caller.processSelectedTranslations({ bookId, language: "Bulgarian" })).rejects.toThrow("No selected chapters");
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+
   it("processSelectedAudio queues only selected chapters with finished translations", async () => {
     const db = getDb();
     const { bookId, chapterId } = await insertFixture(db);
@@ -177,6 +205,27 @@ describe("translations router", () => {
 
     expect(result.queued).toBe(1);
     expect(mockQuickAddJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("processSelectedAudio marks still-translating chapters pending without enqueueing a job", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    const doneId = crypto.randomUUID();
+    await db.insert(chapters).values({ id: doneId, bookId, index: 1, title: "Ch2", rawText: "Second." });
+
+    await db.insert(chapterTranslations).values([
+      { chapterId, language: "Bulgarian", status: "translating", text: "partial" },
+      { chapterId: doneId, language: "Bulgarian", status: "done", text: "bg" },
+    ]);
+
+    const result = await caller.processSelectedAudio({ bookId, language: "Bulgarian" });
+
+    expect(result.queued).toBe(2);
+    expect(result.deferred).toBe(1);
+    expect(mockQuickAddJob).toHaveBeenCalledTimes(1);
+    const [translating] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.chapterId, chapterId));
+    expect(translating.audioStatus).toBe("pending");
+    expect(translating.status).toBe("translating");
   });
 
   it("stopAudio suspends running audio and reports the count", async () => {

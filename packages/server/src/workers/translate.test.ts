@@ -22,6 +22,8 @@ import { translateChunk, splitForTranslation } from "../lib/translate.ts";
 import { createHash } from "node:crypto";
 
 const mockTranslateChunk = vi.mocked(translateChunk);
+const mockAddJob = vi.fn(async () => {});
+const helpers = { addJob: mockAddJob as never };
 
 const PARA = "One sentence here. ".repeat(60).trim();
 const SOURCE = [PARA, PARA, PARA].join("\n\n");
@@ -54,6 +56,7 @@ describe("translate worker", () => {
   beforeEach(async () => {
     await resetDb(getDb());
     mockTranslateChunk.mockReset();
+    mockAddJob.mockClear();
   });
 
   it("translates all chunks and accumulates text", async () => {
@@ -62,7 +65,7 @@ describe("translate worker", () => {
     const total = splitForTranslation(SOURCE).length;
     mockTranslateChunk.mockImplementation(async ({ text }) => `BG(${text.slice(0, 10)})`);
 
-    await translate({ translationId, bookId });
+    await translate({ translationId, bookId }, helpers);
 
     const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
     expect(row.status).toBe("done");
@@ -89,7 +92,7 @@ describe("translate worker", () => {
       return `BG-${calls}`;
     });
 
-    await translate({ translationId, bookId });
+    await translate({ translationId, bookId }, helpers);
 
     const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
     expect(row.status).toBe("suspended");
@@ -108,7 +111,7 @@ describe("translate worker", () => {
     });
     mockTranslateChunk.mockImplementation(async () => "BG-NEW");
 
-    await translate({ translationId, bookId });
+    await translate({ translationId, bookId }, helpers);
 
     const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
     expect(row.status).toBe("done");
@@ -121,7 +124,7 @@ describe("translate worker", () => {
     const { bookId, translationId } = await insertFixture(db, { text: "STALE", progress: "1/999", sourceHash: SOURCE_HASH });
     mockTranslateChunk.mockImplementation(async () => "BG");
 
-    await translate({ translationId, bookId });
+    await translate({ translationId, bookId }, helpers);
 
     const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
     expect(row.status).toBe("done");
@@ -139,7 +142,7 @@ describe("translate worker", () => {
     });
     mockTranslateChunk.mockImplementation(async () => "BG");
 
-    await translate({ translationId, bookId });
+    await translate({ translationId, bookId }, helpers);
 
     const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
     expect(row.status).toBe("done");
@@ -152,11 +155,39 @@ describe("translate worker", () => {
     const db = getDb();
     const { bookId, translationId } = await insertFixture(db, { status: "suspended" });
 
-    await translate({ translationId, bookId });
+    await translate({ translationId, bookId }, helpers);
 
     expect(mockTranslateChunk).not.toHaveBeenCalled();
     const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
     expect(row.status).toBe("suspended");
+  });
+
+  it("enqueues synthesis on completion when audio was queued mid-translation", async () => {
+    const db = getDb();
+    const { bookId, translationId } = await insertFixture(db);
+    await db
+      .update(chapterTranslations)
+      .set({ audioStatus: "pending" })
+      .where(eq(chapterTranslations.id, translationId));
+    mockTranslateChunk.mockImplementation(async () => "BG");
+
+    await translate({ translationId, bookId }, helpers);
+
+    expect(mockAddJob).toHaveBeenCalledWith(
+      "synthesizeTranslation",
+      { translationId, bookId },
+      { maxAttempts: 1 },
+    );
+  });
+
+  it("does not enqueue synthesis when no audio was queued", async () => {
+    const db = getDb();
+    const { bookId, translationId } = await insertFixture(db);
+    mockTranslateChunk.mockImplementation(async () => "BG");
+
+    await translate({ translationId, bookId }, helpers);
+
+    expect(mockAddJob).not.toHaveBeenCalled();
   });
 
   it("marks the row failed when the provider throws", async () => {
@@ -164,7 +195,7 @@ describe("translate worker", () => {
     const { bookId, translationId } = await insertFixture(db);
     mockTranslateChunk.mockRejectedValue(new Error("API down"));
 
-    await expect(translate({ translationId, bookId })).rejects.toThrow("API down");
+    await expect(translate({ translationId, bookId }, helpers)).rejects.toThrow("API down");
 
     const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
     expect(row.status).toBe("failed");

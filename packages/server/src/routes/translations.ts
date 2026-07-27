@@ -6,8 +6,9 @@ import { eq, and, inArray, sql, asc } from "drizzle-orm";
 import { quickAddJob } from "graphile-worker";
 import { appendLog } from "../lib/log.ts";
 import { env } from "../env.ts";
-import { listChunkPreviewsIn, locateChunks } from "../lib/chunk-previews.ts";
+import { listChunkPreviewsIn, locateChunks, pageAtOffset } from "../lib/chunk-previews.ts";
 import { languageSlug, translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
+import type { SourceBlock } from "../lib/marker.ts";
 
 const connectionString = env.DATABASE_URL;
 
@@ -78,9 +79,15 @@ export const translationsRouter = router({
         `/files/${chapter.bookId}/chunks/${slug}/${base}`,
       );
       const ranges = locateChunks(row.text, previews.map((p) => p.text ?? ""));
+      const blocks = Array.isArray(chapter.sourceBlocks) ? (chapter.sourceBlocks as SourceBlock[]) : [];
+      const translatedLength = Math.max(row.text?.length ?? 0, 1);
       const chunkPreviews = previews.map((preview, i) => {
         const range = ranges[i];
-        return range ? { ...preview, start: range.start, end: range.end } : preview;
+        if (!range) return preview;
+        // Translated offsets don't map to source blocks; scale onto rawText for an approximate page.
+        const rawOffset = Math.round((range.start / translatedLength) * chapter.rawText.length);
+        const page = pageAtOffset(blocks, chapter.rawText.length, rawOffset) ?? chapter.pageStart ?? undefined;
+        return { ...preview, start: range.start, end: range.end, ...(page !== undefined ? { page } : {}) };
       });
 
       return { ...row, chunkPreviews };
@@ -162,6 +169,62 @@ export const translationsRouter = router({
       return row;
     }),
 
+  processSelectedTranslations: publicProcedure
+    .input(z.object({ bookId: z.string().uuid(), language: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const rows = await db
+        .select({
+          chapterId: chapters.id,
+          translationId: chapterTranslations.id,
+          status: chapterTranslations.status,
+          updatedAt: chapterTranslations.updatedAt,
+        })
+        .from(chapters)
+        .leftJoin(chapterTranslations, and(
+          eq(chapterTranslations.chapterId, chapters.id),
+          eq(chapterTranslations.language, input.language),
+        ))
+        .where(and(eq(chapters.bookId, input.bookId), eq(chapters.selected, true)))
+        .orderBy(asc(chapters.index));
+
+      // Done chapters are skipped, suspended/failed ones resume; a fresh running one is left alone.
+      const queueable = rows.filter((r) =>
+        !r.translationId ||
+        r.status === "failed" ||
+        r.status === "suspended" ||
+        (["pending", "translating"].includes(r.status!) && Date.now() - r.updatedAt!.getTime() >= STALE_RUNNING_MS),
+      );
+      if (queueable.length === 0) throw new Error(`No selected chapters need translation to ${input.language}`);
+
+      const translationIds: string[] = [];
+      for (const r of queueable) {
+        if (r.translationId) {
+          await db
+            .update(chapterTranslations)
+            .set({ status: "pending", error: null, updatedAt: new Date() })
+            .where(eq(chapterTranslations.id, r.translationId));
+          translationIds.push(r.translationId);
+        } else {
+          const [created] = await db
+            .insert(chapterTranslations)
+            .values({ chapterId: r.chapterId, language: input.language })
+            .returning({ id: chapterTranslations.id });
+          translationIds.push(created.id);
+        }
+      }
+
+      await db
+        .update(books)
+        .set({ translationLanguage: input.language, updatedAt: new Date() })
+        .where(eq(books.id, input.bookId));
+
+      await appendLog(input.bookId, `Queued ${translationIds.length} chapter${translationIds.length === 1 ? "" : "s"} for translation to ${input.language}`);
+      for (const tid of translationIds) {
+        await quickAddJob({ connectionString }, "translate", { translationId: tid, bookId: input.bookId }, { maxAttempts: 1 });
+      }
+      return { queued: translationIds.length };
+    }),
+
   queueAudio: publicProcedure
     .input(z.object({ chapterId: z.string().uuid(), language: z.string().min(1), resume: z.boolean().optional() }))
     .mutation(async ({ input }) => {
@@ -208,6 +271,7 @@ export const translationsRouter = router({
       const rows = await db
         .select({
           id: chapterTranslations.id,
+          status: chapterTranslations.status,
           audioStatus: chapterTranslations.audioStatus,
           chapterIndex: chapters.index,
         })
@@ -217,20 +281,27 @@ export const translationsRouter = router({
           eq(chapters.bookId, input.bookId),
           eq(chapters.selected, true),
           eq(chapterTranslations.language, input.language),
-          eq(chapterTranslations.status, "done"),
+          inArray(chapterTranslations.status, ["done", "pending", "translating"]),
         ))
         .orderBy(asc(chapters.index));
 
       const queueable = rows.filter((r) => r.audioStatus !== "synthesizing" && r.audioStatus !== "pending");
-      if (queueable.length === 0) throw new Error(`No selected chapters with a finished ${input.language} translation to synthesize`);
+      if (queueable.length === 0) throw new Error(`No selected chapters with a finished or in-progress ${input.language} translation to synthesize`);
 
       await db
         .update(chapterTranslations)
         .set({ audioStatus: "pending", audioError: null, audioProgress: null, updatedAt: new Date() })
         .where(inArray(chapterTranslations.id, queueable.map((r) => r.id)));
 
-      await appendLog(input.bookId, `Queued ${queueable.length} chapter${queueable.length === 1 ? "" : "s"} for ${input.language} synthesis`);
-      for (const r of queueable) {
+      // Chapters still translating only get the pending marker; the translate worker enqueues their job on completion.
+      const ready = queueable.filter((r) => r.status === "done");
+      const deferred = queueable.length - ready.length;
+      await appendLog(
+        input.bookId,
+        `Queued ${queueable.length} chapter${queueable.length === 1 ? "" : "s"} for ${input.language} synthesis` +
+          (deferred > 0 ? ` (${deferred} will start when translation finishes)` : ""),
+      );
+      for (const r of ready) {
         await quickAddJob(
           { connectionString },
           "synthesizeTranslation",
@@ -238,7 +309,7 @@ export const translationsRouter = router({
           { maxAttempts: 1 },
         );
       }
-      return { queued: queueable.length };
+      return { queued: queueable.length, deferred };
     }),
 
   stopAudio: publicProcedure
@@ -260,10 +331,11 @@ export const translationsRouter = router({
         .returning({ id: chapterTranslations.id });
 
       await db.execute(sql`
-        DELETE FROM graphile_worker._private_jobs
-        WHERE task_identifier = 'synthesizeTranslation'
-          AND (payload ->> 'bookId') = ${input.bookId}
-          AND run_at > now()
+        DELETE FROM graphile_worker._private_jobs j
+        USING graphile_worker._private_tasks t
+        WHERE t.id = j.task_id AND t.identifier = 'synthesizeTranslation'
+          AND (j.payload ->> 'bookId') = ${input.bookId}
+          AND j.locked_at IS NULL
       `);
 
       if (stopped.length > 0) {
@@ -302,10 +374,11 @@ export const translationsRouter = router({
 
       if (row) {
         await db.execute(sql`
-          DELETE FROM graphile_worker._private_jobs
-          WHERE task_identifier = 'translate'
-            AND (payload ->> 'translationId') = ${row.id}
-            AND run_at > now()
+          DELETE FROM graphile_worker._private_jobs j
+          USING graphile_worker._private_tasks t
+          WHERE t.id = j.task_id AND t.identifier = 'translate'
+            AND (j.payload ->> 'translationId') = ${row.id}
+            AND j.locked_at IS NULL
         `);
         await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] Translation stop requested`);
       }

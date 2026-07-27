@@ -4,13 +4,17 @@ import { eq, and, ne } from "drizzle-orm";
 import { splitForTranslation, translateChunk } from "../lib/translate.ts";
 import { appendLog } from "../lib/log.ts";
 import { createHash } from "node:crypto";
+import type { WorkerUtils } from "graphile-worker";
 
 export type TranslatePayload = {
   translationId: string;
   bookId: string;
 };
 
-export async function translate(payload: TranslatePayload) {
+export async function translate(
+  payload: TranslatePayload,
+  { addJob }: { addJob: WorkerUtils["addJob"] },
+) {
   const { translationId, bookId } = payload;
 
   const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
@@ -78,11 +82,18 @@ export async function translate(payload: TranslatePayload) {
       }
     }
 
-    await db
+    const [finished] = await db
       .update(chapterTranslations)
       .set({ status: "done", updatedAt: new Date() })
-      .where(and(eq(chapterTranslations.id, translationId), ne(chapterTranslations.status, "suspended")));
+      .where(and(eq(chapterTranslations.id, translationId), ne(chapterTranslations.status, "suspended")))
+      .returning({ audioStatus: chapterTranslations.audioStatus });
     await chLog(`Translation to ${row.language} done`);
+
+    // Synthesis queued while this translation was still running waits as audioStatus=pending
+    if (finished?.audioStatus === "pending") {
+      await chLog(`Starting queued ${row.language} synthesis`);
+      await addJob("synthesizeTranslation", { translationId, bookId }, { maxAttempts: 1 });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await chLog(`Translation failed: ${message}`);
