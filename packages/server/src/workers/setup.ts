@@ -7,11 +7,10 @@ import { redetect } from "./redetect.ts";
 import { propose } from "./propose.ts";
 import { translate } from "./translate.ts";
 import { synthesizeTranslation } from "./synthesize-translation.ts";
+import { sweepStrandedWork } from "./sweep.ts";
 import { env } from "../env.ts";
 
 const connectionString = env.DATABASE_URL;
-
-export const WORKER_CONCURRENCY = 4;
 
 function logTask(name: string, payload: Record<string, unknown>) {
   const bookId = (payload.bookId as string)?.slice(0, 8) ?? "?";
@@ -47,32 +46,60 @@ function wrapTask<P extends Record<string, unknown>>(
   };
 }
 
-const taskList: TaskList = {
-  extract: wrapTask("extract", extract),
-  normalize: wrapTask("normalize", normalize),
-  synthesize: wrapTask("synthesize", synthesize),
-  assemble: wrapTask("assemble", (payload) => assemble(payload as any)),
-  redetect: wrapTask("redetect", (payload) => redetect(payload as any)),
-  propose: wrapTask("propose", (payload) => propose(payload as any)),
-  translate: wrapTask("translate", (payload) => translate(payload as any)),
-  synthesizeTranslation: wrapTask("synthesizeTranslation", synthesizeTranslation),
-};
+// Each pool only claims its own task_identifiers, so GPU-bound TTS can't starve
+// CPU-bound extraction or network-bound translation.
+export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskList }[] = [
+  {
+    name: "tts", // MLX contends for the GPU; >2 concurrent processes add little throughput
+    concurrency: 2,
+    taskList: {
+      synthesize: wrapTask("synthesize", synthesize),
+      synthesizeTranslation: wrapTask("synthesizeTranslation", synthesizeTranslation),
+    },
+  },
+  {
+    name: "extraction",
+    concurrency: 1,
+    taskList: {
+      extract: wrapTask("extract", extract),
+      normalize: wrapTask("normalize", normalize),
+      assemble: wrapTask("assemble", (payload) => assemble(payload as any)),
+      redetect: wrapTask("redetect", (payload) => redetect(payload as any)),
+      propose: wrapTask("propose", (payload) => propose(payload as any)),
+    },
+  },
+  {
+    name: "translate",
+    concurrency: 3,
+    taskList: {
+      translate: wrapTask("translate", translate),
+    },
+  },
+];
 
-let currentRunner: Runner | null = null;
+let currentRunners: Runner[] = [];
 
-export async function startWorker(): Promise<Runner> {
-  currentRunner = await run({
-    connectionString,
-    concurrency: WORKER_CONCURRENCY,
-    noHandleSignals: false,
-    taskList,
-  });
-  return currentRunner;
+export async function startWorker(): Promise<Runner[]> {
+  // Before the runners start, so any lock in the jobs table is provably from a dead process
+  try {
+    await sweepStrandedWork();
+  } catch (err) {
+    console.error("[worker] Startup sweep failed:", err);
+  }
+  currentRunners = await Promise.all(
+    WORKER_POOLS.map((pool) =>
+      run({
+        connectionString,
+        concurrency: pool.concurrency,
+        noHandleSignals: false,
+        taskList: pool.taskList,
+      }),
+    ),
+  );
+  return currentRunners;
 }
 
 export async function stopWorker(): Promise<void> {
-  if (currentRunner) {
-    await currentRunner.stop();
-    currentRunner = null;
-  }
+  await Promise.all(currentRunners.map((runner) => runner.stop()));
+  currentRunners = [];
 }

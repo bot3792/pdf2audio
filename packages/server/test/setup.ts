@@ -49,12 +49,65 @@ afterAll(async () => {
 });
 
 export async function resetDb(db: TestDatabase) {
+  await db.execute(sql`
+    DO $$ BEGIN
+      IF to_regclass('graphile_worker._private_jobs') IS NOT NULL THEN
+        DELETE FROM graphile_worker._private_jobs;
+      END IF;
+    END $$`);
   await db.execute(sql`DELETE FROM assemblies`);
   await db.execute(sql`DELETE FROM chapter_translations`);
   await db.execute(sql`DELETE FROM chapters`);
   await db.execute(sql`DELETE FROM book_files`);
   await db.execute(sql`DELETE FROM book_logs`);
   await db.execute(sql`DELETE FROM books`);
+}
+
+// Mirrors the real graphile-worker private schema (task_id FK, not a task_identifier column)
+// so SQL that joins _private_tasks behaves the same in tests as in production.
+export async function ensureGraphileTables(db: TestDatabase) {
+  await db.execute(sql`CREATE SCHEMA IF NOT EXISTS graphile_worker`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS graphile_worker._private_tasks (
+      id serial PRIMARY KEY,
+      identifier text NOT NULL UNIQUE
+    )`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS graphile_worker._private_jobs (
+      id serial PRIMARY KEY,
+      task_id int NOT NULL REFERENCES graphile_worker._private_tasks(id),
+      payload json NOT NULL DEFAULT '{}',
+      run_at timestamptz NOT NULL DEFAULT now(),
+      attempts int NOT NULL DEFAULT 0,
+      max_attempts int NOT NULL DEFAULT 1,
+      locked_at timestamptz,
+      locked_by text
+    )`);
+}
+
+export async function insertJob(
+  db: TestDatabase,
+  identifier: string,
+  payload: Record<string, unknown>,
+  opts?: { lockedAt?: Date; attempts?: number; maxAttempts?: number },
+) {
+  await db.execute(sql`
+    INSERT INTO graphile_worker._private_tasks (identifier) VALUES (${identifier})
+    ON CONFLICT (identifier) DO NOTHING`);
+  await db.execute(sql`
+    INSERT INTO graphile_worker._private_jobs (task_id, payload, attempts, max_attempts, locked_at, locked_by)
+    SELECT t.id, ${JSON.stringify(payload)}::json, ${opts?.attempts ?? 0}, ${opts?.maxAttempts ?? 1},
+           ${opts?.lockedAt?.toISOString() ?? null}::timestamptz, ${opts?.lockedAt ? "worker-dead" : null}
+    FROM graphile_worker._private_tasks t WHERE t.identifier = ${identifier}`);
+}
+
+export async function listJobs(db: TestDatabase) {
+  const rows = await db.execute(sql`
+    SELECT t.identifier, j.payload, j.locked_at
+    FROM graphile_worker._private_jobs j
+    JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+    ORDER BY j.id`);
+  return rows as unknown as Array<{ identifier: string; payload: Record<string, unknown>; locked_at: Date | null }>;
 }
 
 export function getDb() {

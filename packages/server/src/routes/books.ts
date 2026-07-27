@@ -516,14 +516,16 @@ export const booksRouter = router({
           ne(chapters.status, "done"),
         ));
 
-      const cleared = await db.execute(sql`
-        DELETE FROM graphile_worker._private_jobs
-        WHERE task_identifier IN ('normalize', 'synthesize')
-          AND (payload ->> 'bookId') = ${input.id}
-          AND run_at > now()
-      `);
+      const cleared = (await db.execute(sql`
+        DELETE FROM graphile_worker._private_jobs j
+        USING graphile_worker._private_tasks t
+        WHERE t.id = j.task_id AND t.identifier IN ('normalize', 'synthesize')
+          AND (j.payload ->> 'bookId') = ${input.id}
+          AND j.locked_at IS NULL
+        RETURNING j.id
+      `)) as unknown as unknown[];
 
-      const clearedCount = Array.isArray(cleared) ? 0 : Number((cleared as { rowCount?: number }).rowCount ?? 0);
+      const clearedCount = cleared.length;
       if (clearedCount > 0) {
         await appendLog(input.id, `Cleared ${clearedCount} queued job${clearedCount === 1 ? "" : "s"}`);
       }
