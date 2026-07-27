@@ -21,6 +21,11 @@ export function TranslationModal({
   const [language, setLanguage] = useState(initialLanguage ?? "Bulgarian");
   const [selectedId, setSelectedId] = useState<string | null>(initialChapterId ?? chapters[0]?.id ?? null);
   const translatedPane = useRef<HTMLDivElement>(null);
+  const selectedChapterRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    selectedChapterRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedId]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -160,6 +165,7 @@ export function TranslationModal({
               return (
                 <button
                   key={ch.id}
+                  ref={selectedId === ch.id ? selectedChapterRef : undefined}
                   onClick={() => setSelectedId(ch.id)}
                   className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 hover:bg-(--bg-subtle) ${
                     selectedId === ch.id ? "bg-blue-50 dark:bg-blue-950/40" : ""

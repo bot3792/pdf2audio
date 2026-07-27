@@ -2,15 +2,19 @@ import { useState, useRef, useEffect, type ReactNode } from "react";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
+import { TranslationModal } from "./TranslationModal.tsx";
 import { getVoiceLabel } from "../lib/voices.ts";
 import type { ChapterRow, FileInfo } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
+  bookId: string;
   chapters: ChapterRow[];
   files?: FileInfo[];
   chapterIndex: number;
   // When set, the modal shows this language's translation: its text, chunk previews, and audio
   language?: string | null;
+  languages?: string[];
+  onSwitchLanguage?: (language: string | null) => void;
   onClose: () => void;
   onNavigate: (index: number) => void;
   onQueue: (id: string, resume?: boolean) => void;
@@ -29,10 +33,13 @@ type SourceBlock = {
 type ViewMode = "custom" | "clean" | "raw" | "split" | "blocks";
 
 export function ChapterModal({
+  bookId,
   chapters,
   files,
   chapterIndex,
   language,
+  languages,
+  onSwitchLanguage,
   onClose,
   onNavigate,
   onQueue,
@@ -59,13 +66,14 @@ export function ChapterModal({
   const [hoveredChunkUrl, setHoveredChunkUrl] = useState<string | null>(null);
 
   const [pdfPage, setPdfPage] = useState<number | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
 
   useEffect(() => {
     setViewMode(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
     setIsEditing(false);
     setSelectedChunkPreviewUrl(null);
     setPdfPage(null);
-  }, [chapterIndex]);
+  }, [chapterIndex, language]);
 
   const isTranslation = !!language;
   const { data: originalChapter, isLoading: originalLoading } = trpc.chapters.get.useQuery(
@@ -77,7 +85,10 @@ export function ChapterModal({
     {
       enabled: isTranslation,
       retry: false,
-      refetchInterval: chapter.status === "synthesizing" ? 1000 : false,
+      refetchInterval: (query) => {
+        const s = query.state.data?.status;
+        return s === "pending" || s === "translating" || chapter.status === "synthesizing" ? 1000 : false;
+      },
     },
   );
   const fullChapter = isTranslation
@@ -126,6 +137,31 @@ export function ChapterModal({
     },
   });
 
+  const refreshTranslations = () => {
+    utils.translations.detail.invalidate();
+    utils.translations.listForBook.invalidate();
+    utils.translations.languages.invalidate();
+    utils.books.logs.invalidate();
+  };
+  const startTranslationMutation = trpc.translations.start.useMutation({ onSuccess: refreshTranslations });
+  const stopTranslationMutation = trpc.translations.stop.useMutation({ onSuccess: refreshTranslations });
+
+  const translationStatus = isTranslation ? translationDetail?.status : undefined;
+  const translationRunning = translationStatus === "pending" || translationStatus === "translating";
+  const translateLabel =
+    translationStatus === "suspended" ? "Resume" :
+    translationStatus === "failed" ? "Retry" :
+    translationStatus === "done" ? "Re-translate" :
+    "Translate";
+
+  function handleTranslate() {
+    startTranslationMutation.mutate({
+      chapterId: chapter.id,
+      language: language!,
+      restart: translationStatus === "done",
+    });
+  }
+
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
@@ -133,7 +169,8 @@ export function ChapterModal({
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (isEditing) return;
+      // The compare overlay has its own Escape handler — this one must not double-close.
+      if (isEditing || showCompare) return;
       if (e.key === "Escape") {
         if (pdfPage !== null) setPdfPage(null);
         else onClose();
@@ -143,7 +180,7 @@ export function ChapterModal({
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [onClose, isEditing, hasPrev, hasNext, chapterIndex, onNavigate, pdfPage]);
+  }, [onClose, isEditing, showCompare, hasPrev, hasNext, chapterIndex, onNavigate, pdfPage]);
 
   function startEditing() {
     if (!fullChapter) return;
@@ -269,9 +306,9 @@ export function ChapterModal({
           ) : null}
           <button
             onClick={() => onQueue(chapter.id)}
-            disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status) || chapter.selectable === false}
+            disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status) || chapter.synthesizable === false}
             title={
-              chapter.selectable === false
+              chapter.synthesizable === false
                 ? "No finished translation for this chapter"
                 : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
                   ? "Can't re-synthesize while it's being processed"
@@ -281,7 +318,84 @@ export function ChapterModal({
           >
             Re-synthesize
           </button>
+          {isTranslation ? (
+            <>
+              <button
+                onClick={handleTranslate}
+                disabled={translationRunning || startTranslationMutation.isPending}
+                title={
+                  translationRunning ? "Translation is running" :
+                  translationStatus === "suspended" ? "Continue from where it stopped" :
+                  translationStatus === "failed" ? "Retry the failed translation" :
+                  translationStatus === "done" ? "Discard this translation and translate again" :
+                  `Translate this chapter to ${language}`
+                }
+                className="text-xs px-2.5 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="chapter-translate"
+              >
+                {translateLabel}
+              </button>
+              <button
+                onClick={() => stopTranslationMutation.mutate({ chapterId: chapter.id, language: language! })}
+                disabled={!translationRunning || stopTranslationMutation.isPending}
+                title={translationRunning ? "Stop and keep everything translated so far" : "Nothing is running"}
+                className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                data-testid="chapter-translate-stop"
+              >
+                Stop
+              </button>
+              <button
+                onClick={() => setShowCompare(true)}
+                title="Review original and translation side by side"
+                className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium"
+                data-testid="chapter-compare"
+              >
+                Compare
+              </button>
+              {translationRunning ? (
+                <span className="text-xs text-blue-600" data-testid="chapter-translation-progress">
+                  Translating{translationDetail?.progress ? ` · ${translationDetail.progress} chunks` : ""}...
+                </span>
+              ) : translationStatus === "failed" && translationDetail?.error ? (
+                <span className="text-xs text-red-600 truncate" title={translationDetail.error}>
+                  Failed: {translationDetail.error}
+                </span>
+              ) : null}
+              {startTranslationMutation.error || stopTranslationMutation.error ? (
+                <span className="text-xs text-red-600 truncate">
+                  {(startTranslationMutation.error ?? stopTranslationMutation.error)?.message}
+                </span>
+              ) : null}
+            </>
+          ) : null}
           <div className="flex-1" />
+          {onSwitchLanguage && languages && languages.length > 0 && !isEditing ? (
+            <div className="flex items-center gap-1 mr-2" data-testid="modal-language-switcher">
+              <button
+                onClick={() => onSwitchLanguage(null)}
+                className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
+                  !language
+                    ? "bg-blue-600 border-blue-600 text-white"
+                    : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
+                }`}
+              >
+                Original
+              </button>
+              {languages.map((l) => (
+                <button
+                  key={l}
+                  onClick={() => onSwitchLanguage(l)}
+                  className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
+                    language === l
+                      ? "bg-blue-600 border-blue-600 text-white"
+                      : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
+                  }`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {isEditing ? (
             <div className="flex items-center gap-2">
               <button
@@ -357,6 +471,10 @@ export function ChapterModal({
               />
             ) : viewMode === "blocks" && fullChapter.sourceBlocks ? (
               <BlocksPreview sourceBlocks={fullChapter.sourceBlocks as SourceBlock[]} />
+            ) : isTranslation && !fullChapter.rawText ? (
+              <div className="flex items-center justify-center flex-1 text-sm text-(--text-muted)">
+                {translationRunning ? "Waiting for the first chunk..." : `No ${language} translation text yet.`}
+              </div>
             ) : (
               <TextPreview
                 rawText={fullChapter.rawText}
@@ -370,9 +488,21 @@ export function ChapterModal({
                 onHoverChunk={setHoveredChunkUrl}
               />
             )
+          ) : isTranslation ? (
+            <div className="flex flex-col items-center justify-center gap-3 flex-1 text-sm text-(--text-muted)">
+              <span>No {language} translation for this chapter yet.</span>
+              <button
+                onClick={handleTranslate}
+                disabled={startTranslationMutation.isPending}
+                className="text-xs px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50"
+                data-testid="chapter-translate-empty"
+              >
+                {startTranslationMutation.isPending ? "Starting..." : `Translate to ${language}`}
+              </button>
+            </div>
           ) : (
             <div className="flex items-center justify-center flex-1 text-sm text-(--text-muted)">
-              {isTranslation ? `No ${language} translation for this chapter yet.` : "Failed to load chapter text"}
+              Failed to load chapter text
             </div>
           )}
         </div>
@@ -383,6 +513,18 @@ export function ChapterModal({
           page={pdfPage}
           filename={sourceFile.filename}
           onClose={() => setPdfPage(null)}
+        />
+      ) : null}
+      {showCompare && language ? (
+        <TranslationModal
+          bookId={bookId}
+          chapters={chapters}
+          initialLanguage={language}
+          initialChapterId={chapter.id}
+          onClose={() => {
+            setShowCompare(false);
+            refreshTranslations();
+          }}
         />
       ) : null}
     </div>

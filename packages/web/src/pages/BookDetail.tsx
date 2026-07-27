@@ -98,8 +98,10 @@ export function BookDetail() {
     utils.translations.listForBook.invalidate();
     utils.translations.languages.invalidate();
     utils.books.assemblies.invalidate({ bookId: id! });
+    utils.books.logs.invalidate({ bookId: id! });
   };
   const queueAudioMutation = trpc.translations.queueAudio.useMutation({ onSuccess: invalidateTranslations });
+  const processSelectedTranslationsMutation = trpc.translations.processSelectedTranslations.useMutation({ onSuccess: invalidateTranslations });
   const processSelectedAudioMutation = trpc.translations.processSelectedAudio.useMutation({ onSuccess: invalidateTranslations });
   const stopAudioMutation = trpc.translations.stopAudio.useMutation({ onSuccess: invalidateTranslations });
   const assembleTranslationMutation = trpc.translations.assemble.useMutation({ onSuccess: invalidateTranslations });
@@ -140,8 +142,7 @@ export function BookDetail() {
           audioPath: translated && t.hasAudio ? "translated" : null,
           progress: translated ? t.audioProgress : t?.progress ?? null,
           error: translated ? t.audioError : t?.error ?? null,
-          selected: c.selected && translated,
-          selectable: translated,
+          synthesizable: translated,
           hasCustomText: false,
           hasCleanText: false,
           hasSourceBlocks: false,
@@ -157,15 +158,31 @@ export function BookDetail() {
   const isProcessing = hasActiveFiles || hasActiveChapters ||
     book.status === "extracting" || book.status === "assembling";
   const selectedWithAudio = viewChapters.filter((c) => c.selected && c.status === "done" && c.audioPath).length;
-  const selectedSynthesizable = viewChapters.filter(
-    (c) => c.selected && (c.status === "failed" || c.status === "suspended" || c.status === "pending" || c.status === "done")
-  ).length;
+  // In a language view a still-translating chapter counts too: its audio queues behind the translation
+  const selectedSynthesizable = viewChapters.filter((c) => {
+    if (!c.selected) return false;
+    if (["failed", "suspended", "pending", "done"].includes(c.status)) return true;
+    const t = activeLanguage ? translationByChapter.get(c.id) : undefined;
+    return t?.status === "translating" || t?.status === "pending";
+  }).length;
   const allSelectedDone = selectedCount > 0 && viewChapters.filter((c) => c.selected).every((c) => c.status === "done" && c.audioPath);
   const canAssemble = allSelectedDone && !isAssembling;
-  const canProcess = selectedSynthesizable > 0 && !hasActiveChapters && !isAssembling;
+  // Language-view audio queueing is idempotent server-side, so running chapters don't block it
+  const canProcess = selectedSynthesizable > 0 && !isAssembling && (!!activeLanguage || !hasActiveChapters);
   const translationsRunning = activeLanguage
     ? translationRows.some((t) => t.status === "translating" || t.status === "pending")
     : false;
+  // Covers audio queued behind a running translation, which the row mapping shows as "untranslated"
+  const translationAudioQueued = activeLanguage
+    ? translationRows.some((t) => t.audioStatus === "pending" || t.audioStatus === "synthesizing")
+    : false;
+  const selectedTranslatable = activeLanguage
+    ? book.chapters.filter((c) => {
+        if (!c.selected) return false;
+        const t = translationByChapter.get(c.id);
+        return !t || t.status === "failed" || t.status === "suspended";
+      }).length
+    : 0;
   return (
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -298,7 +315,7 @@ export function BookDetail() {
             >
               <span className="font-semibold">{activeLanguage} translation view</span>
               <span className="text-blue-700/80 dark:text-blue-300/80">
-                — text, audio, and assemblies below are the {activeLanguage} version. Untranslated chapters are greyed out.
+                — text, audio, and assemblies below are the {activeLanguage} version. Select chapters to translate or synthesize them in bulk.
                 {translationsRunning ? " Translation in progress..." : ""}
               </span>
               <div className="flex-1" />
@@ -330,6 +347,19 @@ export function BookDetail() {
           {book.chapters.length > 0 && (
             <div className="flex gap-3 mb-3">
               <button
+                onClick={() => processSelectedTranslationsMutation.mutate({ bookId: book.id, language: activeLanguage! })}
+                disabled={!activeLanguage || selectedTranslatable === 0 || processSelectedTranslationsMutation.isPending}
+                title={
+                  !activeLanguage ? "Open a language view to translate the selected chapters" :
+                  selectedTranslatable === 0 ? "No selected chapters need translation — already-translated ones are skipped" :
+                  `Translate the selected chapters to ${activeLanguage} (finished ones are skipped, stopped ones resume)`
+                }
+                className="px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="translate-selected"
+              >
+                Translate selected ({selectedTranslatable}){activeLanguage ? ` · ${activeLanguage}` : ""}
+              </button>
+              <button
                 onClick={() =>
                   activeLanguage
                     ? processSelectedAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
@@ -337,10 +367,11 @@ export function BookDetail() {
                 }
                 disabled={!canProcess || processSelectedMutation.isPending || processSelectedAudioMutation.isPending}
                 title={
-                  selectedSynthesizable === 0 ? "No selected chapters are ready for synthesis" :
-                  hasActiveChapters ? "Wait for active chapters to finish" :
+                  selectedSynthesizable === 0 ? (activeLanguage ? "No selected chapters have a translation ready or underway" : "No selected chapters are ready for synthesis") :
+                  !activeLanguage && hasActiveChapters ? "Wait for active chapters to finish" :
                   isAssembling ? "Wait for assembly to finish" :
-                  `Use the current selected voice/model to synthesize the selected chapters${activeLanguage ? ` (${activeLanguage} text)` : ""}`
+                  activeLanguage ? `Synthesize the selected ${activeLanguage} chapters — ones still translating start when their translation finishes` :
+                  "Use the current selected voice/model to synthesize the selected chapters"
                 }
                 className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -369,8 +400,8 @@ export function BookDetail() {
                     ? stopAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
                     : cancelMutation.mutate({ id: book.id })
                 }
-                disabled={!hasActiveChapters || cancelMutation.isPending || stopAudioMutation.isPending}
-                title={!hasActiveChapters ? "No chapters are actively processing" : undefined}
+                disabled={!(hasActiveChapters || translationAudioQueued) || cancelMutation.isPending || stopAudioMutation.isPending}
+                title={!(hasActiveChapters || translationAudioQueued) ? "No chapters are actively processing" : undefined}
                 className="px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel processing
@@ -417,6 +448,8 @@ export function BookDetail() {
               onSetAllSelected={(selected) => setAllSelectedMutation.mutate({ bookId: book.id, selected })}
               onSetSelectedBatch={(ids, selected) => setSelectedBatchMutation.mutate({ ids, selected })}
               language={activeLanguage}
+              languages={languages.map((l) => l.language)}
+              onSwitchLanguage={setActiveLanguage}
             />
           )}
         </div>
@@ -434,7 +467,7 @@ export function BookDetail() {
         {/* Logs */}
         <LogViewer
           bookId={book.id}
-          isProcessing={isProcessing}
+          isProcessing={isProcessing || translationsRunning}
           files={book.files?.map((f) => ({ index: f.index, filename: f.filename }))}
         />
 

@@ -20,8 +20,8 @@ export type ChapterRow = {
   pageEnd: number | null;
   sourceFileIndex: number | null;
   synthesizedWith: { voice?: string; speed?: number | null } | null;
-  // Translation view: rows without a finished translation can't be selected or synthesized
-  selectable?: boolean;
+  // Translation view: rows without a finished translation can't be synthesized (but can be selected for bulk translation)
+  synthesizable?: boolean;
   audioUrl?: string;
 };
 
@@ -44,6 +44,8 @@ export function ChapterTable({
   onSetAllSelected,
   onSetSelectedBatch,
   language,
+  languages,
+  onSwitchLanguage,
 }: {
   bookId: string;
   chapters: ChapterRow[];
@@ -56,6 +58,8 @@ export function ChapterTable({
   onSetSelectedBatch: (ids: string[], selected: boolean) => void;
   // When set, the chapter modal shows this language's translation instead of the original
   language?: string | null;
+  languages?: string[];
+  onSwitchLanguage?: (language: string | null) => void;
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
   const toggleAllRef = useRef<HTMLInputElement>(null);
@@ -104,10 +108,9 @@ export function ChapterTable({
   const canDrag = onReorder && !isFiltered;
   const activeFilterCount = [search, statusFilter, wordCountMin, wordCountMax, durationMin, durationMax, sourceFileFilter].filter(Boolean).length;
 
-  // Checkbox state based on visible (filtered) selectable chapters
-  const selectableChapters = filteredChapters.filter((c) => c.selectable !== false);
-  const visibleSelectedCount = selectableChapters.filter((c) => c.selected).length;
-  const allVisibleSelected = selectableChapters.length > 0 && visibleSelectedCount === selectableChapters.length;
+  // Checkbox state based on visible (filtered) chapters
+  const visibleSelectedCount = filteredChapters.filter((c) => c.selected).length;
+  const allVisibleSelected = filteredChapters.length > 0 && visibleSelectedCount === filteredChapters.length;
   const noneVisibleSelected = visibleSelectedCount === 0;
 
   useEffect(() => {
@@ -117,9 +120,8 @@ export function ChapterTable({
   }, [allVisibleSelected, noneVisibleSelected]);
 
   function handleToggleAll() {
-    const hasUnselectable = selectableChapters.length !== filteredChapters.length;
-    if (isFiltered || hasUnselectable) {
-      onSetSelectedBatch(selectableChapters.map((c) => c.id), !allVisibleSelected);
+    if (isFiltered) {
+      onSetSelectedBatch(filteredChapters.map((c) => c.id), !allVisibleSelected);
     } else {
       onSetAllSelected(!allVisibleSelected);
     }
@@ -396,8 +398,6 @@ export function ChapterTable({
                     <input
                       type="checkbox"
                       checked={chapter.selected}
-                      disabled={chapter.selectable === false}
-                      title={chapter.selectable === false ? "No finished translation for this chapter" : undefined}
                       onChange={() => {}}
                       onClick={(e) => {
                         const filteredIdx = filteredChapters.indexOf(chapter);
@@ -405,17 +405,14 @@ export function ChapterTable({
                         if (e.shiftKey && lastClickedFilteredIndex.current !== null) {
                           const from = Math.min(lastClickedFilteredIndex.current, filteredIdx);
                           const to = Math.max(lastClickedFilteredIndex.current, filteredIdx);
-                          const ids = filteredChapters
-                            .slice(from, to + 1)
-                            .filter((c) => c.selectable !== false)
-                            .map((c) => c.id);
+                          const ids = filteredChapters.slice(from, to + 1).map((c) => c.id);
                           onSetSelectedBatch(ids, newValue);
                         } else {
                           onSetSelected(chapter.id, newValue);
                         }
                         lastClickedFilteredIndex.current = filteredIdx;
                       }}
-                      className="rounded border-(--border-input) text-indigo-600 focus:ring-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="rounded border-(--border-input) text-indigo-600 focus:ring-indigo-500"
                     />
                   </td>
                   <td className="px-4 py-3 text-sm text-(--text-tertiary)">{chapter.index + 1}</td>
@@ -489,9 +486,9 @@ export function ChapterTable({
                       ) : null}
                       <button
                         onClick={() => onQueue(chapter.id)}
-                        disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status) || chapter.selectable === false}
+                        disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status) || chapter.synthesizable === false}
                         title={
-                          chapter.selectable === false
+                          chapter.synthesizable === false
                             ? "No finished translation for this chapter"
                             : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
                               ? "Can't re-synthesize while it's being processed"
@@ -554,10 +551,13 @@ export function ChapterTable({
 
       {modalChapterIndex !== null ? (
         <ChapterModal
+          bookId={bookId}
           chapters={chapters}
           files={files}
           chapterIndex={modalChapterIndex}
           language={language}
+          languages={languages}
+          onSwitchLanguage={onSwitchLanguage}
           onClose={() => setModalChapterIndex(null)}
           onNavigate={setModalChapterIndex}
           onQueue={onQueue}
