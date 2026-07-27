@@ -95,7 +95,7 @@ export async function translate(
       await addJob("synthesizeTranslation", { translationId, bookId }, { maxAttempts: 1 });
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = describeError(err);
     await chLog(`Translation failed: ${message}`);
     await db
       .update(chapterTranslations)
@@ -103,4 +103,14 @@ export async function translate(
       .where(and(eq(chapterTranslations.id, translationId), ne(chapterTranslations.status, "suspended")));
     throw err;
   }
+}
+
+// Node fetch failures bury the real reason (DNS, refused, reset) in err.cause
+function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const parts = [err.message];
+  for (let cause = err.cause; cause instanceof Error; cause = cause.cause) {
+    parts.push(cause.message);
+  }
+  return parts.join(" — ");
 }

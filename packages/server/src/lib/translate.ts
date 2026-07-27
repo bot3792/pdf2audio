@@ -43,6 +43,7 @@ export type TranslateChunkFn = (args: TranslateChunkArgs) => Promise<string>;
 
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = "deepseek-v4-flash";
+const REQUEST_TIMEOUT_MS = 120_000;
 
 export const translateChunk: TranslateChunkFn = async ({ text, language, previousTranslation }) => {
   const apiKey = env.DEEPSEEK_API_KEY;
@@ -58,26 +59,32 @@ export const translateChunk: TranslateChunkFn = async ({ text, language, previou
     "Output ONLY the translation, nothing else.",
   ].filter(Boolean).join("\n\n");
 
-  const res = await fetch(DEEPSEEK_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: text },
-      ],
-      temperature: 1.3,
-      stream: false,
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`DeepSeek API error ${res.status}: ${body.slice(0, 300)}`);
+  const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  let data: { choices: { message: { content: string } }[] };
+  try {
+    const res = await fetch(DEEPSEEK_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: text },
+        ],
+        temperature: 1.3,
+        stream: false,
+      }),
+      signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`DeepSeek API error ${res.status}: ${body.slice(0, 300)}`);
+    }
+    data = (await res.json()) as { choices: { message: { content: string } }[] };
+  } catch (err) {
+    if (signal.aborted) throw new Error(`DeepSeek request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+    throw err;
   }
-
-  const data = (await res.json()) as { choices: { message: { content: string } }[] };
   const content = data.choices[0]?.message?.content?.trim();
   if (!content) throw new Error("DeepSeek returned an empty translation");
   return content;
