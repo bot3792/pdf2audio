@@ -45,19 +45,9 @@ const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = "deepseek-v4-flash";
 const REQUEST_TIMEOUT_MS = 120_000;
 
-export const translateChunk: TranslateChunkFn = async ({ text, language, previousTranslation }) => {
+async function deepseekChat(system: string, user: string): Promise<string> {
   const apiKey = env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY is not set — add it to .env");
-
-  const system = [
-    `You are a professional literary translator. Translate the user's text from its original language into ${language}.`,
-    "Preserve the literary style, tone, and register. Keep dialogue natural and idiomatic, using the dialogue punctuation conventions of the target language.",
-    "Keep character names consistent throughout.",
-    previousTranslation
-      ? `You are continuing a translation in progress. The tail of the translation so far (for continuity of names, terminology, and grammatical gender):\n\n${previousTranslation}`
-      : "",
-    "Output ONLY the translation, nothing else.",
-  ].filter(Boolean).join("\n\n");
 
   const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   let data: { choices: { message: { content: string } }[] };
@@ -69,7 +59,7 @@ export const translateChunk: TranslateChunkFn = async ({ text, language, previou
         model: DEEPSEEK_MODEL,
         messages: [
           { role: "system", content: system },
-          { role: "user", content: text },
+          { role: "user", content: user },
         ],
         temperature: 1.3,
         stream: false,
@@ -88,4 +78,48 @@ export const translateChunk: TranslateChunkFn = async ({ text, language, previou
   const content = data.choices[0]?.message?.content?.trim();
   if (!content) throw new Error("DeepSeek returned an empty translation");
   return content;
+}
+
+export const translateChunk: TranslateChunkFn = async ({ text, language, previousTranslation }) => {
+  const system = [
+    `You are a professional literary translator. Translate the user's text from its original language into ${language}.`,
+    "Preserve the literary style, tone, and register. Keep dialogue natural and idiomatic, using the dialogue punctuation conventions of the target language.",
+    "Keep character names consistent throughout.",
+    previousTranslation
+      ? `You are continuing a translation in progress. The tail of the translation so far (for continuity of names, terminology, and grammatical gender):\n\n${previousTranslation}`
+      : "",
+    "Output ONLY the translation, nothing else.",
+  ].filter(Boolean).join("\n\n");
+
+  return deepseekChat(system, text);
 };
+
+export type TranslateTitleArgs = {
+  title: string;
+  language: string;
+  translatedOpening?: string;
+};
+
+export type TranslateTitleFn = (args: TranslateTitleArgs) => Promise<string>;
+
+export const translateTitle: TranslateTitleFn = async ({ title, language, translatedOpening }) => {
+  const system = [
+    `You are a professional literary translator. Translate the user's book chapter title into ${language}.`,
+    translatedOpening
+      ? `For consistent names and terminology, here is the translated opening of that chapter:\n\n${translatedOpening}`
+      : "",
+    "Output ONLY the translated title — no quotes, no explanation.",
+  ].filter(Boolean).join("\n\n");
+
+  const content = await deepseekChat(system, title);
+  return content.replace(/^["'«„“]+|["'»“”]+$/g, "").trim();
+};
+
+export function describeError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const parts = [err.message];
+  for (let cause = err.cause; cause instanceof Error; cause = cause.cause) {
+    parts.push(cause.message);
+  }
+  return parts.join(" — ");
+}

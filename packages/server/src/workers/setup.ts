@@ -6,6 +6,7 @@ import { assemble } from "./assemble.ts";
 import { redetect } from "./redetect.ts";
 import { propose } from "./propose.ts";
 import { translate } from "./translate.ts";
+import { translateTitles } from "./translate-titles.ts";
 import { synthesizeTranslation } from "./synthesize-translation.ts";
 import { sweepStrandedWork } from "./sweep.ts";
 import { env } from "../env.ts";
@@ -73,6 +74,7 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
     concurrency: 3,
     taskList: {
       translate: wrapTask("translate", translate),
+      translateTitles: wrapTask("translateTitles", (payload) => translateTitles(payload as any)),
     },
   },
 ];

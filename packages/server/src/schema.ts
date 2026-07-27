@@ -67,6 +67,7 @@ export const chapterTranslations = pgTable("chapter_translations", {
   id: uuid("id").primaryKey().defaultRandom(),
   chapterId: uuid("chapter_id").notNull().references(() => chapters.id, { onDelete: "cascade" }),
   language: text("language").notNull(),
+  title: text("title"),
   text: text("text").notNull().default(""),
   status: text("status", {
     enum: ["pending", "translating", "done", "failed", "suspended"],
@@ -74,6 +75,8 @@ export const chapterTranslations = pgTable("chapter_translations", {
   progress: text("progress"),
   error: text("error"),
   sourceHash: text("source_hash"),
+  // Fencing token: each translate run writes only while its token is current
+  runToken: text("run_token"),
   audioPath: text("audio_path"),
   audioDurationMs: integer("audio_duration_ms"),
   audioStatus: text("audio_status", {

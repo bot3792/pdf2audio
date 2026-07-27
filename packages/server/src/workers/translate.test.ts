@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 
 vi.mock("../lib/translate.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/translate.ts")>();
-  return { ...actual, translateChunk: vi.fn() };
+  return { ...actual, translateChunk: vi.fn(), translateTitle: vi.fn() };
 });
 
 vi.mock("../lib/log.ts", () => ({
@@ -18,10 +18,11 @@ vi.mock("../db.ts", async () => {
 });
 
 import { translate } from "./translate.ts";
-import { translateChunk, splitForTranslation } from "../lib/translate.ts";
+import { translateChunk, translateTitle, splitForTranslation } from "../lib/translate.ts";
 import { createHash } from "node:crypto";
 
 const mockTranslateChunk = vi.mocked(translateChunk);
+const mockTranslateTitle = vi.mocked(translateTitle);
 const mockAddJob = vi.fn(async () => {});
 const helpers = { addJob: mockAddJob as never };
 
@@ -56,6 +57,8 @@ describe("translate worker", () => {
   beforeEach(async () => {
     await resetDb(getDb());
     mockTranslateChunk.mockReset();
+    mockTranslateTitle.mockReset();
+    mockTranslateTitle.mockResolvedValue("Глава");
     mockAddJob.mockClear();
   });
 
@@ -188,6 +191,66 @@ describe("translate worker", () => {
     await translate({ translationId, bookId }, helpers);
 
     expect(mockAddJob).not.toHaveBeenCalled();
+  });
+
+  it("translates the chapter title with the translated opening as context", async () => {
+    const db = getDb();
+    const { bookId, translationId } = await insertFixture(db);
+    mockTranslateChunk.mockImplementation(async () => "BG");
+
+    await translate({ translationId, bookId }, helpers);
+
+    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    expect(row.title).toBe("Глава");
+    expect(mockTranslateTitle).toHaveBeenCalledWith({
+      title: "Ch",
+      language: "Bulgarian",
+      translatedOpening: expect.stringContaining("BG"),
+    });
+  });
+
+  it("keeps an existing title when resuming", async () => {
+    const db = getDb();
+    const total = splitForTranslation(SOURCE).length;
+    const { bookId, translationId } = await insertFixture(db, {
+      text: "BG-DONE-1",
+      progress: `1/${total}`,
+      sourceHash: SOURCE_HASH,
+    });
+    await db.update(chapterTranslations).set({ title: "Стара глава" }).where(eq(chapterTranslations.id, translationId));
+    mockTranslateChunk.mockImplementation(async () => "BG");
+
+    await translate({ translationId, bookId }, helpers);
+
+    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    expect(row.title).toBe("Стара глава");
+    expect(mockTranslateTitle).not.toHaveBeenCalled();
+  });
+
+  it("stops writing when a newer run takes over the row", async () => {
+    const db = getDb();
+    const { bookId, translationId } = await insertFixture(db);
+    const total = splitForTranslation(SOURCE).length;
+    expect(total).toBeGreaterThan(1);
+
+    let calls = 0;
+    mockTranslateChunk.mockImplementation(async () => {
+      calls++;
+      if (calls === 2) {
+        await db
+          .update(chapterTranslations)
+          .set({ runToken: "newer-run" })
+          .where(eq(chapterTranslations.id, translationId));
+      }
+      return `BG-${calls}`;
+    });
+
+    await translate({ translationId, bookId }, helpers);
+
+    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    expect(row.text).toBe("BG-1");
+    expect(row.runToken).toBe("newer-run");
+    expect(mockTranslateChunk).toHaveBeenCalledTimes(2);
   });
 
   it("marks the row failed when the provider throws", async () => {

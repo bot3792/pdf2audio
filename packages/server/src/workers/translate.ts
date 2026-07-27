@@ -1,9 +1,9 @@
 import { db } from "../db.ts";
 import { chapters, chapterTranslations } from "../schema.ts";
 import { eq, and, ne } from "drizzle-orm";
-import { splitForTranslation, translateChunk } from "../lib/translate.ts";
+import { splitForTranslation, translateChunk, translateTitle, describeError } from "../lib/translate.ts";
 import { appendLog } from "../lib/log.ts";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { WorkerUtils } from "graphile-worker";
 
 export type TranslatePayload = {
@@ -26,15 +26,23 @@ export async function translate(
 
   const chLog = (msg: string) => appendLog(bookId, `[Ch ${chapter.index + 1}] ${msg}`);
 
+  // The token fences out any older run still writing to this row: their guarded
+  // updates match zero rows from here on, so duplicate jobs can't interleave text.
+  const runToken = randomUUID();
   const transitioned = await db
     .update(chapterTranslations)
-    .set({ status: "translating", error: null, updatedAt: new Date() })
+    .set({ status: "translating", error: null, runToken, updatedAt: new Date() })
     .where(and(eq(chapterTranslations.id, translationId), ne(chapterTranslations.status, "suspended")))
     .returning({ id: chapterTranslations.id });
   if (transitioned.length === 0) {
     await chLog("Translation skipped (stopped before start)");
     return;
   }
+  const owned = and(
+    eq(chapterTranslations.id, translationId),
+    ne(chapterTranslations.status, "suspended"),
+    eq(chapterTranslations.runToken, runToken),
+  );
 
   try {
     const source = chapter.customText ?? chapter.cleanText ?? chapter.rawText;
@@ -50,9 +58,10 @@ export async function translate(
       done = Math.min(Number(match[1]), chunks.length);
     }
     let translated = done > 0 ? row.text : "";
+    const existingTitle = done > 0 ? row.title : null;
     if (done === 0) {
-      await db.update(chapterTranslations).set({ text: "", progress: null, sourceHash, updatedAt: new Date() })
-        .where(eq(chapterTranslations.id, translationId));
+      await db.update(chapterTranslations).set({ text: "", progress: null, title: null, sourceHash, updatedAt: new Date() })
+        .where(owned);
     }
 
     await chLog(
@@ -73,7 +82,7 @@ export async function translate(
       const updated = await db
         .update(chapterTranslations)
         .set({ text: translated, progress: `${i + 1}/${chunks.length}`, updatedAt: new Date() })
-        .where(and(eq(chapterTranslations.id, translationId), ne(chapterTranslations.status, "suspended")))
+        .where(owned)
         .returning({ id: chapterTranslations.id });
 
       if (updated.length === 0) {
@@ -82,15 +91,25 @@ export async function translate(
       }
     }
 
+    const title = existingTitle ?? await translateTitle({
+      title: chapter.title,
+      language: row.language,
+      translatedOpening: translated.slice(0, 1000),
+    });
+
     const [finished] = await db
       .update(chapterTranslations)
-      .set({ status: "done", updatedAt: new Date() })
-      .where(and(eq(chapterTranslations.id, translationId), ne(chapterTranslations.status, "suspended")))
+      .set({ status: "done", title, updatedAt: new Date() })
+      .where(owned)
       .returning({ audioStatus: chapterTranslations.audioStatus });
+    if (!finished) {
+      await chLog(`Translation stopped — kept ${chunks.length}/${chunks.length} chunks`);
+      return;
+    }
     await chLog(`Translation to ${row.language} done`);
 
     // Synthesis queued while this translation was still running waits as audioStatus=pending
-    if (finished?.audioStatus === "pending") {
+    if (finished.audioStatus === "pending") {
       await chLog(`Starting queued ${row.language} synthesis`);
       await addJob("synthesizeTranslation", { translationId, bookId }, { maxAttempts: 1 });
     }
@@ -100,17 +119,7 @@ export async function translate(
     await db
       .update(chapterTranslations)
       .set({ status: "failed", error: message, updatedAt: new Date() })
-      .where(and(eq(chapterTranslations.id, translationId), ne(chapterTranslations.status, "suspended")));
+      .where(owned);
     throw err;
   }
-}
-
-// Node fetch failures bury the real reason (DNS, refused, reset) in err.cause
-function describeError(err: unknown): string {
-  if (!(err instanceof Error)) return String(err);
-  const parts = [err.message];
-  for (let cause = err.cause; cause instanceof Error; cause = cause.cause) {
-    parts.push(cause.message);
-  }
-  return parts.join(" — ");
 }

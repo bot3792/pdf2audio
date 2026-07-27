@@ -14,6 +14,19 @@ const connectionString = env.DATABASE_URL;
 
 const STALE_RUNNING_MS = 15 * 60_000;
 
+// Requeueing without this leaves the old job behind and two workers end up
+// interleaving writes on the same translation row.
+async function deleteQueuedTranslateJobs(translationIds: string[]) {
+  if (translationIds.length === 0) return;
+  await db.execute(sql`
+    DELETE FROM graphile_worker._private_jobs j
+    USING graphile_worker._private_tasks t
+    WHERE t.id = j.task_id AND t.identifier = 'translate'
+      AND (j.payload ->> 'translationId') IN (SELECT json_array_elements_text(${JSON.stringify(translationIds)}::json))
+      AND j.locked_at IS NULL
+  `);
+}
+
 export const translationsRouter = router({
   get: publicProcedure
     .input(z.object({ chapterId: z.string().uuid(), language: z.string().min(1) }))
@@ -41,6 +54,7 @@ export const translationsRouter = router({
           chapterId: chapterTranslations.chapterId,
           language: chapterTranslations.language,
           status: chapterTranslations.status,
+          title: chapterTranslations.title,
           progress: chapterTranslations.progress,
           error: chapterTranslations.error,
           wordCount: sql<number>`coalesce(array_length(regexp_split_to_array(trim(${chapterTranslations.text}), '\s+'), 1), 0)`,
@@ -144,11 +158,12 @@ export const translationsRouter = router({
             status: "pending",
             error: null,
             updatedAt: new Date(),
-            ...(reset ? { text: "", progress: null } : {}),
+            ...(reset ? { text: "", progress: null, title: null } : {}),
           })
           .where(eq(chapterTranslations.id, existing.id))
           .returning({ id: chapterTranslations.id });
         translationId = updated.id;
+        await deleteQueuedTranslateJobs([translationId]);
       } else {
         const [created] = await db
           .insert(chapterTranslations)
@@ -218,11 +233,37 @@ export const translationsRouter = router({
         .set({ translationLanguage: input.language, updatedAt: new Date() })
         .where(eq(books.id, input.bookId));
 
+      await deleteQueuedTranslateJobs(translationIds);
       await appendLog(input.bookId, `Queued ${translationIds.length} chapter${translationIds.length === 1 ? "" : "s"} for translation to ${input.language}`);
       for (const tid of translationIds) {
         await quickAddJob({ connectionString }, "translate", { translationId: tid, bookId: input.bookId }, { maxAttempts: 1 });
       }
       return { queued: translationIds.length };
+    }),
+
+  translateMissingTitles: publicProcedure
+    .input(z.object({ bookId: z.string().uuid(), language: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const rows = await db
+        .select({ id: chapterTranslations.id })
+        .from(chapterTranslations)
+        .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+        .where(and(
+          eq(chapters.bookId, input.bookId),
+          eq(chapterTranslations.language, input.language),
+          eq(chapterTranslations.status, "done"),
+          sql`${chapterTranslations.title} IS NULL`,
+        ));
+      if (rows.length === 0) throw new Error(`No finished ${input.language} translations are missing a title`);
+
+      await appendLog(input.bookId, `Queued ${input.language} title translation for ${rows.length} chapter${rows.length === 1 ? "" : "s"}`);
+      await quickAddJob(
+        { connectionString },
+        "translateTitles",
+        { bookId: input.bookId, language: input.language },
+        { maxAttempts: 1, jobKey: `translateTitles:${input.bookId}:${input.language}` },
+      );
+      return { queued: rows.length };
     }),
 
   queueAudio: publicProcedure

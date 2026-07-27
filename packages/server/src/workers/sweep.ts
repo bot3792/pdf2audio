@@ -22,7 +22,7 @@ export async function sweepStrandedWork() {
     DELETE FROM graphile_worker._private_jobs j
     USING graphile_worker._private_tasks t
     WHERE t.id = j.task_id
-      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'synthesizeTranslation', 'assemble')
+      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble')
       AND (j.locked_at IS NOT NULL OR j.attempts >= j.max_attempts)
     RETURNING t.identifier, j.payload
   `)) as unknown as Array<{ identifier: string; payload: Record<string, unknown> }>;

@@ -100,6 +100,47 @@ describe("translations router", () => {
     expect(row?.progress).toBeNull();
   });
 
+  it("start with restart clears the translated title", async () => {
+    const db = getDb();
+    const { chapterId } = await insertFixture(db);
+    await db.insert(chapterTranslations).values({
+      chapterId,
+      language: "Bulgarian",
+      status: "done",
+      text: "done text",
+      title: "Стара глава",
+    });
+
+    const row = await caller.start({ chapterId, language: "Bulgarian", restart: true });
+
+    expect(row?.title).toBeNull();
+  });
+
+  it("translateMissingTitles queues a job when finished translations lack titles", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    await db.insert(chapterTranslations).values({ chapterId, language: "Bulgarian", status: "done", text: "done text" });
+
+    const result = await caller.translateMissingTitles({ bookId, language: "Bulgarian" });
+
+    expect(result.queued).toBe(1);
+    expect(mockQuickAddJob).toHaveBeenCalledWith(
+      expect.anything(),
+      "translateTitles",
+      { bookId, language: "Bulgarian" },
+      expect.objectContaining({ maxAttempts: 1 }),
+    );
+  });
+
+  it("translateMissingTitles rejects when no titles are missing", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    await db.insert(chapterTranslations).values({ chapterId, language: "Bulgarian", status: "done", text: "t", title: "Заглавие" });
+
+    await expect(caller.translateMissingTitles({ bookId, language: "Bulgarian" })).rejects.toThrow(/missing a title/);
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+
   it("stop suspends a running translation and clears queued jobs", async () => {
     const db = getDb();
     const { chapterId } = await insertFixture(db);

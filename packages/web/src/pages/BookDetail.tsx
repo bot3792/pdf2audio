@@ -74,6 +74,8 @@ export function BookDetail() {
   const [showStructure, setShowStructure] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [activeLanguage, setActiveLanguage] = useState<string | null>(null);
+  const [titlesRequested, setTitlesRequested] = useState(false);
+  useEffect(() => setTitlesRequested(false), [activeLanguage]);
 
   const { data: languages = [] } = trpc.translations.languages.useQuery(
     { bookId: id! },
@@ -89,7 +91,9 @@ export function BookDetail() {
           t.status === "translating" || t.status === "pending" ||
           t.audioStatus === "synthesizing" || t.audioStatus === "pending"
         );
-        return active ? 2000 : false;
+        const titlesPending = titlesRequested &&
+          query.state.data?.some((t) => t.status === "done" && !t.title);
+        return active || titlesPending ? 2000 : false;
       },
     },
   );
@@ -104,6 +108,12 @@ export function BookDetail() {
   const processSelectedTranslationsMutation = trpc.translations.processSelectedTranslations.useMutation({ onSuccess: invalidateTranslations });
   const processSelectedAudioMutation = trpc.translations.processSelectedAudio.useMutation({ onSuccess: invalidateTranslations });
   const stopAudioMutation = trpc.translations.stopAudio.useMutation({ onSuccess: invalidateTranslations });
+  const translateTitlesMutation = trpc.translations.translateMissingTitles.useMutation({
+    onSuccess: () => {
+      setTitlesRequested(true);
+      invalidateTranslations();
+    },
+  });
   const assembleTranslationMutation = trpc.translations.assemble.useMutation({ onSuccess: invalidateTranslations });
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
@@ -135,6 +145,7 @@ export function BookDetail() {
         const translated = t?.status === "done";
         return {
           ...c,
+          title: t?.title ?? c.title,
           // null audioStatus = never queued; "suspended" is this app's idle-awaiting-action state
           status: translated
             ? (t.audioStatus ?? "suspended")
@@ -180,6 +191,9 @@ export function BookDetail() {
   const translationAudioQueued = activeLanguage
     ? translationRows.some((t) => t.audioStatus === "pending" || t.audioStatus === "synthesizing")
     : false;
+  const missingTitleCount = activeLanguage
+    ? translationRows.filter((t) => t.status === "done" && !t.title).length
+    : 0;
   const selectedTranslatable = activeLanguage
     ? book.chapters.filter((c) => {
         if (!c.selected) return false;
@@ -323,6 +337,17 @@ export function BookDetail() {
                 {translationsRunning ? " Translation in progress..." : ""}
               </span>
               <div className="flex-1" />
+              {missingTitleCount > 0 ? (
+                <button
+                  onClick={() => translateTitlesMutation.mutate({ bookId: book.id, language: activeLanguage })}
+                  disabled={translateTitlesMutation.isPending || titlesRequested}
+                  title={`Translate the ${missingTitleCount} chapter title${missingTitleCount === 1 ? "" : "s"} still shown in the original language`}
+                  className="text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline shrink-0 disabled:opacity-50 disabled:no-underline"
+                  data-testid="translate-titles"
+                >
+                  {titlesRequested ? `Translating titles (${missingTitleCount} left)...` : `Translate titles (${missingTitleCount})`}
+                </button>
+              ) : null}
               <button
                 onClick={() => setActiveLanguage(null)}
                 className="text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline shrink-0"
