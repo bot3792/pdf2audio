@@ -1,4 +1,4 @@
-import { env } from "../env.ts";
+import { deepseekChat } from "./deepseek.ts";
 
 const MAX_CHUNK_CHARS = 2500;
 
@@ -41,45 +41,6 @@ export type TranslateChunkArgs = {
 
 export type TranslateChunkFn = (args: TranslateChunkArgs) => Promise<string>;
 
-const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
-const DEEPSEEK_MODEL = "deepseek-v4-flash";
-const REQUEST_TIMEOUT_MS = 120_000;
-
-async function deepseekChat(system: string, user: string): Promise<string> {
-  const apiKey = env.DEEPSEEK_API_KEY;
-  if (!apiKey) throw new Error("DEEPSEEK_API_KEY is not set — add it to .env");
-
-  const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  let data: { choices: { message: { content: string } }[] };
-  try {
-    const res = await fetch(DEEPSEEK_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        temperature: 1.3,
-        stream: false,
-      }),
-      signal,
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`DeepSeek API error ${res.status}: ${body.slice(0, 300)}`);
-    }
-    data = (await res.json()) as { choices: { message: { content: string } }[] };
-  } catch (err) {
-    if (signal.aborted) throw new Error(`DeepSeek request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
-    throw err;
-  }
-  const content = data.choices[0]?.message?.content?.trim();
-  if (!content) throw new Error("DeepSeek returned an empty translation");
-  return content;
-}
-
 export const translateChunk: TranslateChunkFn = async ({ text, language, previousTranslation }) => {
   const system = [
     `You are a professional literary translator. Translate the user's text from its original language into ${language}.`,
@@ -91,7 +52,7 @@ export const translateChunk: TranslateChunkFn = async ({ text, language, previou
     "Output ONLY the translation, nothing else.",
   ].filter(Boolean).join("\n\n");
 
-  return deepseekChat(system, text);
+  return deepseekChat(system, text, { temperature: 1.3 });
 };
 
 export type TranslateTitleArgs = {
@@ -111,15 +72,6 @@ export const translateTitle: TranslateTitleFn = async ({ title, language, transl
     "Output ONLY the translated title — no quotes, no explanation.",
   ].filter(Boolean).join("\n\n");
 
-  const content = await deepseekChat(system, title);
+  const content = await deepseekChat(system, title, { temperature: 1.3 });
   return content.replace(/^["'«„“]+|["'»“”]+$/g, "").trim();
 };
-
-export function describeError(err: unknown): string {
-  if (!(err instanceof Error)) return String(err);
-  const parts = [err.message];
-  for (let cause = err.cause; cause instanceof Error; cause = cause.cause) {
-    parts.push(cause.message);
-  }
-  return parts.join(" — ");
-}

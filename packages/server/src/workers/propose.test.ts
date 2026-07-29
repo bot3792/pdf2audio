@@ -12,8 +12,8 @@ vi.mock("../lib/marker.ts", async (importOriginal) => {
   };
 });
 
-vi.mock("../lib/chapter-detect.ts", () => ({
-  detectChaptersWithLlm: vi.fn(),
+vi.mock("../lib/toc-detect.ts", () => ({
+  detectChaptersWithDeepseek: vi.fn(),
 }));
 
 vi.mock("../lib/log.ts", () => ({
@@ -31,10 +31,10 @@ vi.mock("../db.ts", async () => {
 
 import { propose } from "./propose.ts";
 import { collectBlocksFromMarkerOutput, type FlatBlock } from "../lib/marker.ts";
-import { detectChaptersWithLlm } from "../lib/chapter-detect.ts";
+import { detectChaptersWithDeepseek } from "../lib/toc-detect.ts";
 
 const mockCollectBlocks = vi.mocked(collectBlocksFromMarkerOutput);
-const mockLlm = vi.mocked(detectChaptersWithLlm);
+const mockLlm = vi.mocked(detectChaptersWithDeepseek);
 
 function heading(text: string, page: number): FlatBlock {
   return { type: "SectionHeader", text, hierarchy: null, page, included: true };
@@ -83,21 +83,47 @@ describe("propose worker", () => {
     expect(mockLlm).not.toHaveBeenCalled();
   });
 
-  it("matches LLM boundaries to heading blocks", async () => {
+  it("stores DeepSeek-selected boundaries with cleaned and translated titles, falling back to block text", async () => {
+    const db = getDb();
+    const bookId = await insertBook(db);
+    await db.update(books).set({ translationLanguage: "English" }).where(eq(books.id, bookId));
+    mockCollectBlocks.mockResolvedValue(blocks);
+    mockLlm.mockResolvedValue(
+      new Map([
+        [
+          null,
+          [
+            { blockIndex: 0, title: "Глава 1", titleTranslated: "Chapter 1: One" },
+            { blockIndex: 2, title: null, titleTranslated: null },
+          ],
+        ],
+      ])
+    );
+
+    await propose({ bookId, method: "llm" });
+
+    expect(mockLlm).toHaveBeenCalledWith(expect.anything(), expect.anything(), { translateTo: "English" });
+
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(book.chapterProposal?.status).toBe("done");
+    expect(book.chapterProposal?.detection).toBe("llm");
+    expect(book.chapterProposal?.boundaries).toEqual([
+      { fileIndex: null, blockIndex: 0, title: "Глава 1", titleTranslated: "Chapter 1: One", page: 10 },
+      { fileIndex: null, blockIndex: 2, title: "Chapter 3 Three", page: 30 },
+    ]);
+  });
+
+  it("marks the proposal done with no boundaries when DeepSeek finds nothing usable", async () => {
     const db = getDb();
     const bookId = await insertBook(db);
     mockCollectBlocks.mockResolvedValue(blocks);
-    mockLlm.mockResolvedValue([
-      { title: "Chapter 1 One", page: 10 },
-      { title: "Chapter 3 Three", page: 30 },
-    ]);
+    mockLlm.mockResolvedValue(null);
 
     await propose({ bookId, method: "llm" });
 
     const [book] = await db.select().from(books).where(eq(books.id, bookId));
     expect(book.chapterProposal?.status).toBe("done");
-    expect(book.chapterProposal?.detection).toBe("llm");
-    expect(book.chapterProposal?.boundaries?.map((b) => b.blockIndex)).toEqual([0, 2]);
+    expect(book.chapterProposal?.boundaries).toEqual([]);
   });
 
   it("marks the proposal failed when extraction output is unreadable", async () => {

@@ -198,6 +198,24 @@ describe("booksRouter.applyChapterBoundaries", () => {
     expect(updated.status).toBe("pending");
   });
 
+  it("applies proposal title overrides to the sliced chapters", async () => {
+    const db = getDb();
+    const bookId = await insertStructureBook(db);
+    mockCollectBlocks.mockResolvedValue(structureBlocks);
+
+    const caller = booksRouter.createCaller({});
+    await caller.applyChapterBoundaries({
+      id: bookId,
+      boundaries: [
+        { fileIndex: null, blockIndex: 1, title: "Chapter 1: The Beginning" },
+        { fileIndex: null, blockIndex: 3 },
+      ],
+    });
+
+    const chs = await db.select().from(chapters).where(eq(chapters.bookId, bookId)).orderBy(chapters.index);
+    expect(chs.map((c) => c.title)).toEqual(["Chapter 1: The Beginning", "Chapter 2 Middle"]);
+  });
+
   it("rejects out-of-range block indices without touching existing chapters", async () => {
     const db = getDb();
     const bookId = await insertStructureBook(db);

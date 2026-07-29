@@ -6,7 +6,7 @@ type ChapterProposal = {
   status: "running" | "done" | "failed";
   method: "llm" | "deterministic";
   detection?: "llm" | "numbered-headings" | "heading-levels";
-  boundaries?: { fileIndex: number | null; blockIndex: number; title: string; page: number }[];
+  boundaries?: { fileIndex: number | null; blockIndex: number; title: string; titleTranslated?: string; page: number }[];
   error?: string;
   createdAt: string;
 };
@@ -83,6 +83,30 @@ export function StructureModal({
 
   const proposalRunning = chapterProposal?.status === "running";
 
+  const { data: runningLogs } = trpc.books.logs.useQuery(
+    { bookId },
+    { enabled: proposalRunning, refetchInterval: 2000 }
+  );
+  const proposalProgress = proposalRunning
+    ? runningLogs
+        ?.filter(
+          (l) =>
+            l.message.startsWith("[DeepSeek]") &&
+            chapterProposal &&
+            new Date(l.createdAt) >= new Date(chapterProposal.createdAt)
+        )
+        .at(-1)?.message
+    : undefined;
+
+  // DeepSeek proposals carry cleaned-up (and optionally translated) titles; keep them through preview and apply
+  const proposalBoundaries = chapterProposal?.status === "done" ? chapterProposal.boundaries ?? [] : [];
+  const proposalTitles = new Map(proposalBoundaries.map((b) => [boundaryKey(b.fileIndex, b.blockIndex), b.title]));
+  const proposalTranslations = new Map(
+    proposalBoundaries
+      .filter((b) => b.titleTranslated)
+      .map((b) => [boundaryKey(b.fileIndex, b.blockIndex), b.titleTranslated!])
+  );
+
   const allKeys =
     structure?.files.flatMap((file) => file.headings.map((h) => boundaryKey(file.fileIndex, h.blockIndex))) ?? [];
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k));
@@ -133,7 +157,11 @@ export function StructureModal({
     const boundaries = structure.files.flatMap((file) =>
       file.headings
         .filter((h) => selected.has(boundaryKey(file.fileIndex, h.blockIndex)))
-        .map((h) => ({ fileIndex: file.fileIndex, blockIndex: h.blockIndex }))
+        .map((h) => ({
+          fileIndex: file.fileIndex,
+          blockIndex: h.blockIndex,
+          title: proposalTitles.get(boundaryKey(file.fileIndex, h.blockIndex)),
+        }))
     );
     if (boundaries.length === 0) return;
     if (!confirm(`Re-slice the book into ${boundaries.length} chapters? Existing chapters, audio, and assemblies will be deleted.`)) return;
@@ -148,20 +176,31 @@ export function StructureModal({
   function previewFor(file: StructureFile) {
     const chosen = file.headings.filter((h) => selected.has(boundaryKey(file.fileIndex, h.blockIndex)));
     if (chosen.length === 0) {
-      return [{ key: "full", title: "Full Text", pageStart: 1, pageEnd: file.totalPages, words: file.totalWords }];
+      return [
+        { key: "full", title: "Full Text", translated: undefined, pageStart: 1, pageEnd: file.totalPages, words: file.totalWords },
+      ];
     }
     const chapters = chosen.map((h, i) => {
       const next = chosen[i + 1];
+      const key = boundaryKey(file.fileIndex, h.blockIndex);
       return {
         key: `${h.blockIndex}`,
-        title: h.text,
+        title: proposalTitles.get(key) ?? h.text,
+        translated: proposalTranslations.get(key),
         pageStart: h.page,
         pageEnd: next ? next.page : file.totalPages,
         words: (next ? next.wordsBefore : file.totalWords) - h.wordsBefore,
       };
     });
     if (chosen[0].wordsBefore > 50) {
-      chapters.unshift({ key: "preface", title: "Preface", pageStart: 1, pageEnd: chosen[0].page, words: chosen[0].wordsBefore });
+      chapters.unshift({
+        key: "preface",
+        title: "Preface",
+        translated: undefined,
+        pageStart: 1,
+        pageEnd: chosen[0].page,
+        words: chosen[0].wordsBefore,
+      });
     }
     return chapters;
   }
@@ -262,8 +301,18 @@ export function StructureModal({
                             H{h.level}
                           </span>
                         ) : null}
-                        <span className="flex-1 truncate text-(--text-primary)" title={h.text}>
-                          {h.text}
+                        <span className="flex-1 min-w-0">
+                          <span className="block truncate text-(--text-primary)" title={h.text}>
+                            {h.text}
+                          </span>
+                          {proposalTranslations.has(key) ? (
+                            <span
+                              className="block truncate text-xs text-(--text-muted) italic"
+                              title={proposalTranslations.get(key)}
+                            >
+                              {proposalTranslations.get(key)}
+                            </span>
+                          ) : null}
                         </span>
                         {pdfFile ? (
                           <button
@@ -303,8 +352,15 @@ export function StructureModal({
                 {previewFor(file).map((ch, i) => (
                   <div key={ch.key} className="flex items-baseline gap-2 py-0.5 text-sm">
                     <span className="shrink-0 text-xs font-mono text-(--text-faint) w-6 text-right">{i + 1}.</span>
-                    <span className="flex-1 truncate text-(--text-secondary)" title={ch.title}>
-                      {ch.title}
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate text-(--text-secondary)" title={ch.title}>
+                        {ch.title}
+                      </span>
+                      {ch.translated ? (
+                        <span className="block truncate text-xs text-(--text-muted) italic" title={ch.translated}>
+                          {ch.translated}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="shrink-0 text-xs text-(--text-muted) tabular-nums">
                       p.{ch.pageStart}–{ch.pageEnd} · {ch.words.toLocaleString()}w
@@ -329,13 +385,14 @@ export function StructureModal({
             onClick={() => proposeMutation.mutate({ id: bookId, method: "llm" })}
             disabled={proposalRunning || proposeMutation.isPending}
             className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50"
-            title="Ask the local LLM for chapter boundaries and preview the result before committing (takes minutes)"
+            title="Ask DeepSeek to find the table of contents and propose chapter boundaries (takes a few minutes on big or multi-file books)"
           >
             Propose (LLM)
           </button>
           {proposalRunning ? (
-            <span className="text-sm text-blue-600" data-testid="proposal-running">
-              Proposal running{chapterProposal?.method === "llm" ? " (LLM, may take minutes)" : ""}...
+            <span className="text-sm text-blue-600 truncate" data-testid="proposal-running" title={proposalProgress}>
+              {proposalProgress?.replace(/^\[DeepSeek\]\s*/, "") ??
+                `Proposal running${chapterProposal?.method === "llm" ? " (asking DeepSeek)" : ""}...`}
             </span>
           ) : null}
           {applyMutation.error || proposeMutation.error ? (

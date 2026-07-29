@@ -270,7 +270,11 @@ export function pickNumberedChapterIndices(allBlocks: FlatBlock[]): number[] {
   return increasing.map((i) => deduped[i].index);
 }
 
-export function sliceChaptersAtIndices(allBlocks: FlatBlock[], boundaryIndices: number[]): ExtractedChapter[] {
+export function sliceChaptersAtIndices(
+  allBlocks: FlatBlock[],
+  boundaryIndices: number[],
+  titleOverrides?: Map<number, string>
+): ExtractedChapter[] {
   const sorted = [...new Set(boundaryIndices)].sort((a, b) => a - b);
   if (sorted.length === 0) {
     return [chapterFromBlocks("Full Text", allBlocks)];
@@ -281,7 +285,7 @@ export function sliceChaptersAtIndices(allBlocks: FlatBlock[], boundaryIndices: 
     const start = sorted[i];
     const end = i + 1 < sorted.length ? sorted[i + 1] : allBlocks.length;
     const blocks = allBlocks.slice(start, end);
-    const ch = chapterFromBlocks(allBlocks[start].text, blocks);
+    const ch = chapterFromBlocks(titleOverrides?.get(start) ?? allBlocks[start].text, blocks);
     if (ch.text.trim()) {
       chapters.push(ch);
     }

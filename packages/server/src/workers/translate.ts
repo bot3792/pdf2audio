@@ -1,7 +1,8 @@
 import { db } from "../db.ts";
 import { chapters, chapterTranslations } from "../schema.ts";
 import { eq, and, ne } from "drizzle-orm";
-import { splitForTranslation, translateChunk, translateTitle, describeError } from "../lib/translate.ts";
+import { splitForTranslation, translateChunk, translateTitle } from "../lib/translate.ts";
+import { describeError } from "../lib/deepseek.ts";
 import { appendLog } from "../lib/log.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { WorkerUtils } from "graphile-worker";

@@ -338,7 +338,13 @@ export const booksRouter = router({
       z.object({
         id: z.string().uuid(),
         boundaries: z
-          .array(z.object({ fileIndex: z.number().int().nullable(), blockIndex: z.number().int().nonnegative() }))
+          .array(
+            z.object({
+              fileIndex: z.number().int().nullable(),
+              blockIndex: z.number().int().nonnegative(),
+              title: z.string().trim().min(1).optional(),
+            })
+          )
           .min(1),
       })
     )
@@ -358,12 +364,14 @@ export const booksRouter = router({
       // Slice everything before deleting so a bad boundary can't destroy existing chapters
       const perFile: { fileIndex: number | null; sliced: ExtractedChapter[] }[] = [];
       for (const source of sources) {
-        const indices = input.boundaries.filter((b) => b.fileIndex === source.fileIndex).map((b) => b.blockIndex);
+        const fileBoundaries = input.boundaries.filter((b) => b.fileIndex === source.fileIndex);
+        const indices = fileBoundaries.map((b) => b.blockIndex);
+        const titles = new Map(fileBoundaries.filter((b) => b.title).map((b) => [b.blockIndex, b.title!]));
         const allBlocks = await collectBlocksFromMarkerOutput(source.outDir);
         for (const i of indices) {
           if (i >= allBlocks.length) throw new Error(`Block index ${i} out of range for "${source.filename}"`);
         }
-        perFile.push({ fileIndex: source.fileIndex, sliced: sliceChaptersAtIndices(allBlocks, indices) });
+        perFile.push({ fileIndex: source.fileIndex, sliced: sliceChaptersAtIndices(allBlocks, indices, titles) });
       }
 
       const oldChapters = await db

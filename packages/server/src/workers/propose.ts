@@ -1,8 +1,8 @@
 import { db } from "../db.ts";
 import { books, type ChapterProposal, type ChapterProposalBoundary } from "../schema.ts";
 import { eq } from "drizzle-orm";
-import { collectBlocksFromMarkerOutput, findMarkerJson, detectBoundaryIndices, matchBoundariesToBlocks } from "../lib/marker.ts";
-import { detectChaptersWithLlm } from "../lib/chapter-detect.ts";
+import { collectBlocksFromMarkerOutput, detectBoundaryIndices, type FlatBlock } from "../lib/marker.ts";
+import { detectChaptersWithDeepseek } from "../lib/toc-detect.ts";
 import { listMarkerSources } from "../lib/marker-sources.ts";
 import { appendLog } from "../lib/log.ts";
 
@@ -25,31 +25,47 @@ export async function propose(payload: ProposePayload) {
     const boundaries: ChapterProposalBoundary[] = [];
     let detection: ChapterProposal["detection"];
 
-    for (const source of sources) {
-      const allBlocks = await collectBlocksFromMarkerOutput(source.outDir);
-      let indices: number[] = [];
-
-      if (method === "llm") {
-        const markerJsonPath = await findMarkerJson(source.outDir);
-        const llmBoundaries = await detectChaptersWithLlm(markerJsonPath, source.pdfPath, log);
-        if (llmBoundaries && llmBoundaries.length >= 2) {
-          indices = matchBoundariesToBlocks(allBlocks, llmBoundaries);
-          detection = "llm";
-        } else {
-          await log(`LLM returned no usable chapters for "${source.filename}"`);
+    if (method === "llm") {
+      const files: { fileIndex: number | null; blocks: FlatBlock[]; pdfPath?: string }[] = [];
+      for (const source of sources) {
+        files.push({
+          fileIndex: source.fileIndex,
+          blocks: await collectBlocksFromMarkerOutput(source.outDir),
+          pdfPath: source.pdfPath,
+        });
+      }
+      const selected = await detectChaptersWithDeepseek(files, log, {
+        translateTo: book.translationLanguage ?? undefined,
+      });
+      if (selected) {
+        detection = "llm";
+        for (const { fileIndex, blocks } of files) {
+          for (const s of selected.get(fileIndex) ?? []) {
+            const block = blocks[s.blockIndex];
+            boundaries.push({
+              fileIndex,
+              blockIndex: s.blockIndex,
+              title: s.title ?? block.text,
+              ...(s.titleTranslated ? { titleTranslated: s.titleTranslated } : {}),
+              page: block.page,
+            });
+          }
         }
       } else {
+        await log("DeepSeek returned no usable chapters");
+      }
+    } else {
+      for (const source of sources) {
+        const allBlocks = await collectBlocksFromMarkerOutput(source.outDir);
         const detected = detectBoundaryIndices(allBlocks);
         if (detected) {
-          indices = detected.indices;
           detection = detected.method;
+          for (const i of detected.indices) {
+            boundaries.push({ fileIndex: source.fileIndex, blockIndex: i, title: allBlocks[i].text, page: allBlocks[i].page });
+          }
         } else {
           await log(`No chapter headings detected for "${source.filename}"`);
         }
-      }
-
-      for (const i of indices) {
-        boundaries.push({ fileIndex: source.fileIndex, blockIndex: i, title: allBlocks[i].text, page: allBlocks[i].page });
       }
     }
 

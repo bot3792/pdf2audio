@@ -144,7 +144,9 @@ packages/server/src/
     log.ts              appendLog() — writes to DB + console
     paths.ts            Data directory path helpers (uploadsDir, tmpDir, outputDir)
     marker.ts           Marker subprocess wrapper + chapter detection logic
-    chapter-detect.ts   Qwen3.6 LLM subprocess wrapper for chapter boundary detection
+    chapter-detect.ts   Qwen3.6 LLM subprocess wrapper for chapter boundary detection (extract-time only)
+    deepseek.ts         Shared DeepSeek chat-completions client (translation + TOC detection)
+    toc-detect.ts       DeepSeek TOC-guided chapter proposal: find printed TOC in first/last pages, select headings
     kokoro.ts           Kokoro TTS subprocess wrapper with onProgress callback
     ffmpeg.ts           FFmpeg WAV→MP3 and concat helpers
     id3-chapters.ts     MP3 chapter marker writing
@@ -228,6 +230,8 @@ Blocks kept: Text, SectionHeader, ListItem, Handwriting.
 All others dropped (PageHeader, PageFooter, Footnote, Figure, etc.).
 
 **Important**: Marker nests its output in a subdirectory named after the PDF stem. The code handles this by searching one level deep if the JSON isn't at the top of the output directory.
+
+**Propose (LLM) button** (structure modal) uses a different path: `workers/propose.ts` → `lib/toc-detect.ts` calls the DeepSeek API (per source file): call 1 reads the first/last 15 pages (from marker blocks, so OCR books work) and extracts the printed TOC as JSON; call 2 selects chapter-start headings from a blockIndex-keyed catalog and returns a cleaned title per selection (OCR artifacts fixed, TOC wording preferred), with a corrective retry when far fewer headings than TOC entries were selected. Proposal titles flow through apply: `applyChapterBoundaries` accepts optional per-boundary `title` overrides passed to `sliceChaptersAtIndices`. No `max_tokens` on these calls — deepseek-v4-flash spends budget on reasoning first and a cap can produce an empty response; calls take 1-5 min each (reasoning), timeout 600s.
 
 ## Text Normalization (`lib/normalizer.ts`)
 

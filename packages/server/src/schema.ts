@@ -4,6 +4,7 @@ export type ChapterProposalBoundary = {
   fileIndex: number | null;
   blockIndex: number;
   title: string;
+  titleTranslated?: string;
   page: number;
 };
 
