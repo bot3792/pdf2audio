@@ -1,58 +1,47 @@
-# Document export (PDF/EPUB) — handoff plan
+# Document export (PDF/EPUB) — SHIPPED 2026-07-28
 
-Goal: book-level action "assemble document from selected chapters" so a book can be
-turned from one language into another as a readable file. Works in both views: in a
-language view it renders the translated text, in the original view the source text.
+Book-level "Export PDF" / "Export EPUB" actions render the selected chapters into a
+readable file. In a language view they render the translated text (status=done only),
+in the original view the `customText ?? cleanText ?? rawText` source text.
 
-## Decisions already made
+## What shipped
 
-- **Renderer: Vivliostyle CLI** (Node-native, actively maintained, Node 20+). It fills
-  the one gap Chromium print still has — `target-counter`, i.e. TOC entries with real
-  page numbers — and outputs **EPUB from the same HTML input**. Chromium natively
-  supports `@page` margin boxes + page counters since late 2024, so plain Playwright
-  `page.pdf()` is the documented fallback (same HTML, TOC just loses page numbers).
-  Rejected: WeasyPrint (Python, second-class in the TS worker), Typst (new toolchain +
-  markup escaping), PrinceXML (commercial), pdfkit/react-pdf (hand-rolled pagination).
-- **Chapters render as discrete units** — translated `<h1>` title + body paragraphs.
-  No LLM "gluing" between chapters (explicitly decided against feeding PDF pages to
-  DeepSeek; faithful rendering, not editorial rewriting).
-- **Title dedup rule**: the chapter title often repeats as the body's first line.
-  Detect on the ORIGINAL side (normalize + compare `chapters.title` vs the first
-  line(s) of the source text); when matched, drop the first line of the translated
-  body at render time. Deterministic — no LLM involved.
-- Translated titles are DONE: `chapter_translations.title` is filled by the translate
-  worker on completion and by the `translateTitles` backfill worker (button in the
-  language-view banner).
+- **`assembleDocument` worker** (`workers/assemble-document.ts`, extraction pool):
+  payload `{ bookId, language?, format: "pdf" | "epub" }`. Sets `books.status =
+  "assembling"` while running; swept/replayed on crash like `assemble`.
+- **`documents` table** (migration `0020`): mirrors `assemblies` minus duration, plus
+  `format`. Rows only on success. Deleted by redetect alongside assemblies.
+- **HTML builder** (`lib/document-html.ts`, pure + unit-tested): cover page, TOC with
+  real page numbers (`target-counter` + dotted leaders), A5 `@page` with running
+  headers (book title verso / chapter title recto), justified text with `hyphens:
+  auto`, light markdown from DeepSeek output (`#`/`##` headings, bold, italic)
+  rendered as elements. Language attr inferred Cyrillic-vs-Latin (`bg`/`en`/`und`).
+- **Title dedup**: detected on the ORIGINAL side (`titleRepeatsAsFirstLine`,
+  normalize-compare `chapters.title` vs first line of source); drops the first block
+  of the rendered body. Fired on 17/19 chapters of the test book.
+- **Renderer** (`lib/vivliostyle.ts`): `@vivliostyle/cli` (server dep) invoked as a
+  subprocess via its resolved bin, `--log-level silent --timeout 1800`. First run
+  downloads a Chromium into the Vivliostyle cache (one-time, then offline).
+- **Routes**: `books.exportDocument` / `books.documents` / `books.deleteDocument`
+  tRPC; `GET /download/document/:id` with correct MIME types.
+- **UI**: emerald "Export PDF/EPUB (n)" buttons next to "Assemble selected" (disabled
+  with tooltips per convention), Documents table scoped to the active language view.
 
-## Implementation sketch
+## Spike results (book 2c29b696, 19 ch, 1.8M chars)
 
-1. `assembleDocument` worker (extraction pool, like `assemble`): payload
-   `{ bookId, language?, format: "pdf" | "epub" }`. Pulls selected chapters in order;
-   in a language view uses `chapter_translations.text`/`.title` (require status=done,
-   mirror the audio-assemble selection rule), else `customText ?? cleanText ?? rawText`
-   and `chapters.title`.
-2. Build one HTML file (+ CSS for @page size/margins, running headers, TOC via
-   `target-counter`) in the book's output dir, run Vivliostyle CLI on it.
-3. Store the artifact like audio assemblies (an `assemblies`-like row or new
-   `documents` table — check how `assemblies.language`/`outputPath` work and mirror;
-   download route like `/download/assembly/:id`).
-4. UI: button next to "Assemble selected" in BookDetail, same selection/disabled
-   conventions (buttons disabled-not-hidden, tooltips).
+- Full book → 934-page A5 PDF in ~25s, ~1.2GB peak RSS; EPUB in ~2.3s from same HTML.
+- 451k-char pseudo-chapter rendered fine (226 pages).
+- English hyphenation works (inherits Chromium dictionaries); TOC page numbers exact.
 
-## Spike first (judge on real material)
+## Leftovers / parked
 
-Test book: `2c29b696-a110-483a-9cbe-4c6acc69c530` — 19 English chapters, all done,
-all with translated titles (source is garbled-OCR Russian, good stress test).
-Questions the spike must answer:
-- Cyrillic + English hyphenation quality (inherits Chromium dictionaries)
-- behavior on the 208-page pseudo-chapter (ch 16, ~420k chars)
-- render time + memory for a full book
-- EPUB output quality from the same input
-
-## Related state (already shipped, 2026-07-27/28)
-
-- Chapter table shows live `translating` progress; DeepSeek calls have 120s timeout
-  and `err.cause` surfaced; `run_token` fencing prevents duplicate translate runs.
-- Parked nearby ideas: per-book glossary for name/term consistency (also rides
-  DeepSeek prefix cache); prompt reorder + `prompt_cache_hit_tokens` logging;
-  splitting the ch-16 pseudo-chapter in the structure modal (3x parallel translation).
+- EPUB build warns "No table of contents document was found" — output opens fine, but
+  wiring Vivliostyle's `toc` option would give EPUB readers a real nav doc.
+- Original-view export of garbled-OCR Cyrillic is faithful-but-garbled by design;
+  Cyrillic hyphenation quality unjudged on clean source material.
+- `sanitizeFilename` strips non-ASCII, so Cyrillic titles produce near-empty
+  filenames (`_1_1882__english_...`); same behavior as audio assemble.
+- Curiosity found along the way: 8/19 chapters of the test book error on SQL-side
+  `left(raw_text, N)` ("invalid byte sequence for encoding UTF8: 0xd0") while full
+  column reads are fine — looks like sliced-detoast weirdness. App code never slices
+  in SQL, so harmless today.

@@ -141,6 +141,13 @@
       "when": 1785176160216,
       "tag": "0019_awesome_sugar_man",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785219057173,
+      "tag": "0020_slippery_nightmare",
+      "breakpoints": true
     }
   ]
 }

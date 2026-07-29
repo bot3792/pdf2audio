@@ -3,6 +3,7 @@ import { extract } from "./extract.ts";
 import { normalize } from "./normalize.ts";
 import { synthesize } from "./synthesize.ts";
 import { assemble } from "./assemble.ts";
+import { assembleDocument } from "./assemble-document.ts";
 import { redetect } from "./redetect.ts";
 import { propose } from "./propose.ts";
 import { translate } from "./translate.ts";
@@ -65,6 +66,7 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
       extract: wrapTask("extract", extract),
       normalize: wrapTask("normalize", normalize),
       assemble: wrapTask("assemble", (payload) => assemble(payload as any)),
+      assembleDocument: wrapTask("assembleDocument", (payload) => assembleDocument(payload as any)),
       redetect: wrapTask("redetect", (payload) => redetect(payload as any)),
       propose: wrapTask("propose", (payload) => propose(payload as any)),
     },

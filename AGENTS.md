@@ -100,6 +100,8 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **assemblies** — id (uuid), bookId (FK, cascade delete), outputPath, durationMs, chapterCount, chapterSummary, chapterIds (json array), createdAt
 
+**documents** — id (uuid), bookId (FK, cascade delete), language (null = original), format (`pdf` | `epub`), outputPath, chapterCount, chapterSummary, chapterIds (json array), createdAt. Written by the `assembleDocument` worker (Vivliostyle CLI renders selected chapters to PDF/EPUB; first run downloads a rendering browser into the Vivliostyle cache).
+
 **bookLogs** — id (uuid), bookId (FK, cascade delete), message (text), createdAt
 
 When modifying the schema, change `schema.ts` and run `pnpm db:generate` to produce a migration, then `pnpm db:migrate`. Never write migrations manually.
@@ -209,6 +211,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, 
 - `POST /upload` — Multipart file upload (PDF + voice + speed fields). Creates book row and queues extract job.
 - `GET /download/:bookId` — Serve final assembled MP3
 - `GET /download/assembly/:assemblyId` — Serve a specific assembly MP3
+- `GET /download/document/:documentId` — Serve an exported PDF/EPUB document
 - `GET /audio/chapter/:chapterId` — Serve individual chapter MP3
 
 ## Chapter Detection Logic

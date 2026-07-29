@@ -1,5 +1,5 @@
 import { db } from "../db.ts";
-import { books, bookFiles, chapters, assemblies } from "../schema.ts";
+import { books, bookFiles, chapters, assemblies, documents } from "../schema.ts";
 import { eq, asc } from "drizzle-orm";
 import { redetectChaptersFromExistingMarkerOutput } from "../lib/marker.ts";
 import { bookTmpDir, bookOutputDir } from "../lib/paths.ts";
@@ -45,6 +45,7 @@ export async function redetect(payload: RedetectPayload) {
     await rm(bookOutputDir(bookId), { recursive: true, force: true }).catch(() => {});
 
     await db.delete(assemblies).where(eq(assemblies.bookId, bookId));
+    await db.delete(documents).where(eq(documents.bookId, bookId));
     await db.delete(chapters).where(eq(chapters.bookId, bookId));
 
     await log("Re-detecting chapters from existing extraction output");

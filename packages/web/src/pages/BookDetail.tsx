@@ -36,11 +36,17 @@ export function BookDetail() {
   const invalidate = () => {
     utils.books.get.invalidate({ id: id! });
     utils.books.assemblies.invalidate({ bookId: id! });
+    utils.books.documents.invalidate({ bookId: id! });
   };
 
   const { data: bookAssemblies = [] } = trpc.books.assemblies.useQuery(
     { bookId: id! },
     { enabled: !!id },
+  );
+
+  const { data: bookDocuments = [] } = trpc.books.documents.useQuery(
+    { bookId: id! },
+    { enabled: !!id, refetchInterval: book?.status === "assembling" ? 2000 : false },
   );
 
   // Book mutations
@@ -53,6 +59,8 @@ export function BookDetail() {
   });
   const assembleMutation = trpc.books.assemble.useMutation({ onSuccess: invalidate });
   const deleteAssemblyMutation = trpc.books.deleteAssembly.useMutation({ onSuccess: invalidate });
+  const exportDocumentMutation = trpc.books.exportDocument.useMutation({ onSuccess: invalidate });
+  const deleteDocumentMutation = trpc.books.deleteDocument.useMutation({ onSuccess: invalidate });
 
   // Chapter mutations
   const queueMutation = trpc.chapters.queue.useMutation({ onSuccess: invalidate });
@@ -102,6 +110,7 @@ export function BookDetail() {
     utils.translations.listForBook.invalidate();
     utils.translations.languages.invalidate();
     utils.books.assemblies.invalidate({ bookId: id! });
+    utils.books.documents.invalidate({ bookId: id! });
     utils.books.logs.invalidate({ bookId: id! });
   };
   const queueAudioMutation = trpc.translations.queueAudio.useMutation({ onSuccess: invalidateTranslations });
@@ -201,6 +210,16 @@ export function BookDetail() {
         return !t || t.status === "failed" || t.status === "suspended";
       }).length
     : 0;
+  // Document export needs text, not audio: original chapters always have it, language views need a finished translation
+  const selectedExportable = activeLanguage
+    ? book.chapters.filter((c) => c.selected && translationByChapter.get(c.id)?.status === "done").length
+    : selectedCount;
+  const canExportDocument = selectedExportable > 0 && !isAssembling && !exportDocumentMutation.isPending;
+  const exportTooltip = (format: string) =>
+    selectedExportable === 0
+      ? (activeLanguage ? "No selected chapters have a finished translation" : "No chapters selected")
+      : isAssembling ? "Wait for the current assembly to finish"
+      : `Render the selected chapters as ${format === "PDF" ? "a PDF" : "an EPUB"} book`;
   return (
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-6xl mx-auto px-4 py-8">
@@ -424,6 +443,24 @@ export function BookDetail() {
                 {book.outputPath ? "Re-assemble" : "Assemble"} selected ({selectedWithAudio}){activeLanguage ? ` · ${activeLanguage}` : ""}
               </button>
               <button
+                onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "pdf" })}
+                disabled={!canExportDocument}
+                title={exportTooltip("PDF")}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="export-pdf"
+              >
+                Export PDF ({selectedExportable}){activeLanguage ? ` · ${activeLanguage}` : ""}
+              </button>
+              <button
+                onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "epub" })}
+                disabled={!canExportDocument}
+                title={exportTooltip("EPUB")}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="export-epub"
+              >
+                Export EPUB ({selectedExportable}){activeLanguage ? ` · ${activeLanguage}` : ""}
+              </button>
+              <button
                 onClick={() =>
                   activeLanguage
                     ? stopAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
@@ -490,6 +527,15 @@ export function BookDetail() {
             latestOutputPath={activeLanguage ? null : book.outputPath}
             onDelete={(aid) => deleteAssemblyMutation.mutate({ id: aid })}
             isDeleting={deleteAssemblyMutation.isPending}
+          />
+        )}
+
+        {/* Documents — scoped to the active language view */}
+        {bookDocuments.filter((d) => (d.language ?? null) === activeLanguage).length > 0 && (
+          <DocumentsSection
+            documents={bookDocuments.filter((d) => (d.language ?? null) === activeLanguage)}
+            onDelete={(did) => deleteDocumentMutation.mutate({ id: did })}
+            isDeleting={deleteDocumentMutation.isPending}
           />
         )}
 
@@ -688,6 +734,87 @@ function AssembliesSection({
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// --- Documents Section ---
+
+type DocumentRow = {
+  id: string;
+  format: "pdf" | "epub";
+  outputPath: string;
+  chapterCount: number;
+  chapterSummary: string;
+  createdAt: string | Date;
+};
+
+function DocumentsSection({
+  documents,
+  onDelete,
+  isDeleting,
+}: {
+  documents: DocumentRow[];
+  onDelete: (id: string) => void;
+  isDeleting: boolean;
+}) {
+  return (
+    <div className="mb-6">
+      <h2 className="text-lg font-semibold text-(--text-secondary) mb-3">Documents</h2>
+      <div className="overflow-hidden rounded-lg border border-(--border)">
+        <table className="min-w-full divide-y divide-(--divide)">
+          <thead className="bg-(--bg-subtle)">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Date</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Format</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Chapters</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
+            {documents.map((doc) => (
+              <tr key={doc.id} className="hover:bg-(--bg-card-hover)">
+                <td className="px-4 py-3 text-sm text-(--text-secondary)">
+                  {formatAssemblyDate(doc.createdAt)}
+                </td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 uppercase">
+                    {doc.format}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-(--text-tertiary)">
+                  <span title={doc.chapterSummary}>
+                    {doc.chapterCount} chapter{doc.chapterCount !== 1 ? "s" : ""}
+                    <span className="text-(--text-faint) ml-1.5">{doc.chapterSummary}</span>
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <a
+                      href={`/download/document/${doc.id}`}
+                      download={doc.outputPath.split("/").pop()}
+                      className="text-xs text-green-600 hover:text-green-800 font-medium"
+                    >
+                      Download
+                    </a>
+                    <button
+                      onClick={() => {
+                        if (confirm("Delete this document?")) {
+                          onDelete(doc.id);
+                        }
+                      }}
+                      disabled={isDeleting}
+                      className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

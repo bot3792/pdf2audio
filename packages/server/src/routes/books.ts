@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, bookFiles, chapters, bookLogs, assemblies } from "../schema.ts";
+import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, sql } from "drizzle-orm";
 import { uploadsDir, bookTmpDir, bookOutputDir } from "../lib/paths.ts";
@@ -496,6 +496,74 @@ export const booksRouter = router({
 
       const [updated] = await db.select().from(books).where(eq(books.id, input.id));
       return updated;
+    }),
+
+  exportDocument: publicProcedure
+    .input(z.object({
+      id: z.string().uuid(),
+      language: z.string().min(1).optional(),
+      format: z.enum(["pdf", "epub"]),
+    }))
+    .mutation(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+      if (book.status === "assembling") throw new Error("Assembly already in progress");
+
+      let exportable: number;
+      if (input.language) {
+        const rows = await db
+          .select({ id: chapters.id })
+          .from(chapterTranslations)
+          .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+          .where(and(
+            eq(chapters.bookId, input.id),
+            eq(chapters.selected, true),
+            eq(chapterTranslations.language, input.language),
+            eq(chapterTranslations.status, "done"),
+          ));
+        exportable = rows.length;
+      } else {
+        const rows = await db
+          .select({ id: chapters.id })
+          .from(chapters)
+          .where(and(eq(chapters.bookId, input.id), eq(chapters.selected, true)));
+        exportable = rows.length;
+      }
+      if (exportable === 0) {
+        throw new Error(input.language
+          ? `No selected chapters have a finished ${input.language} translation`
+          : "No chapters selected");
+      }
+
+      await appendLog(input.id, `Queuing ${input.format.toUpperCase()} export (${exportable} chapter${exportable !== 1 ? "s" : ""})${input.language ? ` · ${input.language}` : ""}`);
+      await quickAddJob(
+        { connectionString },
+        "assembleDocument",
+        { bookId: input.id, language: input.language, format: input.format },
+        { maxAttempts: 1 },
+      );
+      return { success: true };
+    }),
+
+  documents: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      return db
+        .select()
+        .from(documents)
+        .where(eq(documents.bookId, input.bookId))
+        .orderBy(desc(documents.createdAt));
+    }),
+
+  deleteDocument: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [document] = await db.select().from(documents).where(eq(documents.id, input.id));
+      if (!document) throw new Error("Document not found");
+
+      await unlink(document.outputPath).catch(() => {});
+      await db.delete(documents).where(eq(documents.id, input.id));
+      return { success: true };
     }),
 
   cancel: publicProcedure

@@ -10,7 +10,7 @@ import { startWorker, stopWorker } from "./workers/setup.ts";
 import { registerChapterReaderRoute, type ChapterReaderLookupResult } from "./lib/chapter-reader-route.ts";
 import { ensureDataDirs, uploadsDir, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
-import { books, bookFiles, assemblies, chapters, chapterTranslations } from "./schema.ts";
+import { books, bookFiles, assemblies, documents, chapters, chapterTranslations } from "./schema.ts";
 import { eq, desc } from "drizzle-orm";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -203,6 +203,18 @@ async function main() {
     }
 
     return reply.sendFile(path.relative(outputDir, assembly.outputPath), outputDir);
+  });
+
+  fastify.get("/download/document/:documentId", async (request, reply) => {
+    const { documentId } = request.params as { documentId: string };
+    const [document] = await db.select().from(documents).where(eq(documents.id, documentId));
+
+    if (!document?.outputPath) {
+      return reply.code(404).send({ error: "Document not found" });
+    }
+
+    const mimeType = document.format === "pdf" ? "application/pdf" : "application/epub+zip";
+    return reply.type(mimeType).sendFile(path.relative(outputDir, document.outputPath), outputDir);
   });
 
   fastify.get("/audio/chapter/:chapterId", async (request, reply) => {

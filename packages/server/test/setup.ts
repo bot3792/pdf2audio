@@ -56,6 +56,7 @@ export async function resetDb(db: TestDatabase) {
       END IF;
     END $$`);
   await db.execute(sql`DELETE FROM assemblies`);
+  await db.execute(sql`DELETE FROM documents`);
   await db.execute(sql`DELETE FROM chapter_translations`);
   await db.execute(sql`DELETE FROM chapters`);
   await db.execute(sql`DELETE FROM book_files`);

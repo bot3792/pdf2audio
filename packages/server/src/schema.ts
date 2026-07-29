@@ -124,6 +124,18 @@ export const assemblies = pgTable("assemblies", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const documents = pgTable("documents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  language: text("language"),
+  format: text("format", { enum: ["pdf", "epub"] }).notNull(),
+  outputPath: text("output_path").notNull(),
+  chapterCount: integer("chapter_count").notNull(),
+  chapterSummary: text("chapter_summary").notNull(),
+  chapterIds: text("chapter_ids").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Book = typeof books.$inferSelect;
 export type NewBook = typeof books.$inferInsert;
 export type Chapter = typeof chapters.$inferSelect;
@@ -132,4 +144,5 @@ export type BookLog = typeof bookLogs.$inferSelect;
 export type BookFile = typeof bookFiles.$inferSelect;
 export type NewBookFile = typeof bookFiles.$inferInsert;
 export type Assembly = typeof assemblies.$inferSelect;
+export type BookDocument = typeof documents.$inferSelect;
 export type ChapterTranslation = typeof chapterTranslations.$inferSelect;

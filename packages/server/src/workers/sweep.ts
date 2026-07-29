@@ -22,15 +22,15 @@ export async function sweepStrandedWork() {
     DELETE FROM graphile_worker._private_jobs j
     USING graphile_worker._private_tasks t
     WHERE t.id = j.task_id
-      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble')
+      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument')
       AND (j.locked_at IS NOT NULL OR j.attempts >= j.max_attempts)
     RETURNING t.identifier, j.payload
   `)) as unknown as Array<{ identifier: string; payload: Record<string, unknown> }>;
 
-  // Assemblies have no per-row state to recover from; replay the dead job's own payload.
+  // Assemblies and document exports have no per-row state to recover from; replay the dead job's own payload.
   const replayedAssembleBooks: string[] = [];
-  for (const job of deadJobs.filter((j) => j.identifier === "assemble")) {
-    await quickAddJob({ connectionString }, "assemble", job.payload, { maxAttempts: 1 });
+  for (const job of deadJobs.filter((j) => j.identifier === "assemble" || j.identifier === "assembleDocument")) {
+    await quickAddJob({ connectionString }, job.identifier, job.payload, { maxAttempts: 1 });
     if (typeof job.payload.bookId === "string") {
       replayedAssembleBooks.push(job.payload.bookId);
       bump(job.payload.bookId);
@@ -44,7 +44,7 @@ export async function sweepStrandedWork() {
       AND id::text NOT IN (
         SELECT j.payload->>'bookId' FROM graphile_worker._private_jobs j
         JOIN graphile_worker._private_tasks t ON t.id = j.task_id
-        WHERE t.identifier = 'assemble' AND j.payload->>'bookId' IS NOT NULL)
+        WHERE t.identifier IN ('assemble', 'assembleDocument') AND j.payload->>'bookId' IS NOT NULL)
   `);
 
   const strandedChapters = (await db.execute(sql`
