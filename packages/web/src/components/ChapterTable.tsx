@@ -336,8 +336,8 @@ export function ChapterTable({
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-lg border border-(--border)">
-        <table className="min-w-full divide-y divide-(--divide)">
+      <div className="overflow-x-auto rounded-lg border border-(--border)">
+        <table className="w-full min-w-[56rem] divide-y divide-(--divide)">
           <thead className="bg-(--bg-subtle)">
             <tr>
               <th className="px-3 py-3 w-10">

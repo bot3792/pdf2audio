@@ -187,8 +187,8 @@ export function BookFilesSection({
         </label>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-(--border)">
-        <table className="min-w-full divide-y divide-(--divide)">
+      <div className="overflow-x-auto rounded-lg border border-(--border)">
+        <table className="w-full min-w-[48rem] divide-y divide-(--divide)">
           <thead className="bg-(--bg-subtle)">
             <tr>
               <th className="w-10 px-3 py-2">

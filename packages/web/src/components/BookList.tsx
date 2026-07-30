@@ -98,7 +98,7 @@ export function BookList() {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-(--border)">
-      <table className="min-w-full divide-y divide-(--divide)">
+      <table className="w-full min-w-[72rem] divide-y divide-(--divide)">
         <thead className="bg-(--bg-subtle)">
           <tr>
             {th("Title", "title")}
