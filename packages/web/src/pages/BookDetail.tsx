@@ -18,6 +18,8 @@ import { formatBytes } from "../lib/format.ts";
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
   const utils = trpc.useUtils();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeLanguage = searchParams.get("lang");
 
   const { data: book, isLoading } = trpc.books.get.useQuery(
     { id: id! },
@@ -54,10 +56,15 @@ export function BookDetail() {
     { enabled: !!id },
   );
 
-  const { data: selectedAudioSize } = trpc.chapters.selectedAudioSize.useQuery(
+  const { data: originalAudioSize } = trpc.chapters.selectedAudioSize.useQuery(
     { bookId: id! },
-    { enabled: !!id },
+    { enabled: !!id && !activeLanguage },
   );
+  const { data: translationAudioSize } = trpc.translations.selectedAudioSize.useQuery(
+    { bookId: id!, language: activeLanguage! },
+    { enabled: !!id && !!activeLanguage },
+  );
+  const selectedAudioSize = activeLanguage ? translationAudioSize : originalAudioSize;
 
   const { data: bookDocuments = [] } = trpc.books.documents.useQuery(
     { bookId: id! },
@@ -112,8 +119,6 @@ export function BookDetail() {
 
   const [showStructure, setShowStructure] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeLanguage = searchParams.get("lang");
   const setActiveLanguage = (lang: string | null) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -167,10 +172,22 @@ export function BookDetail() {
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
+  const invalidateAudioSizes = () => {
+    utils.books.diskUsage.invalidate({ bookId: id! });
+    utils.chapters.selectedAudioSize.invalidate({ bookId: id! });
+    utils.translations.selectedAudioSize.invalidate();
+  };
   const deleteAudioMutation = trpc.chapters.deleteAudioSelected.useMutation({
     onSuccess: () => {
       invalidate();
-      utils.books.diskUsage.invalidate({ bookId: id! });
+      invalidateAudioSizes();
+    },
+  });
+  const deleteTranslationAudioMutation = trpc.translations.deleteAudioSelected.useMutation({
+    onSuccess: () => {
+      utils.translations.listForBook.invalidate();
+      utils.translations.languages.invalidate();
+      invalidateAudioSizes();
     },
   });
   const cleanupSelectedMutation = trpc.chapters.cleanupSelected.useMutation({ onSuccess: invalidate });
@@ -231,7 +248,7 @@ export function BookDetail() {
   const selectedWithAudio = viewChapters.filter((c) => c.selected && c.status === "done" && c.audioPath).length;
   // Server-measured (MP3 + chunk WAVs on disk); client estimate covers the query's loading gap
   const audioDataCount = selectedAudioSize?.count ??
-    book.chapters.filter((c) => c.selected && (c.audioPath || c.progress)).length;
+    viewChapters.filter((c) => c.selected && (c.audioPath || c.progress)).length;
   const audioDataSize = formatBytes(selectedAudioSize?.bytes ?? 0);
   // In a language view a still-translating chapter counts too: its audio queues behind the translation
   const selectedSynthesizable = viewChapters.filter((c) => {
@@ -623,21 +640,24 @@ export function BookDetail() {
                 </button>
                 <button
                   onClick={() => {
-                    if (confirm(`Delete the synthesized MP3s and WAV chunks of ${audioDataCount} selected chapter(s), freeing ${audioDataSize}? Chapters and text are kept — you can re-synthesize anytime.`)) {
-                      deleteAudioMutation.mutate({ bookId: book.id });
+                    if (confirm(`Delete the synthesized${activeLanguage ? ` ${activeLanguage}` : ""} MP3s and WAV chunks of ${audioDataCount} selected chapter(s), freeing ${audioDataSize}? ${activeLanguage ? "Translated text" : "Chapters and text"} are kept — you can re-synthesize anytime.`)) {
+                      if (activeLanguage) {
+                        deleteTranslationAudioMutation.mutate({ bookId: book.id, language: activeLanguage });
+                      } else {
+                        deleteAudioMutation.mutate({ bookId: book.id });
+                      }
                     }
                   }}
-                  disabled={!!activeLanguage || audioDataCount === 0 || hasActiveChapters || deleteAudioMutation.isPending}
+                  disabled={audioDataCount === 0 || hasActiveChapters || deleteAudioMutation.isPending || deleteTranslationAudioMutation.isPending}
                   title={
-                    activeLanguage ? "Switch to the Original view to delete chapter audio" :
                     audioDataCount === 0 ? "No selected chapters have synthesized audio on disk" :
                     hasActiveChapters ? "Wait for active chapters to finish" :
-                    `Delete the synthesized MP3s and WAV chunks of the selected chapters (${audioDataSize}) — chapters and text are kept, re-synthesize anytime`
+                    `Delete the synthesized${activeLanguage ? ` ${activeLanguage}` : ""} MP3s and WAV chunks of the selected chapters (${audioDataSize}) — text is kept, re-synthesize anytime`
                   }
                   className="px-4 py-2 border border-red-300 dark:border-red-900 text-red-600 dark:text-red-400 rounded-md text-sm font-medium hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid="delete-audio-selected"
                 >
-                  Delete chapter audio ({audioDataCount}{selectedAudioSize && selectedAudioSize.bytes > 0 ? ` · ${audioDataSize}` : ""})
+                  Delete chapter audio ({audioDataCount}{selectedAudioSize && selectedAudioSize.bytes > 0 ? ` · ${audioDataSize}` : ""}){langSuffix}
                 </button>
               </>
             }

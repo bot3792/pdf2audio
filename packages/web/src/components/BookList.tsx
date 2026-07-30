@@ -61,16 +61,20 @@ export function BookList() {
     refetchInterval: 3000,
   });
 
-  const [sortKey, setSortKey] = useState<SortKey>("lastActivity");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortKey, setSortKey] = useState<SortKey>(() => {
+    const stored = localStorage.getItem("bookList.sortKey");
+    return stored && stored in SORT_VALUE ? (stored as SortKey) : "lastActivity";
+  });
+  const [sortDir, setSortDir] = useState<SortDir>(() =>
+    localStorage.getItem("bookList.sortDir") === "asc" ? "asc" : "desc",
+  );
 
   function handleSort(key: SortKey) {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir(key === "title" ? "asc" : "desc");
-    }
+    const dir = key === sortKey ? (sortDir === "asc" ? "desc" : "asc") : key === "title" ? "asc" : "desc";
+    setSortKey(key);
+    setSortDir(dir);
+    localStorage.setItem("bookList.sortKey", key);
+    localStorage.setItem("bookList.sortDir", dir);
   }
 
   if (isLoading) {
@@ -93,7 +97,7 @@ export function BookList() {
   );
 
   return (
-    <div className="overflow-hidden rounded-lg border border-(--border)">
+    <div className="overflow-x-auto rounded-lg border border-(--border)">
       <table className="min-w-full divide-y divide-(--divide)">
         <thead className="bg-(--bg-subtle)">
           <tr>

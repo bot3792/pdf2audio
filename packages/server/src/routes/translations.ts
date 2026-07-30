@@ -8,6 +8,8 @@ import { appendLog } from "../lib/log.ts";
 import { env } from "../env.ts";
 import { listChunkPreviewsIn, locateChunks, pageAtOffset } from "../lib/chunk-previews.ts";
 import { languageSlug, translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
+import { dirSize } from "../lib/disk-usage.ts";
+import { stat, unlink, rm } from "node:fs/promises";
 import type { SourceBlock } from "../lib/marker.ts";
 
 const connectionString = env.DATABASE_URL;
@@ -383,6 +385,83 @@ export const translationsRouter = router({
         await appendLog(input.bookId, `Stopped ${input.language} synthesis (${stopped.length} chapter${stopped.length === 1 ? "" : "s"})`);
       }
       return { stopped: stopped.length };
+    }),
+
+  selectedAudioSize: publicProcedure
+    .input(z.object({ bookId: z.string().uuid(), language: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const rows = await db
+        .select({ index: chapters.index, audioPath: chapterTranslations.audioPath })
+        .from(chapterTranslations)
+        .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+        .where(and(
+          eq(chapters.bookId, input.bookId),
+          eq(chapters.selected, true),
+          eq(chapterTranslations.language, input.language),
+        ));
+
+      let bytes = 0;
+      let count = 0;
+      for (const row of rows) {
+        let rowBytes = 0;
+        if (row.audioPath) {
+          rowBytes += (await stat(row.audioPath).catch(() => null))?.size ?? 0;
+        }
+        rowBytes += await dirSize(translationChunkPreviewDir(input.bookId, input.language, row.index));
+        if (rowBytes > 0) {
+          bytes += rowBytes;
+          count++;
+        }
+      }
+      return { bytes, count };
+    }),
+
+  deleteAudioSelected: publicProcedure
+    .input(z.object({ bookId: z.string().uuid(), language: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const rows = await db
+        .select({
+          id: chapterTranslations.id,
+          index: chapters.index,
+          audioPath: chapterTranslations.audioPath,
+          audioStatus: chapterTranslations.audioStatus,
+          audioProgress: chapterTranslations.audioProgress,
+        })
+        .from(chapterTranslations)
+        .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+        .where(and(
+          eq(chapters.bookId, input.bookId),
+          eq(chapters.selected, true),
+          eq(chapterTranslations.language, input.language),
+        ));
+
+      if (rows.some((r) => r.audioStatus === "synthesizing")) {
+        throw new Error("Cannot delete audio while chapters are synthesizing");
+      }
+
+      const targets = rows.filter((r) => r.audioPath || r.audioProgress);
+      for (const t of targets) {
+        if (t.audioPath) await unlink(t.audioPath).catch(() => {});
+        await rm(translationChunkPreviewDir(input.bookId, input.language, t.index), { recursive: true, force: true }).catch(() => {});
+      }
+
+      if (targets.length > 0) {
+        await db
+          .update(chapterTranslations)
+          .set({
+            audioPath: null,
+            audioDurationMs: null,
+            audioProgress: null,
+            audioError: null,
+            synthesizedWith: null,
+            audioStatus: "suspended",
+            updatedAt: new Date(),
+          })
+          .where(inArray(chapterTranslations.id, targets.map((t) => t.id)));
+        await appendLog(input.bookId, `Deleted ${input.language} audio of ${targets.length} chapter(s) — translated text kept`);
+      }
+
+      return { count: targets.length };
     }),
 
   assemble: publicProcedure

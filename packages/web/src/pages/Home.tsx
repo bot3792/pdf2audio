@@ -7,7 +7,7 @@ export function Home() {
 
   return (
     <div className="min-h-screen bg-(--bg-page)">
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-screen-2xl mx-auto px-6 py-8">
         <h1 className="text-2xl font-bold text-(--text-primary) mb-6">pdf2audio</h1>
 
         <section className="mb-8">
