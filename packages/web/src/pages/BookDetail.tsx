@@ -119,6 +119,7 @@ export function BookDetail() {
 
   const [showStructure, setShowStructure] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [createTab, setCreateTab] = useState<"audio" | "document">("audio");
   const setActiveLanguage = (lang: string | null) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -568,9 +569,38 @@ export function BookDetail() {
 
           {/* Create outputs from the selected chapters */}
           {book.chapters.length > 0 && (
-            <div className="grid gap-4 lg:grid-cols-2 mt-4 items-start">
-              <div className="rounded-lg border border-(--border) border-l-2 border-l-indigo-400/70 p-3 space-y-3">
-                <p className="text-xs font-medium uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Create audio</p>
+            <div className="mt-4">
+              <div className="border-b border-(--border) flex gap-4">
+                <button
+                  onClick={() => setCreateTab("audio")}
+                  className={`inline-flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 -mb-px ${
+                    createTab === "audio"
+                      ? "text-indigo-600 dark:text-indigo-400 border-indigo-500"
+                      : "text-(--text-muted) border-transparent hover:text-(--text-secondary)"
+                  }`}
+                  data-testid="create-tab-audio"
+                >
+                  Create audio
+                  {(hasActiveChapters || translationAudioQueued) && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" title="Synthesis in progress" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setCreateTab("document")}
+                  className={`inline-flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 -mb-px ${
+                    createTab === "document"
+                      ? "text-emerald-600 dark:text-emerald-400 border-emerald-500"
+                      : "text-(--text-muted) border-transparent hover:text-(--text-secondary)"
+                  }`}
+                  data-testid="create-tab-document"
+                >
+                  Create document
+                  {viewPendingExports.length > 0 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Export in progress" />
+                  )}
+                </button>
+              </div>
+              <div className={`pt-3 space-y-3 ${createTab === "audio" ? "" : "hidden"}`}>
                 <div className="flex items-end gap-4 flex-wrap">
                   <div className="w-64">
                     <VoicePicker
@@ -655,8 +685,7 @@ export function BookDetail() {
                 </button>
                 </div>
               </div>
-              <div className="rounded-lg border border-(--border) border-l-2 border-l-emerald-400/70 p-3 space-y-3">
-                <p className="text-xs font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Create document</p>
+              <div className={`pt-3 ${createTab === "document" ? "" : "hidden"}`}>
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "pdf" })}
@@ -689,7 +718,7 @@ export function BookDetail() {
         </section>
 
         {/* STAGE 3: produced outputs, scoped to the active language view */}
-        <div className="grid gap-6 lg:grid-cols-2 mb-6 items-start">
+        <div className="space-y-6 mb-6">
           <AudioOutputsSection
             assemblies={bookAssemblies.filter((a) => (a.language ?? null) === activeLanguage)}
             latestOutputPath={activeLanguage ? null : book.outputPath}
