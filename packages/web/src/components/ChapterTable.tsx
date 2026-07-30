@@ -619,8 +619,7 @@ export function ChapterTable({
 
       {aiChapter ? (
         <ChapterAiModal
-          chapterId={aiChapter.id}
-          chapterTitle={aiChapter.title}
+          chapters={[aiChapter]}
           onClose={() => setAiChapter(null)}
         />
       ) : null}

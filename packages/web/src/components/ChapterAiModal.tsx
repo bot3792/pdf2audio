@@ -8,15 +8,15 @@ const MODELS = [
   { key: "pro", label: "V4 Pro", hint: "Flagship reasoning model — slower, for harder questions", contextTokens: 1_000_000 },
 ] as const;
 
-// No DeepSeek tokenizer in the browser — BPE rule of thumb: ~3.8 chars/token for
-// ASCII text, ~1.6 for non-Latin scripts (Cyrillic etc.)
+// No DeepSeek tokenizer here — deliberately pessimistic BPE rule of thumb
+// (~3.4 chars/token for ASCII, ~1.4 for non-Latin scripts) so the bar overestimates.
+function estimateTokensFromCounts(ascii: number, nonAscii: number): number {
+  return Math.round(ascii / 3.4 + nonAscii / 1.4);
+}
+
 function estimateTokens(text: string): number {
-  let ascii = 0;
-  for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) < 128) ascii++;
-  }
-  const nonAscii = text.length - ascii;
-  return Math.round(ascii / 3.8 + nonAscii / 1.6);
+  const nonAscii = (text.match(/[^\x00-\x7F]/g) ?? []).length;
+  return estimateTokensFromCounts(text.length - nonAscii, nonAscii);
 }
 
 function formatTokens(n: number): string {
@@ -50,12 +50,10 @@ const PRESETS = [
 ] as const;
 
 export function ChapterAiModal({
-  chapterId,
-  chapterTitle,
+  chapters,
   onClose,
 }: {
-  chapterId: string;
-  chapterTitle: string;
+  chapters: { id: string; title: string }[];
   onClose: () => void;
 }) {
   useBodyScrollLock();
@@ -68,13 +66,18 @@ export function ChapterAiModal({
     onSuccess: (data) => setResult(data.result),
   });
 
-  const { data: chapterDetail } = trpc.chapters.get.useQuery({ id: chapterId });
-  const chapterText = chapterDetail
-    ? (chapterDetail.customText ?? chapterDetail.cleanText ?? chapterDetail.rawText)
-    : null;
+  const chapterIds = chapters.map((c) => c.id);
+  const { data: textStats } = trpc.chapters.textStats.useQuery({ chapterIds });
   const activeModel = MODELS.find((m) => m.key === model)!;
-  const chapterTokens = chapterText ? estimateTokens(chapterText) + estimateTokens(prompt) : null;
+  const chapterTokens = textStats
+    ? estimateTokensFromCounts(textStats.ascii, textStats.nonAscii) + estimateTokens(prompt)
+    : null;
   const contextPct = chapterTokens ? (chapterTokens / activeModel.contextTokens) * 100 : null;
+  const overContext = contextPct !== null && contextPct > 100;
+
+  const headerLabel = chapters.length === 1
+    ? `"${chapters[0].title}"`
+    : `${chapters.length} selected chapters`;
 
   function selectPreset(key: string) {
     const preset = PRESETS.find((p) => p.key === key)!;
@@ -83,8 +86,8 @@ export function ChapterAiModal({
   }
 
   function run() {
-    if (!prompt.trim() || aiMutation.isPending) return;
-    aiMutation.mutate({ chapterId, prompt: prompt.trim(), model });
+    if (!prompt.trim() || aiMutation.isPending || overContext) return;
+    aiMutation.mutate({ chapterIds, prompt: prompt.trim(), model });
   }
 
   return (
@@ -95,8 +98,8 @@ export function ChapterAiModal({
         data-testid="chapter-ai-modal"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-(--border) shrink-0">
-          <span className="text-sm font-medium text-(--text-primary)">
-            Ask about <span className="text-(--text-muted)">"{chapterTitle}"</span>
+          <span className="text-sm font-medium text-(--text-primary)" title={chapters.map((c) => c.title).join("\n")}>
+            Ask about <span className="text-(--text-muted)">{headerLabel}</span>
           </span>
           <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-tertiary) p-1" title="Close">
             <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -136,8 +139,10 @@ export function ChapterAiModal({
             {chapterTokens !== null && contextPct !== null && (
               <div className="shrink-0" data-testid="ai-context-usage" title={`Rough estimate — chapter text plus your prompt, sent in full to ${activeModel.label}`}>
                 <div className="flex items-baseline justify-between text-xs text-(--text-faint) mb-1">
-                  <span>Sends ≈ {formatTokens(chapterTokens)} tokens</span>
-                  <span>{contextPct < 0.1 ? "<0.1" : contextPct.toFixed(1)}% of {activeModel.label}'s {formatTokens(activeModel.contextTokens)} context</span>
+                  <span>Sends up to ≈ {formatTokens(chapterTokens)} tokens{chapters.length > 1 ? ` (${chapters.length} chapters)` : ""}</span>
+                  <span className={overContext ? "text-red-500 font-medium" : ""}>
+                    {contextPct < 0.1 ? "<0.1" : contextPct.toFixed(1)}% of {activeModel.label}'s {formatTokens(activeModel.contextTokens)} context
+                  </span>
                 </div>
                 <div className="h-1 rounded-full bg-(--bg-subtle) overflow-hidden">
                   <div
@@ -166,8 +171,8 @@ export function ChapterAiModal({
               </div>
               <button
                 onClick={run}
-                disabled={!prompt.trim() || aiMutation.isPending}
-                title="Cmd+Enter"
+                disabled={!prompt.trim() || aiMutation.isPending || overContext}
+                title={overContext ? "The selected chapters exceed this model's context window — deselect some" : "Cmd+Enter"}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="ai-run"
               >

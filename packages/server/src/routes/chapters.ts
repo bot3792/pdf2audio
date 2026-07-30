@@ -273,20 +273,27 @@ export const chaptersRouter = router({
 
   aiPrompt: publicProcedure
     .input(z.object({
-      chapterId: z.string().uuid(),
+      chapterIds: z.array(z.string().uuid()).min(1).max(500),
       prompt: z.string().min(1).max(4000),
       model: z.enum(["flash", "pro"]).default("flash"),
     }))
     .mutation(async ({ input }) => {
-      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.chapterId));
-      if (!chapter) throw new Error("Chapter not found");
-      const text = chapter.customText ?? chapter.cleanText ?? chapter.rawText;
+      const rows = await db
+        .select()
+        .from(chapters)
+        .where(inArray(chapters.id, input.chapterIds))
+        .orderBy(chapters.index);
+      if (rows.length === 0) throw new Error("Chapters not found");
 
+      const single = rows.length === 1;
       const system =
-        "You are a careful reading assistant. You are given the full text of one book chapter. " +
-        "Answer the user's request about this chapter using only the chapter text — do not invent facts that are not in it. " +
+        `You are a careful reading assistant. You are given the full text of ${single ? "one book chapter" : `${rows.length} book chapters`}. ` +
+        `Answer the user's request about ${single ? "this chapter" : "these chapters"} using only the given text — do not invent facts that are not in it. ` +
         "Respond in the language of the request unless asked otherwise. Format your answer in Markdown where it helps readability (lists, bold, short headings).";
-      const user = `${input.prompt}\n\n---\nChapter ${chapter.index + 1}: "${chapter.title}"\n\n${text}`;
+      const body = rows
+        .map((ch) => `Chapter ${ch.index + 1}: "${ch.title}"\n\n${ch.customText ?? ch.cleanText ?? ch.rawText}`)
+        .join("\n\n---\n\n");
+      const user = `${input.prompt}\n\n---\n${body}`;
 
       const result = await deepseekChat(system, user, {
         model: DEEPSEEK_MODELS[input.model],
@@ -294,6 +301,24 @@ export const chaptersRouter = router({
         timeoutMs: 600_000,
       });
       return { result };
+    }),
+
+  textStats: publicProcedure
+    .input(z.object({ chapterIds: z.array(z.string().uuid()).min(1).max(500) }))
+    .query(async ({ input }) => {
+      const rows = await db
+        .select({ rawText: chapters.rawText, cleanText: chapters.cleanText, customText: chapters.customText })
+        .from(chapters)
+        .where(inArray(chapters.id, input.chapterIds));
+      let ascii = 0;
+      let nonAscii = 0;
+      for (const ch of rows) {
+        const text = ch.customText ?? ch.cleanText ?? ch.rawText;
+        const non = (text.match(/[^\x00-\x7F]/g) ?? []).length;
+        nonAscii += non;
+        ascii += text.length - non;
+      }
+      return { ascii, nonAscii, chapterCount: rows.length };
     }),
 
   selectedAudioSize: publicProcedure

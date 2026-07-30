@@ -13,6 +13,7 @@ import { DocumentOutputsSection } from "../components/DocumentOutputsSection.tsx
 import { LogDock } from "../components/LogDock.tsx";
 import { EditableTitle } from "../components/EditableTitle.tsx";
 import { DiskUsageButton } from "../components/DiskUsageButton.tsx";
+import { ChapterAiModal } from "../components/ChapterAiModal.tsx";
 import { formatBytes } from "../lib/format.ts";
 
 export function BookDetail() {
@@ -120,6 +121,7 @@ export function BookDetail() {
   const [showStructure, setShowStructure] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [createTab, setCreateTab] = useState<"audio" | "document">("audio");
+  const [showAskAi, setShowAskAi] = useState(false);
   const setActiveLanguage = (lang: string | null) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -521,6 +523,19 @@ export function BookDetail() {
                 Cleanup selected ({selectedCleanable})
               </button>
               <button
+                onClick={() => setShowAskAi(true)}
+                disabled={!!activeLanguage || selectedCount === 0}
+                title={
+                  activeLanguage ? "Switch to the Original view — Ask AI reads the original text" :
+                  selectedCount === 0 ? "No chapters selected" :
+                  "Summarize, question, or run any prompt against the selected chapters' text"
+                }
+                className="px-4 py-2 bg-sky-600 text-white rounded-md text-sm font-medium hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="ask-ai-selected"
+              >
+                Ask AI ({selectedCount})
+              </button>
+              <button
                 onClick={() => {
                   if (confirm(`Delete ${selectedCount} selected chapter(s) and their audio?`)) {
                     deleteChaptersMutation.mutate({ bookId: book.id });
@@ -770,6 +785,13 @@ export function BookDetail() {
             files={book.files?.map((f) => ({ id: f.id, index: f.index, filename: f.filename }))}
             onClose={() => setShowStructure(false)}
             onChanged={invalidate}
+          />
+        )}
+
+        {showAskAi && (
+          <ChapterAiModal
+            chapters={book.chapters.filter((c) => c.selected).map((c) => ({ id: c.id, title: c.title }))}
+            onClose={() => setShowAskAi(false)}
           />
         )}
 
