@@ -4,6 +4,7 @@ import { StatusBadge } from "./StatusBadge.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 import { TranslationModal } from "./TranslationModal.tsx";
 import { getVoiceLabel } from "../lib/voices.ts";
+import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import type { ChapterRow, FileInfo } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
@@ -45,6 +46,7 @@ export function ChapterModal({
   onQueue,
   onSetSelected,
 }: ChapterModalProps) {
+  useBodyScrollLock();
   const chapter = chapters[chapterIndex];
   const hasPrev = chapterIndex > 0;
   const hasNext = chapterIndex < chapters.length - 1;

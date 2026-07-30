@@ -1,3 +1,5 @@
+import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
+
 export function PdfPreviewModal({
   fileId,
   page,
@@ -9,6 +11,7 @@ export function PdfPreviewModal({
   filename?: string;
   onClose: () => void;
 }) {
+  useBodyScrollLock();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="bg-(--bg-card) rounded-lg shadow-xl w-[90vw] h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>

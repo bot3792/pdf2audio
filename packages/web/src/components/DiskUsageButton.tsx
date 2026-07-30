@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { trpc } from "../trpc.ts";
 import { formatBytes } from "../lib/format.ts";
+import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 
 export function DiskUsageButton({ bookId }: { bookId: string }) {
   const [open, setOpen] = useState(false);
+  useBodyScrollLock(open);
   const utils = trpc.useUtils();
 
   const { data: usage } = trpc.books.diskUsage.useQuery(

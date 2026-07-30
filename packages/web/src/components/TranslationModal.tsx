@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "../trpc.ts";
 import { TRANSLATION_LANGUAGES } from "../lib/languages.ts";
+import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 
 type ChapterSummary = { id: string; index: number; title: string };
 
@@ -17,6 +18,7 @@ export function TranslationModal({
   initialChapterId?: string | null;
   onClose: () => void;
 }) {
+  useBodyScrollLock();
   const utils = trpc.useUtils();
   const [language, setLanguage] = useState(initialLanguage ?? "Bulgarian");
   const [selectedId, setSelectedId] = useState<string | null>(initialChapterId ?? chapters[0]?.id ?? null);

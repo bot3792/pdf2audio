@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "../trpc.ts";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
+import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 
 type ChapterProposal = {
   status: "running" | "done" | "failed";
@@ -46,6 +47,7 @@ export function StructureModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  useBodyScrollLock();
   const { data: structure, isLoading } = trpc.books.structure.useQuery({ id: bookId });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; page: number; filename?: string } | null>(null);

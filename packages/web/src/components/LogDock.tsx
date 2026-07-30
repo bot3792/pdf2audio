@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "../trpc.ts";
 import { formatLogTime } from "../lib/format.ts";
+import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 
 // Docked above the app's modals (z-50) so activity stays visible while they're open
 export function LogDock({ bookId, isProcessing, files }: { bookId: string; isProcessing: boolean; files?: { index: number; filename: string }[] }) {
   const [open, setOpen] = useState(false);
   const [fileFilter, setFileFilter] = useState<string>("");
+  useBodyScrollLock(open);
   const utils = trpc.useUtils();
   const isMultiFile = files && files.length > 1;
 
