@@ -66,10 +66,16 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
     taskList: {
       extract: wrapTask("extract", extract),
       normalize: wrapTask("normalize", normalize),
-      assemble: wrapTask("assemble", (payload) => assemble(payload as any)),
-      assembleDocument: wrapTask("assembleDocument", (payload) => assembleDocument(payload as any)),
       redetect: wrapTask("redetect", (payload) => redetect(payload as any)),
       propose: wrapTask("propose", (payload) => propose(payload as any)),
+    },
+  },
+  {
+    name: "assembly", // ffmpeg concat / Vivliostyle render — independent of marker, must not queue behind a long extraction
+    concurrency: 1,
+    taskList: {
+      assemble: wrapTask("assemble", (payload) => assemble(payload as any)),
+      assembleDocument: wrapTask("assembleDocument", (payload) => assembleDocument(payload as any)),
     },
   },
   {

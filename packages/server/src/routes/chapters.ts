@@ -6,7 +6,9 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import { appendLog } from "../lib/log.ts";
 import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
-import { listChapterChunkPreviews, locateChunks, pageAtOffset } from "../lib/chunk-previews.ts";
+import { chapterChunkPreviewDir, listChapterChunkPreviews, locateChunks, pageAtOffset } from "../lib/chunk-previews.ts";
+import { dirSize } from "../lib/disk-usage.ts";
+import { stat } from "node:fs/promises";
 import type { SourceBlock } from "../lib/marker.ts";
 import { removeChapterArtifacts } from "../lib/chapter-artifacts.ts";
 
@@ -266,6 +268,60 @@ export const chaptersRouter = router({
           .where(and(eq(chapters.id, input.chapterIds[i]), eq(chapters.bookId, input.bookId)));
       }
       return { success: true };
+    }),
+
+  selectedAudioSize: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const selected = await db
+        .select({ index: chapters.index, audioPath: chapters.audioPath })
+        .from(chapters)
+        .where(and(eq(chapters.bookId, input.bookId), eq(chapters.selected, true)));
+
+      let bytes = 0;
+      let count = 0;
+      for (const ch of selected) {
+        let chBytes = 0;
+        if (ch.audioPath) {
+          chBytes += (await stat(ch.audioPath).catch(() => null))?.size ?? 0;
+        }
+        chBytes += await dirSize(chapterChunkPreviewDir(input.bookId, ch.index));
+        if (chBytes > 0) {
+          bytes += chBytes;
+          count++;
+        }
+      }
+      return { bytes, count };
+    }),
+
+  deleteAudioSelected: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const selected = await db
+        .select()
+        .from(chapters)
+        .where(and(eq(chapters.bookId, input.bookId), eq(chapters.selected, true)));
+
+      const active = selected.filter((c) => ["pending", "normalizing", "synthesizing"].includes(c.status));
+      if (active.length > 0) {
+        throw new Error(`Cannot delete audio of ${active.length} chapter(s) that are actively processing`);
+      }
+
+      // Partial chapters count too: their chunk WAVs are audio data even without a final MP3
+      const targets = selected.filter((c) => c.audioPath || c.progress);
+      for (const ch of targets) {
+        await removeChapterArtifacts({ bookId: ch.bookId, index: ch.index, audioPath: ch.audioPath });
+      }
+
+      if (targets.length > 0) {
+        await db
+          .update(chapters)
+          .set({ audioPath: null, durationMs: null, progress: null, synthesizedWith: null, error: null, status: "suspended" })
+          .where(inArray(chapters.id, targets.map((c) => c.id)));
+        await appendLog(input.bookId, `Deleted audio of ${targets.length} chapter(s) — text kept`);
+      }
+
+      return { count: targets.length };
     }),
 
   deleteSelected: publicProcedure

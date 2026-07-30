@@ -22,7 +22,7 @@ export async function sweepStrandedWork() {
     DELETE FROM graphile_worker._private_jobs j
     USING graphile_worker._private_tasks t
     WHERE t.id = j.task_id
-      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup')
+      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup', 'extract')
       AND (j.locked_at IS NOT NULL OR j.attempts >= j.max_attempts)
     RETURNING t.identifier, j.payload
   `)) as unknown as Array<{ identifier: string; payload: Record<string, unknown> }>;
@@ -46,6 +46,35 @@ export async function sweepStrandedWork() {
         JOIN graphile_worker._private_tasks t ON t.id = j.task_id
         WHERE t.identifier IN ('assemble', 'assembleDocument') AND j.payload->>'bookId' IS NOT NULL)
   `);
+
+  // Extraction can't resume mid-file and marker runs are long — mark stranded ones
+  // failed instead of silently re-running; the user retries via re-extract.
+  const strandedFiles = (await db.execute(sql`
+    UPDATE book_files bf SET status = 'failed', error = 'Interrupted by server restart — re-extract to retry'
+    WHERE bf.status IN ('extracting', 'pending')
+      AND bf.book_id::text NOT IN (
+        SELECT j.payload->>'bookId' FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+        WHERE t.identifier = 'extract' AND j.payload->>'bookId' IS NOT NULL)
+    RETURNING bf.book_id
+  `)) as unknown as Array<{ book_id: string }>;
+
+  await db.execute(sql`
+    UPDATE books SET status = 'failed', error = 'Extraction interrupted by server restart', updated_at = now()
+    WHERE status = 'extracting'
+      AND id::text NOT IN (
+        SELECT j.payload->>'bookId' FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+        WHERE t.identifier = 'extract' AND j.payload->>'bookId' IS NOT NULL)
+  `);
+
+  const strandedFilesByBook = new Map<string, number>();
+  for (const f of strandedFiles) {
+    strandedFilesByBook.set(f.book_id, (strandedFilesByBook.get(f.book_id) ?? 0) + 1);
+  }
+  for (const [bookId, count] of strandedFilesByBook) {
+    await appendLog(bookId, `${count} interrupted extraction(s) marked failed after server restart — use re-extract to retry`);
+  }
 
   const strandedChapters = (await db.execute(sql`
     UPDATE chapters c SET status = 'pending', error = NULL

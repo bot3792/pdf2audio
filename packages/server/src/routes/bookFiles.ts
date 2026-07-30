@@ -10,6 +10,7 @@ import { env } from "../env.ts";
 import { unlink, rm } from "node:fs/promises";
 import path from "node:path";
 import { removeChapterArtifacts } from "../lib/chapter-artifacts.ts";
+import { abortExtract } from "../lib/extract-registry.ts";
 
 const connectionString = env.DATABASE_URL;
 
@@ -203,7 +204,13 @@ export const bookFilesRouter = router({
         .set({ status: "failed", error: "Cancelled by user" })
         .where(eq(bookFiles.id, input.id));
 
-      await appendLog(file.bookId, `Cancelled extraction of "${file.filename}"`);
+      const killed = abortExtract(input.id);
+      await appendLog(
+        file.bookId,
+        killed
+          ? `Cancelled extraction of "${file.filename}" — stopped the running process`
+          : `Cancelled extraction of "${file.filename}"`,
+      );
       return { success: true };
     }),
 });

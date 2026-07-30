@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { removeChapterArtifacts } from "./chapter-artifacts.ts";
 import { chapterChunkPreviewDir } from "./chunk-previews.ts";
+import { bookOutputDir } from "./paths.ts";
 
 describe("removeChapterArtifacts", () => {
   const bookId = `test-book-${crypto.randomUUID()}`;
@@ -13,7 +14,7 @@ describe("removeChapterArtifacts", () => {
 
   afterEach(async () => {
     await rm(audioPath, { force: true }).catch(() => {});
-    await rm(chunkDir, { recursive: true, force: true }).catch(() => {});
+    await rm(bookOutputDir(bookId), { recursive: true, force: true }).catch(() => {});
   });
 
   it("removes both chapter audio and persisted chunk previews", async () => {

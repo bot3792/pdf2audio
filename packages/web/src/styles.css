@@ -46,6 +46,11 @@
   --badge-cancelled-text: var(--color-zinc-600);
 }
 
+@keyframes slide-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --bg-page: var(--color-zinc-900);

@@ -21,6 +21,8 @@ This is a personal power-user tool, not a polished consumer product. The design 
 
 **Visibility into what's happening.** Worker activity logs to both the terminal and the UI. Every subprocess event is captured. The user should never wonder "what is it doing right now?"
 
+**UI layout mirrors the pipeline order.** Every page reads top-to-bottom in the order things are needed: source files (input) → chapter structure & text work (translate, cleanup, edit) → output creation (synthesize/assemble audio, export PDF/EPUB) → produced outputs. Controls live inside the stage they affect — extraction options belong with source files, not in a generic actions area at the bottom; output-producing buttons sit with the outputs they create. When adding UI, place it by asking "at which pipeline stage does the user need this?"
+
 ### Task Tracking
 
 Ideas and planned features live as individual markdown files in `tasks/`. Each file captures the idea, context, and any design notes.
@@ -56,7 +58,7 @@ PDF Upload → extract → normalize (per chapter) → synthesize (per chapter) 
 
 4. **assemble** (`workers/assemble.ts`, user-triggered) — FFmpeg concatenates selected chapter MP3s into one (or copies directly for single-chapter books). node-id3 writes ID3v2 CHAP/CTOC frames for chapter markers. Assembly is an explicit user action, not auto-queued. Each assembly is recorded in the `assemblies` table with metadata (duration, chapter count, summary).
 
-Worker concurrency is **4** (fixed). All jobs use `maxAttempts: 1` — no silent retries.
+Workers run in four pools (`workers/setup.ts`): `tts` (concurrency 2 — MLX contends for the GPU), `extraction` (1 — extract/normalize/redetect/propose), `assembly` (1 — assemble/assembleDocument, separate so exports never queue behind a long extraction), `translate` (3). All jobs use `maxAttempts: 1` — no silent retries. Document exports are deduplicated via graphile `jobKey`, and queued/running exports are surfaced by `books.pendingDocumentExports`.
 
 ### Book Status
 
@@ -164,10 +166,16 @@ packages/web/src/
   styles.css            Tailwind v4 import + semantic CSS custom properties for dark mode
   lib/
     voices.ts           Kokoro voice list (54 voices across 9 languages)
+    format.ts           Shared date/duration/log-time formatters
   pages/
     Home.tsx            Upload zone + book list table
-    BookDetail.tsx      Per-book view: stats, progress, logs, action buttons (process/assemble/cancel/re-extract/delete), chapter table, assemblies list
+    BookDetail.tsx      Per-book orchestration: queries/mutations/derived state, staged sections (1 Input → 2 Work → 3 Output → danger zone), language view persisted in ?lang= query param
   components/
+    BookFilesSection.tsx    Stage 1 card: source-file table, add files, re-extract (selected/book/re-detect), book-level extraction settings (Force OCR, LLM chapters — persisted immediately via books.updateSettings)
+    AudioOutputsSection.tsx Stage 3 card: synthesize/assemble/cancel actions + assemblies list
+    DocumentOutputsSection.tsx Stage 3 card: PDF/EPUB export actions + documents list
+    LogDock.tsx         Sticky bottom log bar (last line, pulse while processing, z-60 above modals) + full scrollable log modal
+    EditableTitle.tsx   Click-to-rename book title
     ChapterTable.tsx    Chapter table with filter panel (search, status, word count, duration), shift+click range selection, per-chapter checkboxes, sticky audio player, modal trigger
     ChapterModal.tsx    Chapter detail modal: selection checkbox, prev/next navigation (< > + keyboard arrows), audio player, view mode tabs (custom/clean/raw/split/blocks with scroll sync), text editing with save/cancel/reset, action buttons (queue/suspend/re-synthesize)
     UploadZone.tsx      Drag-and-drop PDF upload with voice/speed pickers
@@ -305,7 +313,7 @@ pnpm jobs:clear       # Delete all jobs from the Graphile Worker queue
 - Docker Postgres is on port **5433**, not 5432. Another Docker postgres may conflict — check `docker ps`.
 - Marker output is nested in a subdirectory. Code in `lib/marker.ts` searches one level deep for the JSON.
 - `metadata` field in Marker JSON output is optional — always null-check it.
-- **Cancel preserves done chapters** — only sets non-done chapters to `suspended`. Does NOT kill running Python subprocesses.
+- **Cancel preserves done chapters** — only sets non-done chapters to `suspended`. Synthesis cancel aborts the TTS subprocess via DB-status polling (SIGKILL). Extraction cancel (`books.cancel`, `bookFiles.cancel`) kills the marker subprocess through the in-memory registry in `lib/extract-registry.ts` — the registry is lost on a dev-server restart, but the extract worker's conditional status updates keep an orphaned marker run from overwriting the cancel.
 - **`tsx watch` restarts kill Graphile Worker** but orphan Python subprocesses. In-flight jobs get re-queued on restart. Don't edit server files during long synthesis runs.
 - **Graphile Worker jobs use `maxAttempts: 1`** — jobs fail once and stay failed. User retries from the UI. Use `pnpm jobs` to inspect the queue, `pnpm jobs:clear` to nuke stale jobs.
 - **Book status is computed** from chapter statuses during synthesis. Only `extracting`, `assembling` come from the stored column. `computeBookStatus()` in `routes/books.ts` derives the rest.

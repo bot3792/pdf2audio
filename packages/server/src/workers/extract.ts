@@ -1,8 +1,9 @@
 import type { WorkerUtils } from "graphile-worker";
 import { db } from "../db.ts";
 import { books, bookFiles, chapters } from "../schema.ts";
-import { eq, asc, max } from "drizzle-orm";
-import { extractPdf } from "../lib/marker.ts";
+import { eq, ne, and, asc, max } from "drizzle-orm";
+import { extractPdf, ExtractAbortedError } from "../lib/marker.ts";
+import { registerExtractAbort, clearExtractAbort } from "../lib/extract-registry.ts";
 import { bookTmpDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import path from "node:path";
@@ -30,7 +31,12 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
 
     if (files.length === 0) {
       // Legacy book without book_files rows — use book.pdfPath directly
-      await extractSinglePdf(book, bookTmpDir(bookId), log, addJob, 0, null, book.skipSynthesis);
+      const abort = registerExtractAbort(bookId);
+      try {
+        await extractSinglePdf(book, bookTmpDir(bookId), log, addJob, 0, null, book.skipSynthesis, abort.signal);
+      } finally {
+        clearExtractAbort(bookId);
+      }
     } else {
       await extractMultipleFiles(book, files, log, addJob);
     }
@@ -72,10 +78,12 @@ async function extractSinglePdf(
   chapterOffset: number,
   sourceFileIndex: number | null,
   skipSynthesis: boolean,
+  signal?: AbortSignal,
 ) {
   const { chapters: extractedChapters, method } = await extractPdf(book.pdfPath, tmpOut, log, {
     forceOcr: book.forceOcr,
     llmChapterDetection: book.llmChapterDetection,
+    signal,
   });
 
   await log(`Detected ${extractedChapters.length} chapters (${method})`);
@@ -140,8 +148,19 @@ async function extractMultipleFiles(
 
     const fileLog = (msg: string) => appendLog(book.id, msg, file.index);
     await fileLog(`Extracting file ${file.index + 1}: "${file.filename}"`);
-    await db.update(bookFiles).set({ status: "extracting", error: null }).where(eq(bookFiles.id, file.id));
+    // Conditional claim: a cancel that landed while the file was still pending wins the race
+    const [claimed] = await db
+      .update(bookFiles)
+      .set({ status: "extracting", error: null })
+      .where(and(eq(bookFiles.id, file.id), ne(bookFiles.status, "failed")))
+      .returning({ id: bookFiles.id });
+    if (!claimed) {
+      await fileLog(`Skipping cancelled file "${file.filename}"`);
+      filesFailed++;
+      continue;
+    }
 
+    const abort = registerExtractAbort(file.id);
     try {
       const tmpOut = path.join(bookTmpDir(book.id), `file_${file.index}`);
       const count = await extractSinglePdf(
@@ -152,15 +171,28 @@ async function extractMultipleFiles(
         chapterOffset,
         file.index,
         file.skipSynthesis,
+        abort.signal,
       );
       chapterOffset += count;
       filesSucceeded++;
-      await db.update(bookFiles).set({ status: "done" }).where(eq(bookFiles.id, file.id));
+      // Conditional so a late cancel (status already "failed") isn't overwritten with "done"
+      await db
+        .update(bookFiles)
+        .set({ status: "done" })
+        .where(and(eq(bookFiles.id, file.id), eq(bookFiles.status, "extracting")));
     } catch (err) {
+      if (err instanceof ExtractAbortedError) {
+        await fileLog(`Extraction of "${file.filename}" cancelled`);
+        await db.update(bookFiles).set({ status: "failed", error: "Cancelled by user" }).where(eq(bookFiles.id, file.id));
+        filesFailed++;
+        continue;
+      }
       const message = err instanceof Error ? err.message : String(err);
       await fileLog(`File "${file.filename}" failed: ${message}`);
       await db.update(bookFiles).set({ status: "failed", error: message }).where(eq(bookFiles.id, file.id));
       filesFailed++;
+    } finally {
+      clearExtractAbort(file.id);
     }
   }
 

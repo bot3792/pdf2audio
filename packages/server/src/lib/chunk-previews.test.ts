@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 
 import { chapterChunkPreviewDir, chapterChunkPreviewUrlBase, listChapterChunkPreviews, locateChunks, pageAtOffset } from "./chunk-previews.ts";
+import { bookOutputDir } from "./paths.ts";
 import type { SourceBlock } from "./marker.ts";
 
 describe("chunk previews", () => {
@@ -9,7 +10,7 @@ describe("chunk previews", () => {
   const chapterIndex = 3;
 
   afterEach(async () => {
-    await rm(chapterChunkPreviewDir(bookId, chapterIndex), { recursive: true, force: true });
+    await rm(bookOutputDir(bookId), { recursive: true, force: true });
   });
 
   it("builds a stable URL base for chapter chunk previews", () => {

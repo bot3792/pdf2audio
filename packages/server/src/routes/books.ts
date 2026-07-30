@@ -3,12 +3,16 @@ import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
-import { eq, desc, asc, gt, and, ne, sql } from "drizzle-orm";
+import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
 import { uploadsDir, bookTmpDir, bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { parseTtsVoice } from "../lib/tts.ts";
 import { collectBlocksFromMarkerOutput, sliceChaptersAtIndices, type ExtractedChapter } from "../lib/marker.ts";
 import { listMarkerSources } from "../lib/marker-sources.ts";
+import { abortExtract } from "../lib/extract-registry.ts";
+import { measureBookDiskUsage, measureDirs, removeDirs } from "../lib/disk-usage.ts";
+import { chapterChunkPreviewDir } from "../lib/chunk-previews.ts";
+import { translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
 import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -36,6 +40,25 @@ function computeBookStatus(
   if (statuses.some((s) => s === "failed")) return "failed";
   if (statuses.every((s) => s === "suspended" || s === "done")) return "suspended";
   return book.status;
+}
+
+// Chunk WAVs only matter for resuming a partial synthesis — finished chapters never reread them
+async function cleanableChunkDirs(bookId: string): Promise<string[]> {
+  const doneChapters = await db
+    .select({ index: chapters.index })
+    .from(chapters)
+    .where(and(eq(chapters.bookId, bookId), eq(chapters.status, "done")));
+
+  const doneTranslations = await db
+    .select({ language: chapterTranslations.language, index: chapters.index })
+    .from(chapterTranslations)
+    .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+    .where(and(eq(chapters.bookId, bookId), eq(chapterTranslations.audioStatus, "done")));
+
+  return [
+    ...doneChapters.map((c) => chapterChunkPreviewDir(bookId, c.index)),
+    ...doneTranslations.map((t) => translationChunkPreviewDir(bookId, t.language, t.index)),
+  ];
 }
 
 export const booksRouter = router({
@@ -130,6 +153,8 @@ export const booksRouter = router({
       id: z.string().uuid(),
       voice: z.string().optional(),
       speed: z.number().min(0.5).max(2.0).optional(),
+      forceOcr: z.boolean().optional(),
+      llmChapterDetection: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const updates: Record<string, unknown> = { updatedAt: new Date() };
@@ -138,6 +163,8 @@ export const booksRouter = router({
         updates.voice = input.voice;
       }
       if (input.speed !== undefined) updates.speed = input.speed;
+      if (input.forceOcr !== undefined) updates.forceOcr = input.forceOcr;
+      if (input.llmChapterDetection !== undefined) updates.llmChapterDetection = input.llmChapterDetection;
       await db.update(books).set(updates).where(eq(books.id, input.id));
       return { success: true };
     }),
@@ -544,13 +571,26 @@ export const booksRouter = router({
       }
 
       await appendLog(input.id, `Queuing ${input.format.toUpperCase()} export (${exportable} chapter${exportable !== 1 ? "s" : ""})${input.language ? ` · ${input.language}` : ""}`);
+      // jobKey: repeat clicks replace the queued job instead of stacking duplicates
       await quickAddJob(
         { connectionString },
         "assembleDocument",
         { bookId: input.id, language: input.language, format: input.format },
-        { maxAttempts: 1 },
+        { maxAttempts: 1, jobKey: `assembleDocument:${input.id}:${input.format}:${input.language ?? "original"}`, jobKeyMode: "replace" },
       );
       return { success: true };
+    }),
+
+  pendingDocumentExports: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const rows = (await db.execute(sql`
+        SELECT j.payload->>'format' AS format, j.payload->>'language' AS language, j.locked_at IS NOT NULL AS running
+        FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+        WHERE t.identifier = 'assembleDocument' AND j.payload->>'bookId' = ${input.bookId}
+      `)) as unknown as Array<{ format: "pdf" | "epub"; language: string | null; running: boolean }>;
+      return rows;
     }),
 
   documents: publicProcedure
@@ -574,6 +614,28 @@ export const booksRouter = router({
       return { success: true };
     }),
 
+  diskUsage: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const asm = await db.select({ outputPath: assemblies.outputPath }).from(assemblies).where(eq(assemblies.bookId, input.bookId));
+      const docs = await db.select({ outputPath: documents.outputPath }).from(documents).where(eq(documents.bookId, input.bookId));
+      const usage = await measureBookDiskUsage(
+        input.bookId,
+        new Set(asm.map((a) => a.outputPath)),
+        new Set(docs.map((d) => d.outputPath)),
+      );
+      const cleanableChunkWavs = await measureDirs(await cleanableChunkDirs(input.bookId));
+      return { ...usage, cleanableChunkWavs };
+    }),
+
+  cleanupChunks: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const freed = await removeDirs(await cleanableChunkDirs(input.bookId));
+      await appendLog(input.bookId, `Cleaned up WAV chunks of finished chapters — freed ${(freed / 1e9).toFixed(2)} GB`);
+      return { freed };
+    }),
+
   cancel: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
@@ -592,10 +654,27 @@ export const booksRouter = router({
           ne(chapters.status, "done"),
         ));
 
+      const cancelledFiles = await db
+        .update(bookFiles)
+        .set({ status: "failed", error: "Cancelled by user" })
+        .where(and(
+          eq(bookFiles.bookId, input.id),
+          inArray(bookFiles.status, ["extracting", "pending"]),
+        ))
+        .returning({ id: bookFiles.id });
+      let killedCount = 0;
+      for (const f of cancelledFiles) {
+        if (abortExtract(f.id)) killedCount++;
+      }
+      if (abortExtract(input.id)) killedCount++; // legacy single-file extraction is keyed by bookId
+      if (cancelledFiles.length > 0) {
+        await appendLog(input.id, `Cancelled extraction of ${cancelledFiles.length} file(s)${killedCount > 0 ? ` — stopped ${killedCount} running process(es)` : ""}`);
+      }
+
       const cleared = (await db.execute(sql`
         DELETE FROM graphile_worker._private_jobs j
         USING graphile_worker._private_tasks t
-        WHERE t.id = j.task_id AND t.identifier IN ('normalize', 'synthesize')
+        WHERE t.id = j.task_id AND t.identifier IN ('normalize', 'synthesize', 'extract')
           AND (j.payload ->> 'bookId') = ${input.id}
           AND j.locked_at IS NULL
         RETURNING j.id

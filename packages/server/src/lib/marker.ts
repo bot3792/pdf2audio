@@ -415,8 +415,20 @@ type LogFn = (message: string) => Promise<void>;
 
 const noopLog: LogFn = async () => {};
 
-function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu", log: LogFn, disableOcr: boolean): Promise<void> {
+export class ExtractAbortedError extends Error {
+  constructor() {
+    super("Extraction cancelled");
+    this.name = "ExtractAbortedError";
+  }
+}
+
+function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu", log: LogFn, disableOcr: boolean, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new ExtractAbortedError());
+      return;
+    }
+
     const args = [pdfPath, "--output_format", "json", "--output_dir", outDir];
     if (disableOcr) args.push("--disable_ocr");
     const proc = spawn(
@@ -424,6 +436,9 @@ function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu",
       args,
       { env: { ...process.env, TORCH_DEVICE: device, HF_HUB_OFFLINE: "1", OMP_NUM_THREADS: String(os.availableParallelism()), MKL_NUM_THREADS: String(os.availableParallelism()), PATH: `${CONDA_BIN}:${process.env.PATH}` } }
     );
+
+    const handleAbort = () => proc.kill("SIGKILL");
+    signal?.addEventListener("abort", handleAbort, { once: true });
 
     const timeout = setTimeout(() => {
       proc.kill("SIGKILL");
@@ -465,7 +480,10 @@ function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu",
     proc.on("close", (code) => {
       clearTimeout(timeout);
       rl.close();
-      if (code !== 0) {
+      signal?.removeEventListener("abort", handleAbort);
+      if (signal?.aborted) {
+        reject(new ExtractAbortedError());
+      } else if (code !== 0) {
         reject(new Error(`marker_single exited with code ${code}`));
       } else {
         resolve();
@@ -475,6 +493,7 @@ function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu",
     proc.on("error", (err) => {
       clearTimeout(timeout);
       rl.close();
+      signal?.removeEventListener("abort", handleAbort);
       reject(err);
     });
   });
@@ -483,6 +502,7 @@ function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu",
 export type ExtractOptions = {
   forceOcr?: boolean;
   llmChapterDetection?: boolean;
+  signal?: AbortSignal;
 };
 
 export async function findMarkerJson(outDir: string): Promise<string> {
@@ -583,14 +603,18 @@ export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = n
   await log(`Running marker_single on "${path.basename(pdfPath)}"${disableOcr ? " (OCR disabled)" : " (OCR enabled)"}`);
 
   try {
-    await runMarkerSingle(pdfPath, outDir, "mps", log, disableOcr);
+    await runMarkerSingle(pdfPath, outDir, "mps", log, disableOcr, options.signal);
   } catch (mpsError) {
+    if (mpsError instanceof ExtractAbortedError) throw mpsError;
     await log(`MPS extraction failed — known PyTorch MPS bug with certain PDFs. Retrying with CPU...`);
-    await runMarkerSingle(pdfPath, outDir, "cpu", log, disableOcr);
+    await runMarkerSingle(pdfPath, outDir, "cpu", log, disableOcr, options.signal);
   }
 
+  if (options.signal?.aborted) throw new ExtractAbortedError();
   const markerJsonPath = await findMarkerJson(outDir);
-  return detectChaptersFromMarkerJsonPath(markerJsonPath, pdfPath, log, options);
+  const result = await detectChaptersFromMarkerJsonPath(markerJsonPath, pdfPath, log, options);
+  if (options.signal?.aborted) throw new ExtractAbortedError();
+  return result;
 }
 
 export async function redetectChaptersFromExistingMarkerOutput(outDir: string, pdfPath: string, log: LogFn = noopLog, options: ExtractOptions = {}): Promise<DetectionResult> {
