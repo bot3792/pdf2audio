@@ -12,12 +12,14 @@ export type AssemblyRow = {
 export function AudioOutputsSection({
   assemblies,
   latestOutputPath,
+  settings,
   actions,
   onDelete,
   isDeleting,
 }: {
   assemblies: AssemblyRow[];
   latestOutputPath: string | null;
+  settings?: React.ReactNode;
   actions: React.ReactNode;
   onDelete: (id: string) => void;
   isDeleting: boolean;
@@ -28,6 +30,7 @@ export function AudioOutputsSection({
         <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mr-2">3 · Output</span>
         Audiobook
       </h2>
+      {settings && <div className="mb-3">{settings}</div>}
       <div className="flex items-center gap-2 mb-3 flex-wrap">{actions}</div>
       {assemblies.length === 0 ? (
         <p className="text-sm text-(--text-muted)">

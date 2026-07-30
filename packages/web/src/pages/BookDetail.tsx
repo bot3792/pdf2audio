@@ -490,21 +490,6 @@ export function BookDetail() {
             </div>
           )}
 
-          {/* Voice & speed settings */}
-          <div className="flex items-end gap-4 mb-3">
-            <div className="w-64">
-              <VoicePicker
-                value={book.voice}
-                onChange={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
-              />
-            </div>
-            <SpeedSlider
-              value={book.speed}
-              onChange={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
-              disabled={!voiceSupportsSpeedControl(book.voice)}
-            />
-          </div>
-
           {/* Chapter work toolbar — acts on the selected chapters' text */}
           {book.chapters.length > 0 && (
             <div className="flex gap-3 mb-3 flex-wrap">
@@ -589,6 +574,21 @@ export function BookDetail() {
             latestOutputPath={activeLanguage ? null : book.outputPath}
             onDelete={(aid) => deleteAssemblyMutation.mutate({ id: aid })}
             isDeleting={deleteAssemblyMutation.isPending}
+            settings={
+              <div className="flex items-end gap-4 flex-wrap">
+                <div className="w-64">
+                  <VoicePicker
+                    value={book.voice}
+                    onChange={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
+                  />
+                </div>
+                <SpeedSlider
+                  value={book.speed}
+                  onChange={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
+                  disabled={!voiceSupportsSpeedControl(book.voice)}
+                />
+              </div>
+            }
             actions={
               <>
                 <button
