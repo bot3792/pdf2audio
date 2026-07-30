@@ -11,7 +11,7 @@ import { dirSize } from "../lib/disk-usage.ts";
 import { stat } from "node:fs/promises";
 import type { SourceBlock } from "../lib/marker.ts";
 import { removeChapterArtifacts } from "../lib/chapter-artifacts.ts";
-import { deepseekChat } from "../lib/deepseek.ts";
+import { deepseekChat, DEEPSEEK_MODELS } from "../lib/deepseek.ts";
 
 const connectionString = env.DATABASE_URL;
 
@@ -272,7 +272,11 @@ export const chaptersRouter = router({
     }),
 
   aiPrompt: publicProcedure
-    .input(z.object({ chapterId: z.string().uuid(), prompt: z.string().min(1).max(4000) }))
+    .input(z.object({
+      chapterId: z.string().uuid(),
+      prompt: z.string().min(1).max(4000),
+      model: z.enum(["flash", "pro"]).default("flash"),
+    }))
     .mutation(async ({ input }) => {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.chapterId));
       if (!chapter) throw new Error("Chapter not found");
@@ -281,10 +285,14 @@ export const chaptersRouter = router({
       const system =
         "You are a careful reading assistant. You are given the full text of one book chapter. " +
         "Answer the user's request about this chapter using only the chapter text — do not invent facts that are not in it. " +
-        "Respond in the language of the request unless asked otherwise. Use plain text with simple lists; no markdown headers.";
+        "Respond in the language of the request unless asked otherwise. Format your answer in Markdown where it helps readability (lists, bold, short headings).";
       const user = `${input.prompt}\n\n---\nChapter ${chapter.index + 1}: "${chapter.title}"\n\n${text}`;
 
-      const result = await deepseekChat(system, user, { temperature: 0.7, timeoutMs: 600_000 });
+      const result = await deepseekChat(system, user, {
+        model: DEEPSEEK_MODELS[input.model],
+        temperature: 0.7,
+        timeoutMs: 600_000,
+      });
       return { result };
     }),
 

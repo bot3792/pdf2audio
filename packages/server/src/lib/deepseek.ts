@@ -2,9 +2,16 @@ import { env } from "../env.ts";
 
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL = "deepseek-v4-flash";
+
+export const DEEPSEEK_MODELS = {
+  flash: "deepseek-v4-flash",
+  pro: "deepseek-v4-pro",
+} as const;
+
 const REQUEST_TIMEOUT_MS = 120_000;
 
 export type DeepseekChatOptions = {
+  model?: string;
   temperature?: number;
   responseFormat?: "json_object";
   maxTokens?: number;
@@ -24,7 +31,7 @@ export async function deepseekChat(system: string, user: string, opts: DeepseekC
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
+        model: opts.model ?? DEEPSEEK_MODEL,
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },

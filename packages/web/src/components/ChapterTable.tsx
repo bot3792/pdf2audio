@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { ChapterModal } from "./ChapterModal.tsx";
+import { ChapterAiModal } from "./ChapterAiModal.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 
 export type ChapterRow = {
@@ -35,6 +36,8 @@ export type FileInfo = {
 
 const STATUSES = ["done", "failed", "pending", "suspended", "synthesizing", "normalizing"] as const;
 
+const ACTION_PILL = "text-xs px-2 py-0.5 rounded-full border border-(--border) text-(--text-secondary) font-medium hover:bg-(--bg-subtle) whitespace-nowrap";
+
 export function ChapterTable({
   bookId,
   chapters,
@@ -64,6 +67,7 @@ export function ChapterTable({
   onSwitchLanguage?: (language: string | null) => void;
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
+  const [aiChapter, setAiChapter] = useState<{ id: string; title: string } | null>(null);
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; page: number; filename?: string } | null>(null);
   const toggleAllRef = useRef<HTMLInputElement>(null);
   const lastClickedFilteredIndex = useRef<number | null>(null);
@@ -488,22 +492,37 @@ export function ChapterTable({
                           {playingChapterId === chapter.id && isAudioPlaying ? "\u23F8" : "\u25B6"}
                         </button>
                       ) : null}
+                      <button
+                        onClick={() => setModalChapterIndex(chapters.indexOf(chapter))}
+                        title="Open this chapter — text, audio, editing"
+                        className={ACTION_PILL}
+                      >
+                        Open
+                      </button>
                       {chapter.hasSourceBlocks ? (
                         <a
                           href={`/read/chapter/${chapter.id}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                          className={ACTION_PILL}
                           title="Open reader view in a new tab"
                         >
                           Read
                         </a>
                       ) : null}
+                      <button
+                        onClick={() => setAiChapter({ id: chapter.id, title: chapter.title })}
+                        title="Summarize, question, or run any prompt against this chapter's text"
+                        className={ACTION_PILL}
+                        data-testid="row-ask-ai"
+                      >
+                        Ask AI
+                      </button>
                       {chapter.status === "suspended" || chapter.status === "failed" ? (
                         <button
                           onClick={() => onQueue(chapter.id, true)}
                           title="Continue synthesis from where it stopped — reuses already-synthesized chunks"
-                          className="text-xs text-green-600 hover:text-green-800 font-medium"
+                          className="text-xs px-2 py-0.5 rounded-full border border-green-300 dark:border-green-900 text-green-700 dark:text-green-400 font-medium hover:bg-green-50 dark:hover:bg-green-950/40"
                         >
                           Continue
                         </button>
@@ -516,11 +535,11 @@ export function ChapterTable({
                             ? "No finished translation for this chapter"
                             : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
                               ? "Can't re-synthesize while it's being processed"
-                              : "Re-synthesize this chapter's audio from text (from scratch)"
+                              : "Synthesize this chapter's audio again from scratch, replacing the current audio"
                         }
-                        className="text-xs text-(--text-faint) hover:text-(--text-tertiary) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                        className={`${ACTION_PILL} disabled:opacity-30 disabled:cursor-not-allowed`}
                       >
-                        Redo
+                        Re-synthesize
                       </button>
                       {chapter.error ? (
                         <span className="text-xs text-red-500" title={chapter.error}>
@@ -595,6 +614,14 @@ export function ChapterTable({
           onNavigate={setModalChapterIndex}
           onQueue={onQueue}
           onSetSelected={onSetSelected}
+        />
+      ) : null}
+
+      {aiChapter ? (
+        <ChapterAiModal
+          chapterId={aiChapter.id}
+          chapterTitle={aiChapter.title}
+          onClose={() => setAiChapter(null)}
         />
       ) : null}
     </>

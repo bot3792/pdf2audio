@@ -1,6 +1,12 @@
 import { useState } from "react";
+import Markdown from "react-markdown";
 import { trpc } from "../trpc.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
+
+const MODELS = [
+  { key: "flash", label: "V4 Flash", hint: "Fast and cheap — good default" },
+  { key: "pro", label: "V4 Pro", hint: "Flagship reasoning model — slower, for harder questions" },
+] as const;
 
 // The Summarize default mirrors Brave Leo's page-summary prompt, adapted to a chapter
 const PRESETS = [
@@ -38,6 +44,7 @@ export function ChapterAiModal({
   useBodyScrollLock();
   const [activePreset, setActivePreset] = useState<string>("summarize");
   const [prompt, setPrompt] = useState<string>(PRESETS[0].prompt);
+  const [model, setModel] = useState<"flash" | "pro">("flash");
   const [result, setResult] = useState<string | null>(null);
 
   const aiMutation = trpc.chapters.aiPrompt.useMutation({
@@ -52,7 +59,7 @@ export function ChapterAiModal({
 
   function run() {
     if (!prompt.trim() || aiMutation.isPending) return;
-    aiMutation.mutate({ chapterId, prompt: prompt.trim() });
+    aiMutation.mutate({ chapterId, prompt: prompt.trim(), model });
   }
 
   return (
@@ -101,15 +108,33 @@ export function ChapterAiModal({
               placeholder="Ask anything about this chapter..."
               data-testid="ai-prompt-input"
             />
-            <button
-              onClick={run}
-              disabled={!prompt.trim() || aiMutation.isPending}
-              title="Cmd+Enter"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-              data-testid="ai-run"
-            >
-              {aiMutation.isPending ? "Thinking..." : "Ask"}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="inline-flex rounded-md border border-(--border) p-0.5 gap-0.5" data-testid="ai-model-toggle">
+                {MODELS.map((m) => (
+                  <button
+                    key={m.key}
+                    onClick={() => setModel(m.key)}
+                    title={m.hint}
+                    className={`px-2.5 py-1.5 rounded text-xs font-medium ${
+                      model === m.key
+                        ? "bg-(--bg-subtle) text-(--text-primary)"
+                        : "text-(--text-muted) hover:text-(--text-secondary)"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={run}
+                disabled={!prompt.trim() || aiMutation.isPending}
+                title="Cmd+Enter"
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="ai-run"
+              >
+                {aiMutation.isPending ? "Thinking..." : "Ask"}
+              </button>
+            </div>
           </div>
 
           {/* Right: result */}
@@ -123,9 +148,9 @@ export function ChapterAiModal({
               ) : aiMutation.isError ? (
                 <p className="text-sm text-red-600 whitespace-pre-wrap">{aiMutation.error.message}</p>
               ) : result ? (
-                <p className="text-sm text-(--text-primary) whitespace-pre-wrap leading-relaxed" data-testid="ai-result">
-                  {result}
-                </p>
+                <div className="text-sm text-(--text-primary) leading-relaxed space-y-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_code]:font-mono [&_code]:text-xs [&_code]:bg-(--bg-subtle) [&_code]:px-1 [&_code]:rounded [&_blockquote]:border-l-2 [&_blockquote]:border-(--border) [&_blockquote]:pl-3 [&_blockquote]:text-(--text-tertiary)" data-testid="ai-result">
+                  <Markdown>{result}</Markdown>
+                </div>
               ) : (
                 <p className="text-sm text-(--text-faint)">
                   Pick a preset or write your own prompt, then hit Ask. The full chapter text is sent along with it.
