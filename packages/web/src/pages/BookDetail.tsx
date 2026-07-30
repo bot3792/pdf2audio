@@ -570,16 +570,19 @@ export function BookDetail() {
           {/* Create outputs from the selected chapters */}
           {book.chapters.length > 0 && (
             <div className="mt-4">
-              <div className="border-b border-(--border) flex gap-4">
+              <div className="inline-flex rounded-lg bg-(--bg-subtle) border border-(--border) p-1 gap-1">
                 <button
                   onClick={() => setCreateTab("audio")}
-                  className={`inline-flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 -mb-px ${
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     createTab === "audio"
-                      ? "text-indigo-600 dark:text-indigo-400 border-indigo-500"
-                      : "text-(--text-muted) border-transparent hover:text-(--text-secondary)"
+                      ? "bg-(--bg-card) shadow-sm text-indigo-600 dark:text-indigo-400"
+                      : "text-(--text-muted) hover:text-(--text-secondary)"
                   }`}
                   data-testid="create-tab-audio"
                 >
+                  <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M9.5 2.06a.75.75 0 01.5.71v10.46a.75.75 0 01-1.28.53L5.94 11H3.75A1.75 1.75 0 012 9.25v-2.5C2 5.784 2.784 5 3.75 5h2.19l2.78-2.76a.75.75 0 01.78-.18zM11.7 5.05a.75.75 0 011.06.05 4.25 4.25 0 010 5.8.75.75 0 11-1.1-1.02 2.75 2.75 0 000-3.76.75.75 0 01.04-1.07z"/>
+                  </svg>
                   Create audio
                   {(hasActiveChapters || translationAudioQueued) && (
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" title="Synthesis in progress" />
@@ -587,13 +590,17 @@ export function BookDetail() {
                 </button>
                 <button
                   onClick={() => setCreateTab("document")}
-                  className={`inline-flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 -mb-px ${
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                     createTab === "document"
-                      ? "text-emerald-600 dark:text-emerald-400 border-emerald-500"
-                      : "text-(--text-muted) border-transparent hover:text-(--text-secondary)"
+                      ? "bg-(--bg-card) shadow-sm text-emerald-600 dark:text-emerald-400"
+                      : "text-(--text-muted) hover:text-(--text-secondary)"
                   }`}
                   data-testid="create-tab-document"
                 >
+                  <svg className="w-4 h-4" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M4 1.75C4 .784 4.784 0 5.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0114.25 16h-8.5A1.75 1.75 0 014 14.25V1.75zm1.75-.25a.25.25 0 00-.25.25v12.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H5.75z"/>
+                    <path d="M1.5 4.25a.75.75 0 00-1.5 0v9.5A2.25 2.25 0 002.25 16h7a.75.75 0 000-1.5h-7a.75.75 0 01-.75-.75v-9.5z" transform="scale(0.9) translate(1, 1)" opacity="0"/>
+                  </svg>
                   Create document
                   {viewPendingExports.length > 0 && (
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Export in progress" />
