@@ -18,21 +18,21 @@ export type PendingExport = {
 export function DocumentOutputsSection({
   documents,
   pending,
-  actions,
   onDelete,
   isDeleting,
 }: {
   documents: DocumentRow[];
   pending: PendingExport[];
-  actions: React.ReactNode;
   onDelete: (id: string) => void;
   isDeleting: boolean;
 }) {
+  if (documents.length === 0 && pending.length === 0) return null;
+
   return (
     <section className="rounded-xl border border-(--border) border-t-2 border-t-emerald-400/80 bg-(--bg-card) p-4 flex flex-col">
       <h2 className="text-lg font-semibold text-(--text-secondary) mb-3">
         <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mr-2">3 · Output</span>
-        Document
+        Documents
         {pending.length > 0 && (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 ml-3" data-testid="export-pending">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -40,11 +40,8 @@ export function DocumentOutputsSection({
           </span>
         )}
       </h2>
-      <div className="flex items-center gap-2 mb-3 flex-wrap">{actions}</div>
       {documents.length === 0 ? (
-        <p className="text-sm text-(--text-muted)">
-          No exports yet. Render the selected chapters as a PDF or EPUB book.
-        </p>
+        <p className="text-sm text-(--text-muted)">Rendering...</p>
       ) : (
         <ul className="divide-y divide-(--divide) rounded-lg border border-(--border)">
           {documents.map((doc) => (

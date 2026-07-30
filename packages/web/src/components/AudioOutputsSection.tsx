@@ -12,31 +12,23 @@ export type AssemblyRow = {
 export function AudioOutputsSection({
   assemblies,
   latestOutputPath,
-  settings,
-  actions,
   onDelete,
   isDeleting,
 }: {
   assemblies: AssemblyRow[];
   latestOutputPath: string | null;
-  settings?: React.ReactNode;
-  actions: React.ReactNode;
   onDelete: (id: string) => void;
   isDeleting: boolean;
 }) {
+  if (assemblies.length === 0) return null;
+
   return (
     <section className="rounded-xl border border-(--border) border-t-2 border-t-indigo-400/80 bg-(--bg-card) p-4 flex flex-col">
       <h2 className="text-lg font-semibold text-(--text-secondary) mb-3">
         <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mr-2">3 · Output</span>
-        Audiobook
+        Assemblies
       </h2>
-      {settings && <div className="mb-3">{settings}</div>}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">{actions}</div>
-      {assemblies.length === 0 ? (
-        <p className="text-sm text-(--text-muted)">
-          No assemblies yet. Synthesize the selected chapters, then assemble them into one MP3 with chapter markers.
-        </p>
-      ) : (
+      {(
         <ul className="divide-y divide-(--divide) rounded-lg border border-(--border)">
           {assemblies.map((assembly) => {
             const isLatest = assembly.outputPath === latestOutputPath;

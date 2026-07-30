@@ -565,32 +565,26 @@ export function BookDetail() {
               onSwitchLanguage={setActiveLanguage}
             />
           )}
-        </section>
 
-        {/* STAGE 3: Output — audio & document, scoped to the active language view */}
-        <div className="grid gap-6 lg:grid-cols-2 mb-6 items-start">
-          <AudioOutputsSection
-            assemblies={bookAssemblies.filter((a) => (a.language ?? null) === activeLanguage)}
-            latestOutputPath={activeLanguage ? null : book.outputPath}
-            onDelete={(aid) => deleteAssemblyMutation.mutate({ id: aid })}
-            isDeleting={deleteAssemblyMutation.isPending}
-            settings={
-              <div className="flex items-end gap-4 flex-wrap">
-                <div className="w-64">
-                  <VoicePicker
-                    value={book.voice}
-                    onChange={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
+          {/* Create outputs from the selected chapters */}
+          {book.chapters.length > 0 && (
+            <div className="grid gap-4 lg:grid-cols-2 mt-4 items-start">
+              <div className="rounded-lg border border-(--border) border-l-2 border-l-indigo-400/70 p-3 space-y-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Create audio</p>
+                <div className="flex items-end gap-4 flex-wrap">
+                  <div className="w-64">
+                    <VoicePicker
+                      value={book.voice}
+                      onChange={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
+                    />
+                  </div>
+                  <SpeedSlider
+                    value={book.speed}
+                    onChange={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
+                    disabled={!voiceSupportsSpeedControl(book.voice)}
                   />
                 </div>
-                <SpeedSlider
-                  value={book.speed}
-                  onChange={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
-                  disabled={!voiceSupportsSpeedControl(book.voice)}
-                />
-              </div>
-            }
-            actions={
-              <>
+                <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() =>
                     activeLanguage
@@ -659,36 +653,54 @@ export function BookDetail() {
                 >
                   Delete chapter audio ({audioDataCount}{selectedAudioSize && selectedAudioSize.bytes > 0 ? ` · ${audioDataSize}` : ""}){langSuffix}
                 </button>
-              </>
-            }
+                </div>
+              </div>
+              <div className="rounded-lg border border-(--border) border-l-2 border-l-emerald-400/70 p-3 space-y-3">
+                <p className="text-xs font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Create document</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "pdf" })}
+                    disabled={!canExportDocument || !!pendingExportFor("pdf")}
+                    title={exportTooltip("pdf")}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    data-testid="export-pdf"
+                  >
+                    Export PDF ({selectedExportable}){langSuffix}
+                  </button>
+                  <button
+                    onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "epub" })}
+                    disabled={!canExportDocument || !!pendingExportFor("epub")}
+                    title={exportTooltip("epub")}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    data-testid="export-epub"
+                  >
+                    Export EPUB ({selectedExportable}){langSuffix}
+                  </button>
+                  {viewPendingExports.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400" data-testid="export-pending-inline">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      {viewPendingExports.map((p) => `${p.format.toUpperCase()} ${p.running ? "rendering" : "queued"}`).join(" · ")}...
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* STAGE 3: produced outputs, scoped to the active language view */}
+        <div className="grid gap-6 lg:grid-cols-2 mb-6 items-start">
+          <AudioOutputsSection
+            assemblies={bookAssemblies.filter((a) => (a.language ?? null) === activeLanguage)}
+            latestOutputPath={activeLanguage ? null : book.outputPath}
+            onDelete={(aid) => deleteAssemblyMutation.mutate({ id: aid })}
+            isDeleting={deleteAssemblyMutation.isPending}
           />
           <DocumentOutputsSection
             documents={bookDocuments.filter((d) => (d.language ?? null) === activeLanguage)}
             pending={viewPendingExports}
             onDelete={(did) => deleteDocumentMutation.mutate({ id: did })}
             isDeleting={deleteDocumentMutation.isPending}
-            actions={
-              <>
-                <button
-                  onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "pdf" })}
-                  disabled={!canExportDocument || !!pendingExportFor("pdf")}
-                  title={exportTooltip("pdf")}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  data-testid="export-pdf"
-                >
-                  Export PDF ({selectedExportable}){langSuffix}
-                </button>
-                <button
-                  onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "epub" })}
-                  disabled={!canExportDocument || !!pendingExportFor("epub")}
-                  title={exportTooltip("epub")}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  data-testid="export-epub"
-                >
-                  Export EPUB ({selectedExportable}){langSuffix}
-                </button>
-              </>
-            }
           />
         </div>
 
