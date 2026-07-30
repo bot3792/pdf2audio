@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type ReactNode } from "react";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
+import { ChapterAiModal } from "./ChapterAiModal.tsx";
 import { TranslationModal } from "./TranslationModal.tsx";
 import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
@@ -69,6 +70,7 @@ export function ChapterModal({
 
   const [pdfPage, setPdfPage] = useState<number | null>(null);
   const [showCompare, setShowCompare] = useState(false);
+  const [showAi, setShowAi] = useState(false);
 
   useEffect(() => {
     setViewMode(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
@@ -361,6 +363,14 @@ export function ChapterModal({
           >
             Re-synthesize
           </button>
+          <button
+            onClick={() => setShowAi(true)}
+            title="Summarize, question, or run any prompt against this chapter's text"
+            className="text-xs px-2.5 py-1 rounded bg-teal-600 text-white hover:bg-teal-700 font-medium"
+            data-testid="chapter-ask-ai"
+          >
+            Ask AI
+          </button>
           {!isTranslation ? (
             <>
               <button
@@ -600,6 +610,13 @@ export function ChapterModal({
           page={pdfPage}
           filename={sourceFile.filename}
           onClose={() => setPdfPage(null)}
+        />
+      ) : null}
+      {showAi ? (
+        <ChapterAiModal
+          chapterId={chapter.id}
+          chapterTitle={chapter.title}
+          onClose={() => setShowAi(false)}
         />
       ) : null}
       {showCompare && language ? (
