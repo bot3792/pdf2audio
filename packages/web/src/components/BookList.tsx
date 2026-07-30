@@ -1,6 +1,22 @@
+import { useState } from "react";
 import { Link } from "react-router";
+import type { RouterOutputs } from "../../../server/src/router.ts";
 import { trpc } from "../trpc.ts";
 import { formatBytes, formatRelativeTime } from "../lib/format.ts";
+
+type BookRow = RouterOutputs["books"]["list"][number];
+
+type SortKey = "title" | "chapters" | "outputs" | "size" | "created" | "lastActivity";
+type SortDir = "asc" | "desc";
+
+const SORT_VALUE: Record<SortKey, (b: BookRow) => string | number> = {
+  title: (b) => b.title.toLowerCase(),
+  chapters: (b) => b.chapterCount,
+  outputs: (b) => b.outputs.assemblies + b.outputs.pdfs + b.outputs.epubs,
+  size: (b) => b.sizeBytes,
+  created: (b) => new Date(b.createdAt).getTime(),
+  lastActivity: (b) => new Date(b.lastActivityAt).getTime(),
+};
 
 function ActivityPill({ label, color, pulse = true }: { label: string; color: string; pulse?: boolean }) {
   return (
@@ -11,10 +27,51 @@ function ActivityPill({ label, color, pulse = true }: { label: string; color: st
   );
 }
 
+function SortableTh({
+  label,
+  sortKey,
+  align = "left",
+  active,
+  dir,
+  onSort,
+}: {
+  label: string;
+  sortKey: SortKey;
+  align?: "left" | "right";
+  active: boolean;
+  dir: SortDir;
+  onSort: (key: SortKey) => void;
+}) {
+  return (
+    <th className={`px-4 py-3 text-${align} text-xs font-medium text-(--text-muted) uppercase tracking-wider`}>
+      <button
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 uppercase tracking-wider hover:text-(--text-secondary) ${active ? "text-(--text-secondary)" : ""}`}
+        title={`Sort by ${label.toLowerCase()}`}
+      >
+        {label}
+        <span className={`text-[9px] ${active ? "" : "invisible"}`}>{dir === "asc" ? "▲" : "▼"}</span>
+      </button>
+    </th>
+  );
+}
+
 export function BookList() {
   const { data: books, isLoading } = trpc.books.list.useQuery(undefined, {
     refetchInterval: 3000,
   });
+
+  const [sortKey, setSortKey] = useState<SortKey>("lastActivity");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function handleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "title" ? "asc" : "desc");
+    }
+  }
 
   if (isLoading) {
     return <p className="text-(--text-muted) py-4">Loading...</p>;
@@ -24,22 +81,34 @@ export function BookList() {
     return <p className="text-(--text-muted) py-4">No books yet. Upload a PDF to get started.</p>;
   }
 
+  const sorted = [...books].sort((a, b) => {
+    const va = SORT_VALUE[sortKey](a);
+    const vb = SORT_VALUE[sortKey](b);
+    const cmp = typeof va === "string" ? va.localeCompare(vb as string) : (va as number) - (vb as number);
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const th = (label: string, key: SortKey, align?: "left" | "right") => (
+    <SortableTh label={label} sortKey={key} align={align} active={sortKey === key} dir={sortDir} onSort={handleSort} />
+  );
+
   return (
     <div className="overflow-hidden rounded-lg border border-(--border)">
       <table className="min-w-full divide-y divide-(--divide)">
         <thead className="bg-(--bg-subtle)">
           <tr>
-            <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Title</th>
-            <th className="px-4 py-3 text-right text-xs font-medium text-(--text-muted) uppercase tracking-wider">Chapters</th>
+            {th("Title", "title")}
+            {th("Chapters", "chapters", "right")}
             <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Activity</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Languages</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Outputs</th>
-            <th className="px-4 py-3 text-right text-xs font-medium text-(--text-muted) uppercase tracking-wider">Size</th>
-            <th className="px-4 py-3 text-right text-xs font-medium text-(--text-muted) uppercase tracking-wider">Last activity</th>
+            {th("Outputs", "outputs")}
+            {th("Size", "size", "right")}
+            {th("Created", "created", "right")}
+            {th("Last activity", "lastActivity", "right")}
           </tr>
         </thead>
         <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
-          {books.map((book) => {
+          {sorted.map((book) => {
             const totalFailures =
               book.failures.files + book.failures.chapters + book.failures.translations + book.failures.cleanup;
             const failureDetail = [
@@ -127,6 +196,9 @@ export function BookList() {
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums text-(--text-tertiary)">
                   {formatBytes(book.sizeBytes)}
+                </td>
+                <td className="px-4 py-3 text-right text-sm tabular-nums text-(--text-tertiary)">
+                  {new Date(book.createdAt).toLocaleDateString()}
                 </td>
                 <td className="px-4 py-3 text-right text-sm text-(--text-tertiary)" title={new Date(book.lastActivityAt).toLocaleString()}>
                   {formatRelativeTime(book.lastActivityAt)}
