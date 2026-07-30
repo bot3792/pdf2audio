@@ -22,7 +22,7 @@ export async function sweepStrandedWork() {
     DELETE FROM graphile_worker._private_jobs j
     USING graphile_worker._private_tasks t
     WHERE t.id = j.task_id
-      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument')
+      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup')
       AND (j.locked_at IS NOT NULL OR j.attempts >= j.max_attempts)
     RETURNING t.identifier, j.payload
   `)) as unknown as Array<{ identifier: string; payload: Record<string, unknown> }>;
@@ -81,6 +81,21 @@ export async function sweepStrandedWork() {
   for (const tr of strandedTranslations) {
     await quickAddJob({ connectionString }, "translate", { translationId: tr.id, bookId: tr.book_id }, { maxAttempts: 1 });
     bump(tr.book_id);
+  }
+
+  const strandedCleanups = (await db.execute(sql`
+    UPDATE chapters c SET cleanup = (c.cleanup || jsonb_build_object('status', 'pending', 'updatedAt', to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))) - 'error'
+    WHERE c.cleanup->>'status' IN ('pending', 'cleaning')
+      AND c.id::text NOT IN (
+        SELECT j.payload->>'chapterId' FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+        WHERE t.identifier = 'cleanup' AND j.payload->>'chapterId' IS NOT NULL)
+    RETURNING c.id, c.book_id
+  `)) as unknown as Array<{ id: string; book_id: string }>;
+
+  for (const ch of strandedCleanups) {
+    await quickAddJob({ connectionString }, "cleanup", { chapterId: ch.id, bookId: ch.book_id }, { maxAttempts: 1 });
+    bump(ch.book_id);
   }
 
   // Only finished translations: audio_status='pending' on an unfinished one is the deferred

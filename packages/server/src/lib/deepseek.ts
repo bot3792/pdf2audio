@@ -9,6 +9,7 @@ export type DeepseekChatOptions = {
   responseFormat?: "json_object";
   maxTokens?: number;
   timeoutMs?: number;
+  allowEmpty?: boolean;
 };
 
 export async function deepseekChat(system: string, user: string, opts: DeepseekChatOptions = {}): Promise<string> {
@@ -45,7 +46,10 @@ export async function deepseekChat(system: string, user: string, opts: DeepseekC
     throw err;
   }
   const content = data.choices[0]?.message?.content?.trim();
-  if (!content) throw new Error("DeepSeek returned an empty response");
+  if (!content) {
+    if (opts.allowEmpty) return "";
+    throw new Error("DeepSeek returned an empty response");
+  }
   return content;
 }
 

@@ -146,6 +146,30 @@ export function ChapterModal({
   const startTranslationMutation = trpc.translations.start.useMutation({ onSuccess: refreshTranslations });
   const stopTranslationMutation = trpc.translations.stop.useMutation({ onSuccess: refreshTranslations });
 
+  const invalidateCleanup = () => {
+    utils.books.get.invalidate();
+    utils.chapters.get.invalidate({ id: chapter.id });
+    utils.books.logs.invalidate();
+  };
+  const queueCleanupMutation = trpc.chapters.queueCleanup.useMutation({ onSuccess: invalidateCleanup });
+  const stopCleanupMutation = trpc.chapters.stopCleanup.useMutation({ onSuccess: invalidateCleanup });
+
+  const cleanupStatus = chapter.cleanup?.status;
+  const cleanupRunning = cleanupStatus === "pending" || cleanupStatus === "cleaning";
+  // books.get polling flips the status while this modal is open; the text itself lives in chapters.get
+  const wasCleaningRef = useRef(false);
+  useEffect(() => {
+    if (wasCleaningRef.current && !cleanupRunning) {
+      utils.chapters.get.invalidate({ id: chapter.id });
+    }
+    wasCleaningRef.current = cleanupRunning;
+  }, [cleanupRunning, chapter.id]);
+  const cleanupLabel =
+    cleanupRunning ? "Cleaning..." :
+    cleanupStatus === "failed" ? "Retry cleanup" :
+    cleanupStatus === "done" ? "Re-clean" :
+    "Cleanup (AI)";
+
   const translationStatus = isTranslation ? translationDetail?.status : undefined;
   const translationRunning = translationStatus === "pending" || translationStatus === "translating";
   const translateLabel =
@@ -249,7 +273,14 @@ export function ChapterModal({
               <span className="text-sm font-mono text-(--text-faint)">#{chapter.index + 1}</span>
               <h2 className="text-lg font-semibold text-(--text-primary) truncate">{chapter.title}</h2>
               <StatusBadge status={chapter.status} error={chapter.error} />
-              {chapter.hasCustomText ? (
+              {!isTranslation && chapter.cleanup?.status === "done" ? (
+                <span
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700"
+                  title="Cleaned by AI — the custom text holds the result"
+                >
+                  cleaned
+                </span>
+              ) : chapter.hasCustomText ? (
                 <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700">
                   edited
                 </span>
@@ -318,6 +349,47 @@ export function ChapterModal({
           >
             Re-synthesize
           </button>
+          {!isTranslation ? (
+            <>
+              <button
+                onClick={() => queueCleanupMutation.mutate({ id: chapter.id })}
+                disabled={cleanupRunning || queueCleanupMutation.isPending}
+                title={
+                  cleanupRunning ? "Cleanup is running" :
+                  cleanupStatus === "failed" ? "Retry the failed cleanup" :
+                  cleanupStatus === "done" ? "Run the AI cleanup again on the current text" :
+                  "Ask DeepSeek to strip OCR artifacts from this chapter without altering the prose"
+                }
+                className="text-xs px-2.5 py-1 rounded bg-purple-600 text-white hover:bg-purple-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="chapter-cleanup"
+              >
+                {cleanupLabel}
+              </button>
+              <button
+                onClick={() => stopCleanupMutation.mutate({ id: chapter.id })}
+                disabled={!cleanupRunning || stopCleanupMutation.isPending}
+                title={cleanupRunning ? "Stop the cleanup — the chapter text stays unchanged" : "Nothing is running"}
+                className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                data-testid="chapter-cleanup-stop"
+              >
+                Stop
+              </button>
+              {cleanupRunning ? (
+                <span className="text-xs text-purple-600" data-testid="chapter-cleanup-progress">
+                  Cleaning{chapter.cleanup?.progress ? ` · ${chapter.cleanup.progress} chunks` : ""}...
+                </span>
+              ) : cleanupStatus === "failed" && chapter.cleanup?.error ? (
+                <span className="text-xs text-red-600 truncate" title={chapter.cleanup.error}>
+                  Cleanup failed: {chapter.cleanup.error}
+                </span>
+              ) : null}
+              {queueCleanupMutation.error || stopCleanupMutation.error ? (
+                <span className="text-xs text-red-600 truncate">
+                  {(queueCleanupMutation.error ?? stopCleanupMutation.error)?.message}
+                </span>
+              ) : null}
+            </>
+          ) : null}
           {isTranslation ? (
             <>
               <button

@@ -17,6 +17,7 @@ const statusStyles: Record<string, string> = {
   cancelled: "bg-(--badge-cancelled-bg) text-(--badge-cancelled-text)",
   untranslated: "bg-(--bg-subtle) text-(--text-faint)",
   translating: "bg-(--badge-synthesizing-bg) text-(--badge-synthesizing-text)",
+  cleaning: "bg-(--badge-normalizing-bg) text-(--badge-normalizing-text)",
 };
 
 export function StatusBadge({ status, error, chaptersCompleted, totalChapters }: StatusBadgeProps) {

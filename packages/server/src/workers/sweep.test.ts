@@ -152,6 +152,53 @@ describe("startup sweep", () => {
     expect(mockQuickAddJob).not.toHaveBeenCalledWith(expect.anything(), "synthesizeTranslation", expect.anything(), expect.anything());
   });
 
+  it("requeues a stranded cleanup and clears its error", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    const now = new Date().toISOString();
+    await db
+      .update(chapters)
+      .set({ status: "done", cleanup: { status: "cleaning", progress: "2/5", error: "old", createdAt: now, updatedAt: now } })
+      .where(eq(chapters.id, chapterId));
+    await insertJob(db, "cleanup", { chapterId, bookId }, { lockedAt: new Date(), attempts: 1 });
+
+    await sweepStrandedWork();
+
+    const [row] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
+    expect(row.cleanup?.status).toBe("pending");
+    expect(row.cleanup?.error).toBeUndefined();
+    expect(mockQuickAddJob).toHaveBeenCalledWith(
+      expect.anything(),
+      "cleanup",
+      { chapterId, bookId },
+      { maxAttempts: 1 },
+    );
+    expect(await listJobs(db)).toHaveLength(0);
+  });
+
+  it("leaves healthy queued cleanups and finished cleanups alone", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    const now = new Date().toISOString();
+    await db
+      .update(chapters)
+      .set({ status: "done", cleanup: { status: "pending", createdAt: now, updatedAt: now } })
+      .where(eq(chapters.id, chapterId));
+    await insertJob(db, "cleanup", { chapterId, bookId }, { attempts: 0 });
+
+    const { chapterId: doneChapterId } = await insertFixture(db);
+    await db
+      .update(chapters)
+      .set({ status: "done", cleanup: { status: "done", createdAt: now, updatedAt: now } })
+      .where(eq(chapters.id, doneChapterId));
+
+    await sweepStrandedWork();
+
+    expect(mockQuickAddJob).not.toHaveBeenCalledWith(expect.anything(), "cleanup", expect.anything(), expect.anything());
+    const [done] = await db.select().from(chapters).where(eq(chapters.id, doneChapterId));
+    expect(done.cleanup?.status).toBe("done");
+  });
+
   it("replays dead assemble jobs and unsticks assembling books without one", async () => {
     const db = getDb();
     const { bookId } = await insertFixture(db);

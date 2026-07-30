@@ -23,6 +23,7 @@ export type ChapterRow = {
   // Translation view: rows without a finished translation can't be synthesized (but can be selected for bulk translation)
   synthesizable?: boolean;
   audioUrl?: string;
+  cleanup?: { status: "pending" | "cleaning" | "done" | "failed" | "suspended"; progress?: string; error?: string } | null;
 };
 
 export type FileInfo = {
@@ -423,7 +424,14 @@ export function ChapterTable({
                         onRename={onRename ? (title) => onRename(chapter.id, title) : undefined}
                         onClickTitle={() => setModalChapterIndex(chapters.indexOf(chapter))}
                       />
-                      {chapter.hasCustomText ? (
+                      {!language && chapter.cleanup?.status === "done" ? (
+                        <span
+                          className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-emerald-100 text-emerald-600"
+                          title="Cleaned by AI — the custom text holds the result"
+                        >
+                          cleaned
+                        </span>
+                      ) : chapter.hasCustomText ? (
                         <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-600">
                           edited
                         </span>
@@ -441,7 +449,7 @@ export function ChapterTable({
                     </td>
                   )}
                   <td className="px-4 py-3">
-                    <ChapterStatusCell chapter={chapter} />
+                    <ChapterStatusCell chapter={chapter} cleanup={language ? null : chapter.cleanup ?? null} />
                   </td>
                   <td className="px-4 py-3 text-sm text-(--text-tertiary) text-right tabular-nums">
                     {chapter.wordCount.toLocaleString()}
@@ -568,12 +576,13 @@ export function ChapterTable({
   );
 }
 
-function ChapterStatusCell({ chapter }: { chapter: ChapterRow }) {
+function ChapterStatusCell({ chapter, cleanup }: { chapter: ChapterRow; cleanup: ChapterRow["cleanup"] }) {
+  let main;
   if ((chapter.status === "synthesizing" || chapter.status === "translating") && chapter.progress) {
     const [current, total] = chapter.progress.split("/").map(Number);
     const percent = total > 0 ? (current / total) * 100 : 0;
 
-    return (
+    main = (
       <div className="space-y-1">
         <div className="flex items-center gap-2">
           <StatusBadge status={chapter.status} />
@@ -587,18 +596,47 @@ function ChapterStatusCell({ chapter }: { chapter: ChapterRow }) {
         </div>
       </div>
     );
-  }
-
-  if (chapter.status === "suspended" && chapter.progress) {
-    return (
+  } else if (chapter.status === "suspended" && chapter.progress) {
+    main = (
       <div className="flex items-center gap-2">
         <StatusBadge status={chapter.status} error={chapter.error} />
         <span className="text-[10px] text-(--text-muted) tabular-nums">{chapter.progress}</span>
       </div>
     );
+  } else {
+    main = <StatusBadge status={chapter.status} error={chapter.error} />;
   }
 
-  return <StatusBadge status={chapter.status} error={chapter.error} />;
+  const cleaningActive = cleanup?.status === "cleaning" || cleanup?.status === "pending";
+  if (!cleaningActive && cleanup?.status !== "failed") return main;
+
+  const [current, total] = (cleanup?.progress ?? "").split("/").map(Number);
+  const percent = total > 0 ? (current / total) * 100 : 0;
+  return (
+    <div className="space-y-1" data-testid="chapter-cleanup-status">
+      {main}
+      {cleaningActive ? (
+        <>
+          <div className="flex items-center gap-2">
+            <StatusBadge status="cleaning" />
+            {cleanup?.progress ? (
+              <span className="text-[10px] text-(--text-muted) tabular-nums">{cleanup.progress}</span>
+            ) : null}
+          </div>
+          <div className="w-full bg-(--bg-page) rounded-full h-1">
+            <div
+              className="bg-purple-500 h-1 rounded-full transition-all duration-500"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        </>
+      ) : (
+        <span className="text-[10px] text-red-500" title={cleanup?.error ?? undefined}>
+          cleanup failed
+        </span>
+      )}
+    </div>
+  );
 }
 
 function formatDuration(ms: number): string {

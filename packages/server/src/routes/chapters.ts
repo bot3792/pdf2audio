@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, chapters } from "../schema.ts";
-import { eq, and, inArray } from "drizzle-orm";
+import { books, chapters, type Chapter, type ChapterCleanup } from "../schema.ts";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { appendLog } from "../lib/log.ts";
 import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
@@ -11,6 +11,38 @@ import type { SourceBlock } from "../lib/marker.ts";
 import { removeChapterArtifacts } from "../lib/chapter-artifacts.ts";
 
 const connectionString = env.DATABASE_URL;
+
+const STALE_RUNNING_MS = 15 * 60_000;
+
+function cleanupRunning(cleanup: ChapterCleanup | null | undefined): boolean {
+  if (!cleanup) return false;
+  if (cleanup.status !== "pending" && cleanup.status !== "cleaning") return false;
+  return Date.now() - Date.parse(cleanup.updatedAt) < STALE_RUNNING_MS;
+}
+
+// Requeueing without this leaves the old job behind and two workers end up
+// racing on the same chapter's cleanup state.
+async function deleteQueuedCleanupJobs(chapterIds: string[]) {
+  if (chapterIds.length === 0) return;
+  await db.execute(sql`
+    DELETE FROM graphile_worker._private_jobs j
+    USING graphile_worker._private_tasks t
+    WHERE t.id = j.task_id AND t.identifier = 'cleanup'
+      AND (j.payload ->> 'chapterId') IN (SELECT json_array_elements_text(${JSON.stringify(chapterIds)}::json))
+      AND j.locked_at IS NULL
+  `);
+}
+
+async function queueCleanupFor(chapter: Chapter) {
+  const now = new Date().toISOString();
+  await db
+    .update(chapters)
+    .set({ cleanup: { status: "pending", createdAt: now, updatedAt: now } })
+    .where(eq(chapters.id, chapter.id));
+  await deleteQueuedCleanupJobs([chapter.id]);
+  await quickAddJob({ connectionString }, "cleanup", { chapterId: chapter.id, bookId: chapter.bookId }, { maxAttempts: 1 });
+  await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] Queued cleanup`);
+}
 
 export const chaptersRouter = router({
   get: publicProcedure
@@ -170,6 +202,54 @@ export const chaptersRouter = router({
         .where(eq(chapters.id, input.id));
 
       return { success: true };
+    }),
+
+  queueCleanup: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.id));
+      if (!chapter) throw new Error("Chapter not found");
+      if (cleanupRunning(chapter.cleanup)) throw new Error("Cleanup is already running");
+
+      await queueCleanupFor(chapter);
+      return { success: true };
+    }),
+
+  stopCleanup: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.id));
+      if (!chapter) throw new Error("Chapter not found");
+      if (chapter.cleanup?.status !== "pending" && chapter.cleanup?.status !== "cleaning") {
+        throw new Error("Cleanup is not running");
+      }
+
+      await db
+        .update(chapters)
+        .set({ cleanup: { ...chapter.cleanup, status: "suspended", updatedAt: new Date().toISOString() } })
+        .where(eq(chapters.id, input.id));
+      await deleteQueuedCleanupJobs([input.id]);
+      await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] Cleanup stopped`);
+      return { success: true };
+    }),
+
+  cleanupSelected: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const selected = await db
+        .select()
+        .from(chapters)
+        .where(and(eq(chapters.bookId, input.bookId), eq(chapters.selected, true)));
+
+      const queueable = selected.filter((ch) => ch.cleanup?.status !== "done" && !cleanupRunning(ch.cleanup));
+      if (queueable.length === 0) {
+        throw new Error("No selected chapters need cleanup — already-cleaned ones are skipped");
+      }
+
+      for (const ch of queueable) {
+        await queueCleanupFor(ch);
+      }
+      return { queued: queueable.length };
     }),
 
   reorder: publicProcedure

@@ -17,6 +17,15 @@ export type ChapterProposal = {
   createdAt: string;
 };
 
+export type ChapterCleanup = {
+  status: "pending" | "cleaning" | "done" | "failed" | "suspended";
+  progress?: string;
+  error?: string;
+  runToken?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
@@ -60,6 +69,7 @@ export const chapters = pgTable("chapters", {
   sourceBlocks: jsonb("source_blocks"),
   sourceFileIndex: integer("source_file_index"),
   synthesizedWith: jsonb("synthesized_with").$type<{ voice?: string; speed?: number | null }>(),
+  cleanup: jsonb("cleanup").$type<ChapterCleanup>(),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

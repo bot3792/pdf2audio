@@ -26,9 +26,12 @@ export function BookDetail() {
         const hasActiveChapters = data.chapters?.some((c: { status: string }) =>
           ["synthesizing", "normalizing", "pending"].includes(c.status)
         );
+        const hasActiveCleanups = data.chapters?.some((c: { cleanup?: { status: string } | null }) =>
+          c.cleanup?.status === "cleaning" || c.cleanup?.status === "pending"
+        );
         const bookActive = data.status === "extracting" || data.status === "assembling";
         const proposalRunning = data.chapterProposal?.status === "running";
-        return (hasActiveFiles || hasActiveChapters || bookActive || proposalRunning) ? 2000 : false;
+        return (hasActiveFiles || hasActiveChapters || hasActiveCleanups || bookActive || proposalRunning) ? 2000 : false;
       },
     }
   );
@@ -127,6 +130,7 @@ export function BookDetail() {
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
+  const cleanupSelectedMutation = trpc.chapters.cleanupSelected.useMutation({ onSuccess: invalidate });
   const renameChapterMutation = trpc.chapters.rename.useMutation({ onSuccess: invalidate });
   const reorderChaptersMutation = trpc.chapters.reorder.useMutation({ onSuccess: invalidate });
   const setSkipSynthesisMutation = trpc.bookFiles.setSkipSynthesis.useMutation({ onSuccess: invalidate });
@@ -210,6 +214,13 @@ export function BookDetail() {
         return !t || t.status === "failed" || t.status === "suspended";
       }).length
     : 0;
+  const selectedCleanable = activeLanguage
+    ? 0
+    : book.chapters.filter((c) => {
+        if (!c.selected) return false;
+        const s = c.cleanup?.status;
+        return s !== "done" && s !== "cleaning" && s !== "pending";
+      }).length;
   // Document export needs text, not audio: original chapters always have it, language views need a finished translation
   const selectedExportable = activeLanguage
     ? book.chapters.filter((c) => c.selected && translationByChapter.get(c.id)?.status === "done").length
@@ -406,6 +417,19 @@ export function BookDetail() {
                 data-testid="translate-selected"
               >
                 Translate selected ({selectedTranslatable}){activeLanguage ? ` · ${activeLanguage}` : ""}
+              </button>
+              <button
+                onClick={() => cleanupSelectedMutation.mutate({ bookId: book.id })}
+                disabled={!!activeLanguage || selectedCleanable === 0 || cleanupSelectedMutation.isPending}
+                title={
+                  activeLanguage ? "Switch to the Original view — cleanup runs on the original text" :
+                  selectedCleanable === 0 ? "No selected chapters need cleanup — already-cleaned and running ones are skipped" :
+                  "Ask DeepSeek to strip OCR artifacts from the selected chapters without altering the prose (cleaned ones are skipped)"
+                }
+                className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="cleanup-selected"
+              >
+                Cleanup selected ({selectedCleanable})
               </button>
               <button
                 onClick={() =>
