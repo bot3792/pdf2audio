@@ -4,9 +4,26 @@ import { trpc } from "../trpc.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 
 const MODELS = [
-  { key: "flash", label: "V4 Flash", hint: "Fast and cheap — good default" },
-  { key: "pro", label: "V4 Pro", hint: "Flagship reasoning model — slower, for harder questions" },
+  { key: "flash", label: "V4 Flash", hint: "Fast and cheap — good default", contextTokens: 1_000_000 },
+  { key: "pro", label: "V4 Pro", hint: "Flagship reasoning model — slower, for harder questions", contextTokens: 1_000_000 },
 ] as const;
+
+// No DeepSeek tokenizer in the browser — BPE rule of thumb: ~3.8 chars/token for
+// ASCII text, ~1.6 for non-Latin scripts (Cyrillic etc.)
+function estimateTokens(text: string): number {
+  let ascii = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) < 128) ascii++;
+  }
+  const nonAscii = text.length - ascii;
+  return Math.round(ascii / 3.8 + nonAscii / 1.6);
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${parseFloat((n / 1_000_000).toFixed(2))}M`;
+}
 
 // The Summarize default mirrors Brave Leo's page-summary prompt, adapted to a chapter
 const PRESETS = [
@@ -50,6 +67,14 @@ export function ChapterAiModal({
   const aiMutation = trpc.chapters.aiPrompt.useMutation({
     onSuccess: (data) => setResult(data.result),
   });
+
+  const { data: chapterDetail } = trpc.chapters.get.useQuery({ id: chapterId });
+  const chapterText = chapterDetail
+    ? (chapterDetail.customText ?? chapterDetail.cleanText ?? chapterDetail.rawText)
+    : null;
+  const activeModel = MODELS.find((m) => m.key === model)!;
+  const chapterTokens = chapterText ? estimateTokens(chapterText) + estimateTokens(prompt) : null;
+  const contextPct = chapterTokens ? (chapterTokens / activeModel.contextTokens) * 100 : null;
 
   function selectPreset(key: string) {
     const preset = PRESETS.find((p) => p.key === key)!;
@@ -108,6 +133,20 @@ export function ChapterAiModal({
               placeholder="Ask anything about this chapter..."
               data-testid="ai-prompt-input"
             />
+            {chapterTokens !== null && contextPct !== null && (
+              <div className="shrink-0" data-testid="ai-context-usage" title={`Rough estimate — chapter text plus your prompt, sent in full to ${activeModel.label}`}>
+                <div className="flex items-baseline justify-between text-xs text-(--text-faint) mb-1">
+                  <span>Sends ≈ {formatTokens(chapterTokens)} tokens</span>
+                  <span>{contextPct < 0.1 ? "<0.1" : contextPct.toFixed(1)}% of {activeModel.label}'s {formatTokens(activeModel.contextTokens)} context</span>
+                </div>
+                <div className="h-1 rounded-full bg-(--bg-subtle) overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${contextPct > 80 ? "bg-red-500" : "bg-blue-500"}`}
+                    style={{ width: `${Math.min(100, Math.max(0.5, contextPct))}%` }}
+                  />
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-2 shrink-0">
               <div className="inline-flex rounded-md border border-(--border) p-0.5 gap-0.5" data-testid="ai-model-toggle">
                 {MODELS.map((m) => (
