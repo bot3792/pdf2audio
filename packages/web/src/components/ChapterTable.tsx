@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { ChapterModal } from "./ChapterModal.tsx";
+import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 
 export type ChapterRow = {
   id: string;
@@ -63,6 +64,7 @@ export function ChapterTable({
   onSwitchLanguage?: (language: string | null) => void;
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<{ fileId: string; page: number; filename?: string } | null>(null);
   const toggleAllRef = useRef<HTMLInputElement>(null);
   const lastClickedFilteredIndex = useRef<number | null>(null);
   const [playingChapterId, setPlayingChapterId] = useState<string | null>(null);
@@ -357,6 +359,8 @@ export function ChapterTable({
           </thead>
           <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
             {filteredChapters.map((chapter) => {
+              const sourceFile =
+                files?.find((f) => f.index === chapter.sourceFileIndex) ?? (files?.length === 1 ? files[0] : undefined);
               return (
                 <tr
                   key={chapter.id}
@@ -437,9 +441,21 @@ export function ChapterTable({
                         </span>
                       ) : null}
                       {chapter.pageStart ? (
-                        <span className="text-xs text-(--text-faint) tabular-nums">
-                          p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
-                        </span>
+                        sourceFile ? (
+                          <button
+                            onClick={() =>
+                              setPdfPreview({ fileId: sourceFile.id, page: chapter.pageStart!, filename: sourceFile.filename })
+                            }
+                            className="text-xs text-blue-600 hover:text-blue-800 tabular-nums"
+                            title="Open the source PDF at this chapter's first page"
+                          >
+                            p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-(--text-faint) tabular-nums">
+                            p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
+                          </span>
+                        )
                       ) : null}
                     </div>
                   </td>
@@ -555,6 +571,15 @@ export function ChapterTable({
             &#10005;
           </button>
         </div>
+      ) : null}
+
+      {pdfPreview ? (
+        <PdfPreviewModal
+          fileId={pdfPreview.fileId}
+          page={pdfPreview.page}
+          filename={pdfPreview.filename}
+          onClose={() => setPdfPreview(null)}
+        />
       ) : null}
 
       {modalChapterIndex !== null ? (

@@ -344,31 +344,45 @@ export function StructureModal({
             <h3 className="text-xs font-medium text-(--text-muted) uppercase tracking-wider mb-2">
               Resulting chapters
             </h3>
-            {structure?.files.map((file) => (
-              <div key={file.fileIndex ?? "legacy"} className="mb-3">
-                {structure.files.length > 1 ? (
-                  <p className="text-xs text-(--text-faint) mb-1 truncate">{file.filename}</p>
-                ) : null}
-                {previewFor(file).map((ch, i) => (
-                  <div key={ch.key} className="flex items-baseline gap-2 py-0.5 text-sm">
-                    <span className="shrink-0 text-xs font-mono text-(--text-faint) w-6 text-right">{i + 1}.</span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block truncate text-(--text-secondary)" title={ch.title}>
-                        {ch.title}
-                      </span>
-                      {ch.translated ? (
-                        <span className="block truncate text-xs text-(--text-muted) italic" title={ch.translated}>
-                          {ch.translated}
+            {structure?.files.map((file) => {
+              const pdfFile = pdfFileFor(file.fileIndex);
+              return (
+                <div key={file.fileIndex ?? "legacy"} className="mb-3">
+                  {structure.files.length > 1 ? (
+                    <p className="text-xs text-(--text-faint) mb-1 truncate">{file.filename}</p>
+                  ) : null}
+                  {previewFor(file).map((ch, i) => (
+                    <div key={ch.key} className="flex items-baseline gap-2 py-0.5 text-sm">
+                      <span className="shrink-0 text-xs font-mono text-(--text-faint) w-6 text-right">{i + 1}.</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate text-(--text-secondary)" title={ch.title}>
+                          {ch.title}
                         </span>
-                      ) : null}
-                    </span>
-                    <span className="shrink-0 text-xs text-(--text-muted) tabular-nums">
-                      p.{ch.pageStart}–{ch.pageEnd} · {ch.words.toLocaleString()}w
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
+                        {ch.translated ? (
+                          <span className="block truncate text-xs text-(--text-muted) italic" title={ch.translated}>
+                            {ch.translated}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="shrink-0 text-xs text-(--text-muted) tabular-nums">
+                        {pdfFile ? (
+                          <button
+                            onClick={() => setPdfPreview({ fileId: pdfFile.id, page: ch.pageStart, filename: pdfFile.filename })}
+                            className="text-blue-600 hover:text-blue-800 tabular-nums"
+                            title="Open the source PDF at this chapter's first page"
+                          >
+                            p.{ch.pageStart}–{ch.pageEnd}
+                          </button>
+                        ) : (
+                          <>p.{ch.pageStart}–{ch.pageEnd}</>
+                        )}
+                        {" · "}{ch.words.toLocaleString()}w
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
 

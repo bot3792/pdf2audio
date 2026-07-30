@@ -292,9 +292,19 @@ export function ChapterModal({
                 <span>{formatDuration(chapter.durationMs)}</span>
               ) : null}
               {chapter.pageStart ? (
-                <span className="tabular-nums">
-                  p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
-                </span>
+                sourceFile ? (
+                  <button
+                    onClick={() => setPdfPage(chapter.pageStart!)}
+                    className="tabular-nums text-blue-600 hover:text-blue-800"
+                    title="Open the source PDF at this chapter's first page"
+                  >
+                    p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
+                  </button>
+                ) : (
+                  <span className="tabular-nums">
+                    p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
+                  </span>
+                )
               ) : null}
               {chapter.progress && chapter.status === "synthesizing" ? (
                 <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
@@ -542,7 +552,10 @@ export function ChapterModal({
                 className="flex-1 min-h-0 rounded bg-(--bg-card) border border-amber-300 p-4 font-mono text-xs text-(--text-secondary) whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
             ) : viewMode === "blocks" && fullChapter.sourceBlocks ? (
-              <BlocksPreview sourceBlocks={fullChapter.sourceBlocks as SourceBlock[]} />
+              <BlocksPreview
+                sourceBlocks={fullChapter.sourceBlocks as SourceBlock[]}
+                onOpenPdf={sourceFile ? setPdfPage : undefined}
+              />
             ) : isTranslation && !fullChapter.rawText ? (
               <div className="flex items-center justify-center flex-1 text-sm text-(--text-muted)">
                 {translationRunning ? "Waiting for the first chunk..." : `No ${language} translation text yet.`}
@@ -987,7 +1000,7 @@ function ChunkedText({
   return <div className={className}>{parts}</div>;
 }
 
-function BlocksPreview({ sourceBlocks }: { sourceBlocks: SourceBlock[] }) {
+function BlocksPreview({ sourceBlocks, onOpenPdf }: { sourceBlocks: SourceBlock[]; onOpenPdf?: (page: number) => void }) {
   let lastPage = -1;
 
   return (
@@ -1001,7 +1014,17 @@ function BlocksPreview({ sourceBlocks }: { sourceBlocks: SourceBlock[] }) {
               <div className="border-t border-(--divide) my-1.5" />
             ) : null}
             <div className={`flex gap-2 py-0.5 px-1.5 rounded ${block.included ? "" : "opacity-35"}`}>
-              <span className="text-(--text-faint) tabular-nums shrink-0 w-8 text-right">{block.page}</span>
+              {onOpenPdf ? (
+                <button
+                  onClick={() => onOpenPdf(block.page)}
+                  className="text-blue-600 hover:text-blue-800 tabular-nums shrink-0 w-8 text-right"
+                  title="Open the source PDF at this page"
+                >
+                  {block.page}
+                </button>
+              ) : (
+                <span className="text-(--text-faint) tabular-nums shrink-0 w-8 text-right">{block.page}</span>
+              )}
               <span className={`shrink-0 w-24 truncate ${block.included ? "text-(--text-muted)" : "text-(--text-faint) line-through"}`}>
                 {block.type}
               </span>
