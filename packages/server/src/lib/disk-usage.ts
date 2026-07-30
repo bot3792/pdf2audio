@@ -67,6 +67,20 @@ export async function measureBookDiskUsage(
   return { uploads, extractionCache, chapterAudio, chunkWavs, assemblies, documents, other, total };
 }
 
+// Walking a 20GB+ tree per list poll is wasteful — sizes only need to be roughly fresh
+const sizeCache = new Map<string, { bytes: number; at: number }>();
+
+export async function bookTotalSizeCached(bookId: string, ttlMs = 60_000): Promise<number> {
+  const hit = sizeCache.get(bookId);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.bytes;
+  const bytes =
+    (await dirSize(path.join(uploadsDir, bookId))) +
+    (await dirSize(bookTmpDir(bookId))) +
+    (await dirSize(bookOutputDir(bookId)));
+  sizeCache.set(bookId, { bytes, at: Date.now() });
+  return bytes;
+}
+
 export async function measureDirs(dirs: string[]): Promise<number> {
   let total = 0;
   for (const dir of dirs) {

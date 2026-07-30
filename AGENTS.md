@@ -178,12 +178,11 @@ packages/web/src/
     EditableTitle.tsx   Click-to-rename book title
     ChapterTable.tsx    Chapter table with filter panel (search, status, word count, duration), shift+click range selection, per-chapter checkboxes, sticky audio player, modal trigger
     ChapterModal.tsx    Chapter detail modal: selection checkbox, prev/next navigation (< > + keyboard arrows), audio player, view mode tabs (custom/clean/raw/split/blocks with scroll sync), text editing with save/cancel/reset, action buttons (queue/suspend/re-synthesize)
-    UploadZone.tsx      Drag-and-drop PDF upload with voice/speed pickers
+    UploadZone.tsx      Drag-and-drop PDF upload; settings appear once files are staged; extraction-only by default, voice/speed shown only when auto-synthesize is enabled
     VoicePicker.tsx     Voice selection dropdown grouped by language
     SpeedSlider.tsx     Speed range slider (0.5x-2.0x)
     StatusBadge.tsx     Color-coded status badge (includes suspended/amber, cancelled/grey)
-    BookList.tsx        Books table with auto-refresh polling
-    PipelineSteps.tsx   Pipeline step indicator with suspended awareness
+    BookList.tsx        Books overview table (activity pills, languages, outputs, size, last activity) with auto-refresh polling
 ```
 
 ### Dark Mode

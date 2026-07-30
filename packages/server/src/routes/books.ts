@@ -10,7 +10,7 @@ import { parseTtsVoice } from "../lib/tts.ts";
 import { collectBlocksFromMarkerOutput, sliceChaptersAtIndices, type ExtractedChapter } from "../lib/marker.ts";
 import { listMarkerSources } from "../lib/marker-sources.ts";
 import { abortExtract } from "../lib/extract-registry.ts";
-import { measureBookDiskUsage, measureDirs, removeDirs } from "../lib/disk-usage.ts";
+import { measureBookDiskUsage, measureDirs, removeDirs, bookTotalSizeCached } from "../lib/disk-usage.ts";
 import { chapterChunkPreviewDir } from "../lib/chunk-previews.ts";
 import { translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
 import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
@@ -63,25 +63,119 @@ async function cleanableChunkDirs(bookId: string): Promise<string[]> {
 
 export const booksRouter = router({
   list: publicProcedure.query(async () => {
-    const allBooks = await db
-      .select()
-      .from(books)
-      .orderBy(desc(books.createdAt));
+    const allBooks = await db.select().from(books).orderBy(desc(books.createdAt));
 
-    const booksWithProgress = await Promise.all(
+    const chapterAgg = (await db.execute(sql`
+      SELECT book_id, status, count(*)::int AS count FROM chapters GROUP BY book_id, status
+    `)) as unknown as Array<{ book_id: string; status: string; count: number }>;
+
+    const cleanupAgg = (await db.execute(sql`
+      SELECT book_id, cleanup->>'status' AS status, count(*)::int AS count
+      FROM chapters WHERE cleanup IS NOT NULL GROUP BY book_id, cleanup->>'status'
+    `)) as unknown as Array<{ book_id: string; status: string; count: number }>;
+
+    const fileAgg = (await db.execute(sql`
+      SELECT book_id, status, count(*)::int AS count,
+        count(*) FILTER (WHERE status = 'failed' AND error NOT LIKE 'Cancelled%')::int AS hard_failed
+      FROM book_files GROUP BY book_id, status
+    `)) as unknown as Array<{ book_id: string; status: string; count: number; hard_failed: number }>;
+
+    const translationAgg = (await db.execute(sql`
+      SELECT c.book_id, ct.language,
+        count(*) FILTER (WHERE ct.status = 'done')::int AS done,
+        count(*) FILTER (WHERE ct.status IN ('translating', 'pending'))::int AS running,
+        count(*) FILTER (WHERE ct.status = 'failed')::int AS failed,
+        count(*) FILTER (WHERE ct.audio_status = 'synthesizing')::int AS audio_running
+      FROM chapter_translations ct JOIN chapters c ON c.id = ct.chapter_id
+      GROUP BY c.book_id, ct.language ORDER BY ct.language
+    `)) as unknown as Array<{ book_id: string; language: string; done: number; running: number; failed: number; audio_running: number }>;
+
+    const assemblyAgg = (await db.execute(sql`
+      SELECT book_id, count(*)::int AS count FROM assemblies GROUP BY book_id
+    `)) as unknown as Array<{ book_id: string; count: number }>;
+
+    const documentAgg = (await db.execute(sql`
+      SELECT book_id, format, count(*)::int AS count FROM documents GROUP BY book_id, format
+    `)) as unknown as Array<{ book_id: string; format: "pdf" | "epub"; count: number }>;
+
+    const lastLogAgg = (await db.execute(sql`
+      SELECT book_id, max(created_at) AS last FROM book_logs GROUP BY book_id
+    `)) as unknown as Array<{ book_id: string; last: string }>;
+
+    const byBook = <T extends { book_id: string }>(rows: T[]) => {
+      const map = new Map<string, T[]>();
+      for (const row of rows) {
+        const list = map.get(row.book_id) ?? [];
+        list.push(row);
+        map.set(row.book_id, list);
+      }
+      return map;
+    };
+    const chaptersBy = byBook(chapterAgg);
+    const cleanupBy = byBook(cleanupAgg);
+    const filesBy = byBook(fileAgg);
+    const translationsBy = byBook(translationAgg);
+    const assembliesBy = byBook(assemblyAgg);
+    const documentsBy = byBook(documentAgg);
+    const lastLogBy = new Map(lastLogAgg.map((r) => [r.book_id, r.last]));
+
+    const overview = await Promise.all(
       allBooks.map(async (book) => {
-        const allChapters = await db
-          .select({ status: chapters.status })
-          .from(chapters)
-          .where(eq(chapters.bookId, book.id));
+        const chapterCounts = chaptersBy.get(book.id) ?? [];
+        const countOf = (rows: { status: string; count: number }[], ...statuses: string[]) =>
+          rows.filter((r) => statuses.includes(r.status)).reduce((sum, r) => sum + r.count, 0);
 
-        const doneCount = allChapters.filter((c) => c.status === "done").length;
-        const status = computeBookStatus(book, allChapters);
-        return { ...book, status, chaptersCompleted: doneCount };
-      })
+        const chapterCount = chapterCounts.reduce((sum, r) => sum + r.count, 0);
+        const chaptersWithAudio = countOf(chapterCounts, "done");
+        const translations = translationsBy.get(book.id) ?? [];
+        const fileRows = filesBy.get(book.id) ?? [];
+        const cleanupRows = cleanupBy.get(book.id) ?? [];
+        const documentRows = documentsBy.get(book.id) ?? [];
+
+        const activity = {
+          extracting: countOf(fileRows, "extracting", "pending") > 0 || book.status === "extracting",
+          synthesizing:
+            countOf(chapterCounts, "pending", "normalizing", "synthesizing") +
+            translations.reduce((sum, t) => sum + t.audio_running, 0),
+          translating: translations.reduce((sum, t) => sum + t.running, 0),
+          cleaning: countOf(cleanupRows, "pending", "cleaning"),
+          assembling: book.status === "assembling",
+        };
+        const failures = {
+          files: fileRows.reduce((sum, r) => sum + r.hard_failed, 0),
+          chapters: countOf(chapterCounts, "failed"),
+          translations: translations.reduce((sum, t) => sum + t.failed, 0),
+          cleanup: countOf(cleanupRows, "failed"),
+        };
+
+        const lastLog = lastLogBy.get(book.id);
+        const lastActivityAt = new Date(
+          Math.max(new Date(book.updatedAt).getTime(), lastLog ? new Date(lastLog).getTime() : 0),
+        );
+
+        return {
+          id: book.id,
+          title: book.title,
+          createdAt: book.createdAt,
+          skipSynthesis: book.skipSynthesis,
+          error: book.status === "failed" ? book.error : null,
+          chapterCount,
+          chaptersWithAudio,
+          activity,
+          failures,
+          languages: translations.map((t) => ({ language: t.language, done: t.done })),
+          outputs: {
+            assemblies: assembliesBy.get(book.id)?.[0]?.count ?? 0,
+            pdfs: documentRows.find((d) => d.format === "pdf")?.count ?? 0,
+            epubs: documentRows.find((d) => d.format === "epub")?.count ?? 0,
+          },
+          lastActivityAt,
+          sizeBytes: await bookTotalSizeCached(book.id),
+        };
+      }),
     );
 
-    return booksWithProgress;
+    return overview.sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
   }),
 
   get: publicProcedure

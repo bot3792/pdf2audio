@@ -22,7 +22,8 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
   const [speed, setSpeed] = useState(1.0);
   const [forceOcr, setForceOcr] = useState(false);
   const [llmChapterDetection, setLlmChapterDetection] = useState(false);
-  const [skipSynthesis, setSkipSynthesis] = useState(false);
+  // Extraction-only is the default: most books get read, translated, or exported before (if ever) synthesized
+  const [autoSynthesize, setAutoSynthesize] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -74,7 +75,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
       formData.append("speed", String(voiceSupportsSpeedControl(voice) ? speed : 1.0));
       formData.append("forceOcr", String(forceOcr));
       formData.append("llmChapterDetection", String(llmChapterDetection));
-      formData.append("skipSynthesis", String(skipSynthesis));
+      formData.append("skipSynthesis", String(!autoSynthesize));
 
       const res = await fetch("/upload", { method: "POST", body: formData });
       if (!res.ok) {
@@ -238,40 +239,45 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
         </div>
       )}
 
-      <div className="flex gap-6 items-end">
-        <VoicePicker value={voice} onChange={setVoice} />
-        <SpeedSlider value={speed} onChange={setSpeed} disabled={!speedEnabled} />
-      </div>
-
-      {!speedEnabled && selectedVoice && (
-        <p className="text-xs text-(--text-muted)">{selectedVoice.label} uses a fixed speed in v1.</p>
-      )}
-
-      <div className="flex gap-6">
-        <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Only needed for scanned PDFs without selectable text">
-          <input type="checkbox" checked={forceOcr} onChange={(e) => setForceOcr(e.target.checked)} className="rounded" />
-          Force OCR
-        </label>
-        <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses a local LLM to identify chapter boundaries from the table of contents">
-          <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
-          LLM chapter detection
-        </label>
-        <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Extract chapters and reader view only. You can still queue audio later if needed.">
-          <input type="checkbox" checked={skipSynthesis} onChange={(e) => setSkipSynthesis(e.target.checked)} className="rounded" />
-          Skip synthesis
-        </label>
-      </div>
-
       {hasFiles && (
-        <button
-          type="button"
-          onClick={upload}
-          disabled={isUploading}
-          className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isUploading ? "Uploading..." : skipSynthesis ? "Extract" : "Convert"}
-          {isMultiFile ? ` (${stagedFiles.length} files)` : ""}
-        </button>
+        <>
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Only needed for scanned PDFs without selectable text">
+              <input type="checkbox" checked={forceOcr} onChange={(e) => setForceOcr(e.target.checked)} className="rounded" />
+              Force OCR
+            </label>
+            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses a local LLM to identify chapter boundaries from the table of contents">
+              <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
+              LLM chapter detection
+            </label>
+            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Start synthesizing every chapter right after extraction. Off by default — you can read, translate, export, or synthesize selected chapters from the book page anytime.">
+              <input type="checkbox" checked={autoSynthesize} onChange={(e) => setAutoSynthesize(e.target.checked)} className="rounded" />
+              Synthesize audio after extraction
+            </label>
+          </div>
+
+          {autoSynthesize && (
+            <>
+              <div className="flex gap-6 items-end">
+                <VoicePicker value={voice} onChange={setVoice} />
+                <SpeedSlider value={speed} onChange={setSpeed} disabled={!speedEnabled} />
+              </div>
+              {!speedEnabled && selectedVoice && (
+                <p className="text-xs text-(--text-muted)">{selectedVoice.label} uses a fixed speed in v1.</p>
+              )}
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={upload}
+            disabled={isUploading}
+            className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isUploading ? "Uploading..." : autoSynthesize ? "Extract & synthesize" : "Extract"}
+            {isMultiFile ? ` (${stagedFiles.length} files)` : ""}
+          </button>
+        </>
       )}
 
       {error && (

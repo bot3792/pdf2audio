@@ -33,6 +33,18 @@ export function formatBytes(bytes: number): string {
   return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${unit}`;
 }
 
+export function formatRelativeTime(date: string | Date): string {
+  const diffMs = Date.now() - new Date(date).getTime();
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(date).toLocaleDateString();
+}
+
 export function formatLogTime(ts: string): string {
   return new Date(ts).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
