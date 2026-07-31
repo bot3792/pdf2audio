@@ -151,6 +151,20 @@ export function BookDetail() {
   const prevBook = bookIndex > 0 ? orderedBooks[bookIndex - 1] : null;
   const nextBook = bookIndex >= 0 && bookIndex < orderedBooks.length - 1 ? orderedBooks[bookIndex + 1] : null;
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "[" && e.key !== "]") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (askScope || showStructure || showTranslation) return;
+      const target = e.key === "[" ? prevBook : nextBook;
+      if (target) navigate(`/books/${target.id}`);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [prevBook?.id, nextBook?.id, askScope, showStructure, showTranslation]);
+
   const { data: translationRows = [] } = trpc.translations.listForBook.useQuery(
     { bookId: id!, language: activeLanguage! },
     {
@@ -329,7 +343,7 @@ export function BookDetail() {
             <button
               onClick={() => prevBook && navigate(`/books/${prevBook.id}`)}
               disabled={!prevBook}
-              title={prevBook ? `Previous book: "${prevBook.title}"` : "This is the first book in the list"}
+              title={prevBook ? `Previous book: "${prevBook.title}" — press [` : "This is the first book in the list"}
               className="px-2.5 py-1 rounded-md text-sm text-blue-600 hover:bg-(--bg-subtle) disabled:opacity-40 disabled:cursor-not-allowed"
               data-testid="prev-book"
             >
@@ -343,7 +357,7 @@ export function BookDetail() {
             <button
               onClick={() => nextBook && navigate(`/books/${nextBook.id}`)}
               disabled={!nextBook}
-              title={nextBook ? `Next book: "${nextBook.title}"` : "This is the last book in the list"}
+              title={nextBook ? `Next book: "${nextBook.title}" — press ]` : "This is the last book in the list"}
               className="px-2.5 py-1 rounded-md text-sm text-blue-600 hover:bg-(--bg-subtle) disabled:opacity-40 disabled:cursor-not-allowed"
               data-testid="next-book"
             >
