@@ -9,6 +9,8 @@ import { propose } from "./propose.ts";
 import { translate } from "./translate.ts";
 import { translateTitles } from "./translate-titles.ts";
 import { cleanup } from "./cleanup.ts";
+import { rawExtract } from "./raw-extract.ts";
+import { bookNote } from "./book-note.ts";
 import { synthesizeTranslation } from "./synthesize-translation.ts";
 import { sweepStrandedWork } from "./sweep.ts";
 import { env } from "../env.ts";
@@ -61,6 +63,13 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
     },
   },
   {
+    name: "raw", // pdftotext takes ~1s; must never queue behind a 30-minute marker run
+    concurrency: 2,
+    taskList: {
+      rawExtract: wrapTask("rawExtract", rawExtract),
+    },
+  },
+  {
     name: "extraction",
     concurrency: 1,
     taskList: {
@@ -85,6 +94,7 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
       translate: wrapTask("translate", translate),
       translateTitles: wrapTask("translateTitles", (payload) => translateTitles(payload as any)),
       cleanup: wrapTask("cleanup", (payload) => cleanup(payload as any)),
+      bookNote: wrapTask("bookNote", (payload) => bookNote(payload as any)),
     },
   },
 ];

@@ -1,93 +1,78 @@
 import { useState } from "react";
-import Markdown from "react-markdown";
 import { trpc } from "../trpc.ts";
+import { MarkdownBlock } from "./MarkdownBlock.tsx";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
+import {
+  AI_MODELS,
+  AI_PRESETS,
+  estimateTokens,
+  estimateTokensFromCounts,
+  formatTokens,
+  type AiModelKey,
+} from "../lib/ai-presets.ts";
 
-const MODELS = [
-  { key: "flash", label: "V4 Flash", hint: "Fast and cheap — good default", contextTokens: 1_000_000 },
-  { key: "pro", label: "V4 Pro", hint: "Flagship reasoning model — slower, for harder questions", contextTokens: 1_000_000 },
-] as const;
+export type AiScope =
+  | { kind: "chapters"; bookId: string; chapters: { id: string; title: string }[] }
+  | { kind: "book-raw"; bookId: string; bookTitle: string };
 
-// No DeepSeek tokenizer here — deliberately pessimistic BPE rule of thumb
-// (~3.4 chars/token for ASCII, ~1.4 for non-Latin scripts) so the bar overestimates.
-function estimateTokensFromCounts(ascii: number, nonAscii: number): number {
-  return Math.round(ascii / 3.4 + nonAscii / 1.4);
-}
-
-function estimateTokens(text: string): number {
-  const nonAscii = (text.match(/[^\x00-\x7F]/g) ?? []).length;
-  return estimateTokensFromCounts(text.length - nonAscii, nonAscii);
-}
-
-function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${parseFloat((n / 1_000_000).toFixed(2))}M`;
-}
-
-// The Summarize default mirrors Brave Leo's page-summary prompt, adapted to a chapter
-const PRESETS = [
-  {
-    key: "summarize",
-    label: "Summarize",
-    prompt: "Provide a concise list of up to 6 bullets on the most important points of this chapter, followed by a one-paragraph summary.",
-  },
-  {
-    key: "questions",
-    label: "Suggest questions",
-    prompt: "List 8 insightful questions a curious reader could ask about this chapter. Only list the questions — I will pick one to ask next.",
-  },
-  {
-    key: "explain",
-    label: "Explain simply",
-    prompt: "Explain the main ideas and argument of this chapter in plain, simple language.",
-  },
-  {
-    key: "entities",
-    label: "People & terms",
-    prompt: "List the key people, places, and terms mentioned in this chapter, each with a one-line description of who or what they are.",
-  },
-] as const;
-
-export function ChapterAiModal({
-  chapters,
-  onClose,
-}: {
-  chapters: { id: string; title: string }[];
-  onClose: () => void;
-}) {
+export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: () => void }) {
   useBodyScrollLock();
+  const utils = trpc.useUtils();
+  const subject = scope.kind === "book-raw" ? "book" : scope.chapters.length === 1 ? "chapter" : "chapters";
   const [activePreset, setActivePreset] = useState<string>("summarize");
-  const [prompt, setPrompt] = useState<string>(PRESETS[0].prompt);
-  const [model, setModel] = useState<"flash" | "pro">("flash");
+  const [prompt, setPrompt] = useState<string>(AI_PRESETS[0].prompt(subject));
+  const [model, setModel] = useState<AiModelKey>("flash");
   const [result, setResult] = useState<string | null>(null);
+  const [savedNoteId, setSavedNoteId] = useState<string | null>(null);
 
-  const aiMutation = trpc.chapters.aiPrompt.useMutation({
-    onSuccess: (data) => setResult(data.result),
-  });
+  const onAskSuccess = (data: { result: string; noteId?: string }) => {
+    setResult(data.result);
+    setSavedNoteId(data.noteId ?? null);
+    if (data.noteId) utils.notes.list.invalidate({ bookId: scope.bookId });
+  };
+  const chapterMutation = trpc.chapters.aiPrompt.useMutation({ onSuccess: onAskSuccess });
+  const rawMutation = trpc.books.aiPromptRaw.useMutation({ onSuccess: onAskSuccess });
+  const aiMutation = scope.kind === "book-raw" ? rawMutation : chapterMutation;
 
-  const chapterIds = chapters.map((c) => c.id);
-  const { data: textStats } = trpc.chapters.textStats.useQuery({ chapterIds });
-  const activeModel = MODELS.find((m) => m.key === model)!;
-  const chapterTokens = textStats
+  const chapterIds = scope.kind === "chapters" ? scope.chapters.map((c) => c.id) : [];
+  const { data: chapterStats } = trpc.chapters.textStats.useQuery(
+    { chapterIds },
+    { enabled: scope.kind === "chapters" },
+  );
+  const { data: rawStats } = trpc.books.rawTextStats.useQuery(
+    { bookId: scope.bookId },
+    { enabled: scope.kind === "book-raw" },
+  );
+  const textStats = scope.kind === "book-raw" ? rawStats : chapterStats;
+
+  const activeModel = AI_MODELS.find((m) => m.key === model)!;
+  const contentTokens = textStats
     ? estimateTokensFromCounts(textStats.ascii, textStats.nonAscii) + estimateTokens(prompt)
     : null;
-  const contextPct = chapterTokens ? (chapterTokens / activeModel.contextTokens) * 100 : null;
+  const contextPct = contentTokens ? (contentTokens / activeModel.contextTokens) * 100 : null;
   const overContext = contextPct !== null && contextPct > 100;
 
-  const headerLabel = chapters.length === 1
-    ? `"${chapters[0].title}"`
-    : `${chapters.length} selected chapters`;
+  const headerLabel =
+    scope.kind === "book-raw"
+      ? `"${scope.bookTitle}" (whole book, raw text)`
+      : scope.chapters.length === 1
+        ? `"${scope.chapters[0].title}"`
+        : `${scope.chapters.length} selected chapters`;
+  const headerTitle = scope.kind === "chapters" ? scope.chapters.map((c) => c.title).join("\n") : undefined;
 
   function selectPreset(key: string) {
-    const preset = PRESETS.find((p) => p.key === key)!;
+    const preset = AI_PRESETS.find((p) => p.key === key)!;
     setActivePreset(key);
-    setPrompt(preset.prompt);
+    setPrompt(preset.prompt(subject));
   }
 
   function run() {
     if (!prompt.trim() || aiMutation.isPending || overContext) return;
-    aiMutation.mutate({ chapterIds, prompt: prompt.trim(), model });
+    if (scope.kind === "book-raw") {
+      rawMutation.mutate({ bookId: scope.bookId, prompt: prompt.trim(), model });
+    } else {
+      chapterMutation.mutate({ chapterIds, prompt: prompt.trim(), model });
+    }
   }
 
   return (
@@ -98,7 +83,7 @@ export function ChapterAiModal({
         data-testid="chapter-ai-modal"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-(--border) shrink-0">
-          <span className="text-sm font-medium text-(--text-primary)" title={chapters.map((c) => c.title).join("\n")}>
+          <span className="text-sm font-medium text-(--text-primary)" title={headerTitle}>
             Ask about <span className="text-(--text-muted)">{headerLabel}</span>
           </span>
           <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-tertiary) p-1" title="Close">
@@ -112,7 +97,7 @@ export function ChapterAiModal({
           {/* Left: presets + prompt */}
           <div className="w-2/5 border-r border-(--border) p-4 flex flex-col gap-3 min-h-0">
             <div className="flex flex-wrap gap-1.5">
-              {PRESETS.map((p) => (
+              {AI_PRESETS.map((p) => (
                 <button
                   key={p.key}
                   onClick={() => selectPreset(p.key)}
@@ -133,13 +118,17 @@ export function ChapterAiModal({
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") run();
               }}
               className="flex-1 resize-none rounded-md border border-(--border-input) bg-(--bg-input) p-3 text-sm text-(--text-primary) leading-relaxed focus:outline-none focus:border-blue-500"
-              placeholder="Ask anything about this chapter..."
+              placeholder={`Ask anything about this ${subject === "chapters" ? "selection" : subject}...`}
               data-testid="ai-prompt-input"
             />
-            {chapterTokens !== null && contextPct !== null && (
-              <div className="shrink-0" data-testid="ai-context-usage" title={`Rough estimate — chapter text plus your prompt, sent in full to ${activeModel.label}`}>
+            {contentTokens !== null && contextPct !== null && (
+              <div className="shrink-0" data-testid="ai-context-usage" title={`Rough estimate — the ${subject === "book" ? "book's raw text" : "chapter text"} plus your prompt, sent in full to ${activeModel.label}`}>
                 <div className="flex items-baseline justify-between text-xs text-(--text-faint) mb-1">
-                  <span>Sends up to ≈ {formatTokens(chapterTokens)} tokens{chapters.length > 1 ? ` (${chapters.length} chapters)` : ""}</span>
+                  <span>
+                    Sends up to ≈ {formatTokens(contentTokens)} tokens
+                    {scope.kind === "chapters" && scope.chapters.length > 1 ? ` (${scope.chapters.length} chapters)` : ""}
+                    {scope.kind === "book-raw" && rawStats && rawStats.missingFiles > 0 ? ` (${rawStats.missingFiles} file(s) without raw text excluded)` : ""}
+                  </span>
                   <span className={overContext ? "text-red-500 font-medium" : ""}>
                     {contextPct < 0.1 ? "<0.1" : contextPct.toFixed(1)}% of {activeModel.label}'s {formatTokens(activeModel.contextTokens)} context
                   </span>
@@ -154,7 +143,7 @@ export function ChapterAiModal({
             )}
             <div className="flex items-center gap-2 shrink-0">
               <div className="inline-flex rounded-md border border-(--border) p-0.5 gap-0.5" data-testid="ai-model-toggle">
-                {MODELS.map((m) => (
+                {AI_MODELS.map((m) => (
                   <button
                     key={m.key}
                     onClick={() => setModel(m.key)}
@@ -172,7 +161,7 @@ export function ChapterAiModal({
               <button
                 onClick={run}
                 disabled={!prompt.trim() || aiMutation.isPending || overContext}
-                title={overContext ? "The selected chapters exceed this model's context window — deselect some" : "Cmd+Enter"}
+                title={overContext ? `The ${subject === "book" ? "book's raw text" : "selected chapters"} exceed this model's context window` : "Cmd+Enter"}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="ai-run"
               >
@@ -187,28 +176,31 @@ export function ChapterAiModal({
               {aiMutation.isPending ? (
                 <div className="flex items-center gap-2 text-sm text-(--text-muted)">
                   <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                  DeepSeek is reading the chapter...
+                  DeepSeek is reading the {subject === "book" ? "book" : "chapter"}...
                 </div>
               ) : aiMutation.isError ? (
                 <p className="text-sm text-red-600 whitespace-pre-wrap">{aiMutation.error.message}</p>
               ) : result ? (
-                <div className="text-sm text-(--text-primary) leading-relaxed space-y-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_code]:font-mono [&_code]:text-xs [&_code]:bg-(--bg-subtle) [&_code]:px-1 [&_code]:rounded [&_blockquote]:border-l-2 [&_blockquote]:border-(--border) [&_blockquote]:pl-3 [&_blockquote]:text-(--text-tertiary)" data-testid="ai-result">
-                  <Markdown>{result}</Markdown>
-                </div>
+                <MarkdownBlock testId="ai-result">{result}</MarkdownBlock>
               ) : (
                 <p className="text-sm text-(--text-faint)">
-                  Pick a preset or write your own prompt, then hit Ask. The full chapter text is sent along with it.
+                  Pick a preset or write your own prompt, then hit Ask. The full {subject === "book" ? "raw book text" : "chapter text"} is sent along with it.
                 </p>
               )}
             </div>
             {result && !aiMutation.isPending && (
-              <div className="border-t border-(--border) px-4 py-2 shrink-0">
+              <div className="border-t border-(--border) px-4 py-2 shrink-0 flex items-center gap-3">
                 <button
                   onClick={() => navigator.clipboard.writeText(result)}
                   className="text-xs text-(--text-muted) hover:text-(--text-secondary) font-medium"
                 >
                   Copy result
                 </button>
+                {savedNoteId && (
+                  <span className="text-xs text-green-600 dark:text-green-400" data-testid="ai-saved-note">
+                    Saved to notes
+                  </span>
+                )}
               </div>
             )}
           </div>

@@ -26,6 +26,20 @@ export type ChapterCleanup = {
   updatedAt: string;
 };
 
+export type NoteJob = {
+  status: "queued" | "running" | "done" | "failed";
+  prompt: string;
+  model: "flash" | "pro";
+  error?: string;
+  noteId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NoteScope =
+  | { kind: "chapters"; chapters: { id: string; title: string }[] }
+  | { kind: "book-raw"; files: number };
+
 export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
@@ -45,6 +59,7 @@ export const books = pgTable("books", {
   translationLanguage: text("translation_language"),
   skipSynthesis: boolean("skip_synthesis").notNull().default(false),
   totalChapters: integer("total_chapters").notNull().default(0),
+  noteJob: jsonb("note_job").$type<NoteJob>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -114,11 +129,14 @@ export const bookFiles = pgTable("book_files", {
   index: integer("index").notNull(),
   filename: text("filename").notNull(),
   pdfPath: text("pdf_path").notNull(),
+  // "raw" = raw text only, marker extraction neither queued nor planned
   status: text("status", {
-    enum: ["pending", "extracting", "done", "failed"],
+    enum: ["raw", "pending", "extracting", "done", "failed"],
   }).notNull().default("pending"),
   selected: boolean("selected").notNull().default(true),
   skipSynthesis: boolean("skip_synthesis").notNull().default(false),
+  rawText: text("raw_text"),
+  rawWords: integer("raw_words"),
   error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -147,6 +165,16 @@ export const documents = pgTable("documents", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const notes = pgTable("notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  prompt: text("prompt").notNull(),
+  model: text("model", { enum: ["flash", "pro"] }).notNull(),
+  result: text("result").notNull(),
+  scope: jsonb("scope").$type<NoteScope>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Book = typeof books.$inferSelect;
 export type NewBook = typeof books.$inferInsert;
 export type Chapter = typeof chapters.$inferSelect;
@@ -157,3 +185,4 @@ export type NewBookFile = typeof bookFiles.$inferInsert;
 export type Assembly = typeof assemblies.$inferSelect;
 export type BookDocument = typeof documents.$inferSelect;
 export type ChapterTranslation = typeof chapterTranslations.$inferSelect;
+export type Note = typeof notes.$inferSelect;

@@ -57,8 +57,18 @@ function SortableTh({
 }
 
 export function BookList() {
+  const utils = trpc.useUtils();
   const { data: books, isLoading } = trpc.books.list.useQuery(undefined, {
     refetchInterval: 3000,
+  });
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+  const deleteManyMutation = trpc.books.deleteMany.useMutation({
+    onSuccess: () => {
+      setSelectedIds(new Set());
+      utils.books.list.invalidate();
+    },
   });
 
   const [sortKey, setSortKey] = useState<SortKey>(() => {
@@ -92,15 +102,68 @@ export function BookList() {
     return sortDir === "asc" ? cmp : -cmp;
   });
 
+  // Prune ids of books deleted elsewhere so counts never lie
+  const selectedBooks = sorted.filter((b) => selectedIds.has(b.id));
+  const selectedCount = selectedBooks.length;
+  const allSelected = selectedCount === sorted.length && sorted.length > 0;
+
+  function handleCheckboxClick(bookId: string, index: number, e: React.MouseEvent) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const select = !prev.has(bookId);
+      if (e.shiftKey && lastClickedIndex !== null) {
+        for (const b of sorted.slice(Math.min(lastClickedIndex, index), Math.max(lastClickedIndex, index) + 1)) {
+          if (select) next.add(b.id);
+          else next.delete(b.id);
+        }
+      } else if (select) next.add(bookId);
+      else next.delete(bookId);
+      return next;
+    });
+    setLastClickedIndex(index);
+  }
+
+  function deleteSelected() {
+    const titles = selectedBooks.slice(0, 5).map((b) => `"${b.title}"`).join(", ");
+    const suffix = selectedCount > 5 ? `, and ${selectedCount - 5} more` : "";
+    if (!confirm(`Delete ${selectedCount} book(s) with all their chapters, audio, and files?\n\n${titles}${suffix}`)) return;
+    deleteManyMutation.mutate({ ids: selectedBooks.map((b) => b.id) });
+  }
+
   const th = (label: string, key: SortKey, align?: "left" | "right") => (
     <SortableTh label={label} sortKey={key} align={align} active={sortKey === key} dir={sortDir} onSort={handleSort} />
   );
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-(--border)">
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={deleteSelected}
+          disabled={selectedCount === 0 || deleteManyMutation.isPending}
+          title={selectedCount === 0 ? "Select books to delete with the checkboxes" : "Delete the selected books with all their chapters, audio, and files"}
+          className="px-3 py-1.5 bg-red-600 text-white rounded-md text-xs font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          data-testid="delete-selected-books"
+        >
+          {deleteManyMutation.isPending ? "Deleting..." : `Delete selected (${selectedCount})`}
+        </button>
+        {deleteManyMutation.error && (
+          <span className="text-sm text-red-600">{deleteManyMutation.error.message}</span>
+        )}
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-(--border)">
       <table className="w-full min-w-[72rem] divide-y divide-(--divide)">
         <thead className="bg-(--bg-subtle)">
           <tr>
+            <th className="w-10 px-3 py-3">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => { if (el) el.indeterminate = !allSelected && selectedCount > 0; }}
+                onChange={() => setSelectedIds(allSelected ? new Set() : new Set(sorted.map((b) => b.id)))}
+                title={allSelected ? "Deselect all" : "Select all"}
+                className="rounded"
+              />
+            </th>
             {th("Title", "title")}
             {th("Chapters", "chapters", "right")}
             <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Activity</th>
@@ -122,7 +185,7 @@ export function BookList() {
               book.failures.cleanup > 0 ? `${book.failures.cleanup} cleanup(s)` : null,
             ].filter(Boolean).join(", ");
             const idle =
-              !book.activity.extracting && !book.activity.assembling &&
+              !book.activity.extracting && !book.activity.assembling && !book.activity.aiNote &&
               book.activity.synthesizing === 0 && book.activity.translating === 0 && book.activity.cleaning === 0;
             const outputParts = [
               book.outputs.assemblies > 0 ? `${book.outputs.assemblies} MP3` : null,
@@ -131,7 +194,16 @@ export function BookList() {
             ].filter(Boolean);
 
             return (
-              <tr key={book.id} className="hover:bg-(--bg-card-hover)">
+              <tr key={book.id} className={`hover:bg-(--bg-card-hover) ${selectedIds.has(book.id) ? "bg-(--bg-selected)" : ""}`}>
+                <td className="px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(book.id)}
+                    onClick={(e) => handleCheckboxClick(book.id, sorted.indexOf(book), e)}
+                    readOnly
+                    className="rounded"
+                  />
+                </td>
                 <td className="px-4 py-3 max-w-md">
                   <Link to={`/books/${book.id}`} className="text-blue-600 hover:text-blue-800 font-medium">
                     {book.title}
@@ -166,6 +238,9 @@ export function BookList() {
                     )}
                     {book.activity.assembling && (
                       <ActivityPill label="assembling" color="bg-(--badge-assembling-bg) text-(--badge-assembling-text)" />
+                    )}
+                    {book.activity.aiNote && (
+                      <ActivityPill label="AI note" color="bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300" />
                     )}
                     {totalFailures > 0 && (
                       <span
@@ -212,6 +287,7 @@ export function BookList() {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

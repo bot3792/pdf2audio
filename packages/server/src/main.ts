@@ -8,19 +8,16 @@ import { appRouter } from "./router.ts";
 import { createContext } from "./trpc.ts";
 import { startWorker, stopWorker } from "./workers/setup.ts";
 import { registerChapterReaderRoute, type ChapterReaderLookupResult } from "./lib/chapter-reader-route.ts";
-import { ensureDataDirs, uploadsDir, outputDir, previewsDir } from "./lib/paths.ts";
+import { registerUploadRoutes } from "./upload-routes.ts";
+import { ensureDataDirs, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
 import { books, bookFiles, assemblies, documents, chapters, chapterTranslations } from "./schema.ts";
-import { eq, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
-import { createWriteStream } from "node:fs";
-import { mkdir, access } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { quickAddJob } from "graphile-worker";
+import { access } from "node:fs/promises";
 import { createFastifyOptions } from "./fastify-config.ts";
 
-const { PORT, DATABASE_URL: connectionString } = env;
+const { PORT } = env;
 
 async function main() {
   await ensureDataDirs();
@@ -40,139 +37,7 @@ async function main() {
     trpcOptions: { router: appRouter, createContext },
   });
 
-  // Helper: save uploaded files from multipart parts, returns saved file metadata
-  async function saveUploadedFiles(
-    request: import("fastify").FastifyRequest,
-    pdfDir: string,
-    startIndex: number,
-  ) {
-    const files: { index: number; filename: string; pdfPath: string }[] = [];
-    const fields: Record<string, string> = {};
-
-    const parts = request.parts();
-    for await (const part of parts) {
-      if (part.type === "file") {
-        if (!part.filename.toLowerCase().endsWith(".pdf")) continue;
-        const idx = startIndex + files.length;
-        const safeName = `${String(idx).padStart(2, "0")}_${part.filename}`;
-        const pdfPath = path.join(pdfDir, safeName);
-        await pipeline(part.file, createWriteStream(pdfPath));
-        files.push({ index: idx, filename: part.filename, pdfPath });
-      } else {
-        fields[part.fieldname] = (part as any).value;
-      }
-    }
-
-    return { files, fields };
-  }
-
-  fastify.post("/upload", async (request, reply) => {
-    const bookId = randomUUID();
-    const pdfDir = path.join(uploadsDir, bookId);
-    await mkdir(pdfDir, { recursive: true });
-
-    const { files, fields } = await saveUploadedFiles(request, pdfDir, 0);
-
-    if (files.length === 0) {
-      return reply.code(400).send({ error: "No PDF files uploaded" });
-    }
-
-    const firstFile = files[0];
-    const title = fields.title
-      || firstFile.filename.replace(/\.pdf$/i, "").replace(/[_-]/g, " ");
-    const voice = fields.voice ?? "kokoro:af_heart";
-    const { parseTtsVoice } = await import("./lib/tts.ts");
-    parseTtsVoice(voice);
-    const speed = parseFloat(fields.speed ?? "1.0");
-    const forceOcr = fields.forceOcr === "true";
-    const llmChapterDetection = fields.llmChapterDetection === "true";
-    const skipSynthesis = fields.skipSynthesis === "true";
-
-    const [book] = await db
-      .insert(books)
-      .values({
-        id: bookId,
-        title,
-        filename: firstFile.filename,
-        pdfPath: firstFile.pdfPath,
-        voice,
-        speed,
-        forceOcr,
-        llmChapterDetection,
-        skipSynthesis,
-      })
-      .returning();
-
-    await db.insert(bookFiles).values(
-      files.map((f) => ({
-        bookId,
-        index: f.index,
-        filename: f.filename,
-        pdfPath: f.pdfPath,
-        skipSynthesis,
-      })),
-    );
-
-    await quickAddJob({ connectionString }, "extract", { bookId }, { maxAttempts: 1 });
-
-    return reply.send(book);
-  });
-
-  fastify.post("/upload/:bookId", async (request, reply) => {
-    const { bookId } = request.params as { bookId: string };
-    const [book] = await db.select().from(books).where(eq(books.id, bookId));
-    if (!book) {
-      return reply.code(404).send({ error: "Book not found" });
-    }
-    const pdfDir = path.join(uploadsDir, bookId);
-    await mkdir(pdfDir, { recursive: true });
-
-    // If this is a legacy book with no book_files rows, backfill the original file
-    const existingFiles = await db
-      .select()
-      .from(bookFiles)
-      .where(eq(bookFiles.bookId, bookId));
-
-    if (existingFiles.length === 0 && book.pdfPath) {
-      await db.insert(bookFiles).values({
-        bookId,
-        index: 0,
-        filename: book.filename,
-        pdfPath: book.pdfPath,
-        status: "done",
-      });
-    }
-
-    // Find the next file index
-    const lastFile = await db
-      .select({ index: bookFiles.index })
-      .from(bookFiles)
-      .where(eq(bookFiles.bookId, bookId))
-      .orderBy(desc(bookFiles.index))
-      .limit(1);
-    const startIndex = lastFile.length > 0 ? lastFile[0].index + 1 : 0;
-
-    const { files } = await saveUploadedFiles(request, pdfDir, startIndex);
-
-    if (files.length === 0) {
-      return reply.code(400).send({ error: "No PDF files uploaded" });
-    }
-
-    await db.insert(bookFiles).values(
-      files.map((f) => ({
-        bookId,
-        index: f.index,
-        filename: f.filename,
-        pdfPath: f.pdfPath,
-      })),
-    );
-
-    await db.update(books).set({ status: "pending", error: null, updatedAt: new Date() }).where(eq(books.id, bookId));
-    await quickAddJob({ connectionString }, "extract", { bookId }, { maxAttempts: 1 });
-
-    const [updated] = await db.select().from(books).where(eq(books.id, bookId));
-    return reply.send(updated);
-  });
+  registerUploadRoutes(fastify);
 
   fastify.get("/pdf/:fileId", async (request, reply) => {
     const { fileId } = request.params as { fileId: string };

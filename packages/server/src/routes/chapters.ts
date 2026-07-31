@@ -12,6 +12,7 @@ import { stat } from "node:fs/promises";
 import type { SourceBlock } from "../lib/marker.ts";
 import { removeChapterArtifacts } from "../lib/chapter-artifacts.ts";
 import { deepseekChat, DEEPSEEK_MODELS } from "../lib/deepseek.ts";
+import { saveNote } from "../lib/notes.ts";
 
 const connectionString = env.DATABASE_URL;
 
@@ -300,7 +301,16 @@ export const chaptersRouter = router({
         temperature: 0.7,
         timeoutMs: 600_000,
       });
-      return { result };
+
+      const noteId = await saveNote({
+        bookId: rows[0].bookId,
+        prompt: input.prompt,
+        model: input.model,
+        result,
+        scope: { kind: "chapters", chapters: rows.map((ch) => ({ id: ch.id, title: ch.title })) },
+      });
+
+      return { result, noteId };
     }),
 
   textStats: publicProcedure

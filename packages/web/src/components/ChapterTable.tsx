@@ -619,7 +619,7 @@ export function ChapterTable({
 
       {aiChapter ? (
         <ChapterAiModal
-          chapters={[aiChapter]}
+          scope={{ kind: "chapters", bookId, chapters: [aiChapter] }}
           onClose={() => setAiChapter(null)}
         />
       ) : null}

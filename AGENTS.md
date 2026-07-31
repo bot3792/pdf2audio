@@ -45,10 +45,17 @@ Environment variables are managed via `.env` at the repo root (gitignored), with
 ## The Pipeline
 
 ```
-PDF Upload → extract → normalize (per chapter) → synthesize (per chapter) → assemble → MP3 with chapters
+PDF Upload → rawExtract (seconds, always) [→ bookNote (optional AI answer → notes)]
+           → extract (opt-in, slow) → normalize (per chapter) → synthesize (per chapter) → assemble → MP3 with chapters
 ```
 
+Every upload extracts raw text with `pdftotext` in seconds (stored per file in `book_files.raw_text`); the slow Marker extraction is **opt-in** ("Extract chapters now" checkbox, default off) and can be run later via `books.extractChapters` from the book page. Raw-only files carry `book_files.status = "raw"` and are skipped by the extract worker until flipped to `pending`. Whole-book Ask AI (`books.aiPromptRaw`) and the upload-time AI prompt run against the concatenated raw text; every AI answer is auto-saved to the `notes` table.
+
 ### Job Flow (Graphile Worker)
+
+0. **rawExtract** (`workers/raw-extract.ts`, always queued at upload) — `pdftotext` per file with `rawText IS NULL` (idempotent for appends), stores `rawText`/`rawWords`. Soft-fails (log only) on scanned/encrypted PDFs. Chains a **bookNote** job when the upload requested an AI prompt; marks `books.noteJob` failed if no file yielded text.
+
+0b. **bookNote** (`workers/book-note.ts`, translate pool) — Runs the upload-time AI prompt against the whole book's raw text via DeepSeek, saves the answer as a note, tracks state in `books.note_job` jsonb (queued/running/done/failed, 15-min stale guard).
 
 1. **extract** (`workers/extract.ts`) — Runs `marker_single` (Python subprocess) on the PDF, outputs structured JSON into a subdirectory. Flattens ALL blocks (not just kept types) with page numbers, polygon coordinates, and an `included` flag. **Chapter detection**: if enabled, first attempts DeepSeek TOC-guided detection (`lib/toc-detect.ts` — finds the printed TOC, selects chapter-start headings by block index); falls back to the numbered-chapter tier (Chapter N / Глава N sequences, ToC listing pages excluded), then the heading-level heuristic (h1 → h2 → fallback word-count split). Stores per-chapter `sourceBlocks` (jsonb) with full block metadata, plus `pageStart`/`pageEnd`. Creates chapter rows in DB. Queues normalize jobs.
 
@@ -58,7 +65,7 @@ PDF Upload → extract → normalize (per chapter) → synthesize (per chapter) 
 
 4. **assemble** (`workers/assemble.ts`, user-triggered) — FFmpeg concatenates selected chapter MP3s into one (or copies directly for single-chapter books). node-id3 writes ID3v2 CHAP/CTOC frames for chapter markers. Assembly is an explicit user action, not auto-queued. Each assembly is recorded in the `assemblies` table with metadata (duration, chapter count, summary).
 
-Workers run in four pools (`workers/setup.ts`): `tts` (concurrency 2 — MLX contends for the GPU), `extraction` (1 — extract/normalize/redetect/propose), `assembly` (1 — assemble/assembleDocument, separate so exports never queue behind a long extraction), `translate` (3). All jobs use `maxAttempts: 1` — no silent retries. Document exports are deduplicated via graphile `jobKey`, and queued/running exports are surfaced by `books.pendingDocumentExports`.
+Workers run in five pools (`workers/setup.ts`): `tts` (concurrency 2 — MLX contends for the GPU), `raw` (2 — rawExtract, so raw text never queues behind a 30-minute marker run), `extraction` (1 — extract/normalize/redetect/propose), `assembly` (1 — assemble/assembleDocument, separate so exports never queue behind a long extraction), `translate` (3 — translate/translateTitles/cleanup/bookNote). All jobs use `maxAttempts: 1` — no silent retries. Document exports are deduplicated via graphile `jobKey`, and queued/running exports are surfaced by `books.pendingDocumentExports`.
 
 ### Book Status
 
@@ -105,6 +112,8 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **bookLogs** — id (uuid), bookId (FK, cascade delete), message (text), createdAt
 
+**notes** — id (uuid), bookId (FK, cascade delete), prompt, model (`flash` | `pro`), result (markdown), scope (jsonb `NoteScope` — chapter id+title snapshot or `book-raw`; no FK to chapters so notes survive chapter re-detection), createdAt. Auto-inserted by `chapters.aiPrompt`, `books.aiPromptRaw`, and the `bookNote` worker via `lib/notes.ts` `saveNote()`.
+
 When modifying the schema, change `schema.ts` and run `pnpm db:generate` to produce a migration, then `pnpm db:migrate`. Never write migrations manually.
 
 ## File Storage
@@ -126,16 +135,20 @@ Path helpers are in `lib/paths.ts`. The `DATA_DIR` env var defaults to `./data`.
 ```
 packages/server/src/
   env.ts                Zod-validated environment variables (dotenv + schema)
-  main.ts               Fastify entrypoint: multipart upload, file download, tRPC plugin, static serving
+  main.ts               Fastify entrypoint: file download, tRPC plugin, static serving
+  upload-routes.ts      POST /upload and /upload/:bookId (multipart) — always queues rawExtract; extract only when fullExtract
   db.ts                 Drizzle postgres connection
   schema.ts             Drizzle table definitions (source of truth for DB schema)
   trpc.ts               tRPC init (router, publicProcedure, context)
-  router.ts             Root tRPC router combining books + chapters
+  router.ts             Root tRPC router combining books + chapters + bookFiles + translations + notes
   routes/
-    books.ts            list, get, logs, clearLogs, upload, retry, processSelected, assemble, assemblies, deleteAssembly, cancel, delete
-    chapters.ts         get, queue, suspend, setSelected, setSelectedBatch, setAllSelected, updateText, resetText, queueCleanup, stopCleanup, cleanupSelected
+    books.ts            list, get, logs, clearLogs, upload, retry, processSelected, extractChapters, aiPromptRaw, rawTextStats, assemble, assemblies, deleteAssembly, cancel, delete
+    chapters.ts         get, queue, suspend, setSelected, setSelectedBatch, setAllSelected, updateText, resetText, queueCleanup, stopCleanup, cleanupSelected, aiPrompt, textStats
+    notes.ts            list (per book, newest first), delete
   workers/
-    setup.ts            Graphile Worker runner, task wrappers with console logging, concurrency=4
+    setup.ts            Graphile Worker runner, task wrappers with console logging, five pools
+    raw-extract.ts      pdftotext raw text per file (seconds); chains bookNote when requested
+    book-note.ts        Upload-time AI prompt against whole-book raw text → note (state in books.note_job)
     extract.ts          PDF extraction job
     normalize.ts        Text normalization job
     synthesize.ts       TTS synthesis job (skips suspended, writes progress)
@@ -148,6 +161,10 @@ packages/server/src/
     marker.ts           Marker subprocess wrapper + chapter detection logic
     deepseek.ts         Shared DeepSeek chat-completions client (translation + TOC detection)
     toc-detect.ts       DeepSeek TOC-guided chapter detection: find printed TOC in first/last pages, select headings (used at extract time and for proposals)
+    pdf-raw-text.ts     Whole-document pdftotext wrapper (null on failure/empty)
+    book-raw-text.ts    Concatenate per-file raw texts in index order for whole-book AI calls
+    token-estimate.ts   Server-side pessimistic token estimate (mirrors web modal) for context guards
+    notes.ts            saveNote() shared by aiPrompt, aiPromptRaw, and the bookNote worker
     cleanup.ts          DeepSeek chunk prompt for OCR-artifact cleanup (reuses splitForTranslation)
     kokoro.ts           Kokoro TTS subprocess wrapper with onProgress callback
     ffmpeg.ts           FFmpeg WAV→MP3 and concat helpers

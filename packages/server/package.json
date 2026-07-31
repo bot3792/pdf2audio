@@ -9,7 +9,8 @@
     "test": "vitest run",
     "start": "node dist/main.js",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
-    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts"
+    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
+    "backfill:raw": "tsx src/scripts/backfill-raw-text.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",

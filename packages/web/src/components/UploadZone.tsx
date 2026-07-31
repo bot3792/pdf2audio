@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, type DragEvent } from "react";
 import { VoicePicker } from "./VoicePicker.tsx";
 import { SpeedSlider } from "./SpeedSlider.tsx";
 import { getVoiceById, voiceSupportsSpeedControl } from "../lib/voices.ts";
+import { AI_MODELS, AI_PRESETS, type AiModelKey } from "../lib/ai-presets.ts";
 
 type UploadZoneProps = {
   onUploadComplete: () => void;
@@ -21,9 +22,15 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
   const [voice, setVoice] = useState("kokoro:af_heart");
   const [speed, setSpeed] = useState(1.0);
   const [forceOcr, setForceOcr] = useState(false);
+  // Raw-text-only is the default: pdftotext lands in seconds, marker takes minutes — extract chapters later from the book page
+  const [fullExtract, setFullExtract] = useState(false);
   const [llmChapterDetection, setLlmChapterDetection] = useState(false);
-  // Extraction-only is the default: most books get read, translated, or exported before (if ever) synthesized
   const [autoSynthesize, setAutoSynthesize] = useState(false);
+  const [separateBooks, setSeparateBooks] = useState(false);
+  const [askAi, setAskAi] = useState(false);
+  const [notePreset, setNotePreset] = useState<string>("summarize");
+  const [notePrompt, setNotePrompt] = useState<string>(AI_PRESETS[0].prompt("book"));
+  const [noteModel, setNoteModel] = useState<AiModelKey>("flash");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -57,30 +64,59 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
     });
   }, []);
 
+  function buildFormData(files: File[], title: string | null): FormData {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append("file", file);
+    }
+    if (title) formData.append("title", title);
+    formData.append("voice", voice);
+    formData.append("speed", String(voiceSupportsSpeedControl(voice) ? speed : 1.0));
+    formData.append("forceOcr", String(forceOcr));
+    formData.append("fullExtract", String(fullExtract));
+    formData.append("llmChapterDetection", String(fullExtract && llmChapterDetection));
+    formData.append("skipSynthesis", String(!(fullExtract && autoSynthesize)));
+    if (askAi && notePrompt.trim()) {
+      formData.append("notePrompt", notePrompt.trim());
+      formData.append("noteModel", noteModel);
+    }
+    return formData;
+  }
+
+  async function postUpload(formData: FormData) {
+    const res = await fetch("/upload", { method: "POST", body: formData });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error ?? `Upload failed (${res.status})`);
+    }
+  }
+
   async function upload() {
     if (stagedFiles.length === 0) return;
+    const asSeparateBooks = separateBooks && stagedFiles.length > 1;
 
     setIsUploading(true);
     setError(null);
 
     try {
-      const formData = new FormData();
-      for (const file of stagedFiles) {
-        formData.append("file", file);
-      }
-      if (customTitle.trim()) {
-        formData.append("title", customTitle.trim());
-      }
-      formData.append("voice", voice);
-      formData.append("speed", String(voiceSupportsSpeedControl(voice) ? speed : 1.0));
-      formData.append("forceOcr", String(forceOcr));
-      formData.append("llmChapterDetection", String(llmChapterDetection));
-      formData.append("skipSynthesis", String(!autoSynthesize));
-
-      const res = await fetch("/upload", { method: "POST", body: formData });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `Upload failed (${res.status})`);
+      if (asSeparateBooks) {
+        const failures: string[] = [];
+        const succeeded = new Set<File>();
+        for (const file of stagedFiles) {
+          try {
+            await postUpload(buildFormData([file], null));
+            succeeded.add(file);
+          } catch (err) {
+            failures.push(`${file.name}: ${err instanceof Error ? err.message : "failed"}`);
+          }
+        }
+        if (failures.length > 0) {
+          // Keep only the failed files staged so a retry doesn't duplicate books
+          setStagedFiles((prev) => prev.filter((f) => !succeeded.has(f)));
+          throw new Error(`${failures.length} of ${stagedFiles.length} uploads failed — ${failures.join("; ")}`);
+        }
+      } else {
+        await postUpload(buildFormData(stagedFiles, customTitle.trim() || null));
       }
 
       setStagedFiles([]);
@@ -88,16 +124,58 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
       onUploadComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
+      onUploadComplete();
     } finally {
       setIsUploading(false);
     }
   }
 
-  function handleDrop(e: DragEvent) {
+  async function readEntryFiles(entry: FileSystemEntry): Promise<File[]> {
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject));
+      return file.name.toLowerCase().endsWith(".pdf") ? [file] : [];
+    }
+    if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const entries: FileSystemEntry[] = [];
+      // readEntries returns batches of ≤100; keep reading until an empty batch
+      for (;;) {
+        const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+        if (batch.length === 0) break;
+        entries.push(...batch);
+      }
+      const nested = await Promise.all(entries.map(readEntryFiles));
+      return nested.flat();
+    }
+    return [];
+  }
+
+  async function handleDrop(e: DragEvent) {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files.length > 0) {
-      stageFiles(e.dataTransfer.files);
+
+    // Entries must be captured synchronously — the DataTransfer is dead after the first await
+    const entries = [...e.dataTransfer.items]
+      .map((item) => (item.webkitGetAsEntry ? item.webkitGetAsEntry() : null))
+      .filter((entry): entry is FileSystemEntry => entry !== null);
+
+    if (!entries.some((entry) => entry.isDirectory)) {
+      if (e.dataTransfer.files.length > 0) stageFiles(e.dataTransfer.files);
+      return;
+    }
+
+    try {
+      const collected = (await Promise.all(entries.map(readEntryFiles))).flat();
+      collected.sort((a, b) => a.name.localeCompare(b.name));
+      if (collected.length === 0) {
+        setError("No PDF files found in the dropped folder");
+        return;
+      }
+      // A folder is usually a collection of separate books, not volumes of one
+      if (collected.length > 1 && stagedFiles.length === 0) setSeparateBooks(true);
+      stageFiles(collected);
+    } catch {
+      setError("Could not read the dropped folder");
     }
   }
 
@@ -220,13 +298,26 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
           </div>
         ) : (
           <div>
-            <p className="text-lg font-medium text-(--text-secondary)">Drop PDF files here</p>
-            <p className="text-sm text-(--text-muted) mt-1">or click to browse</p>
+            <p className="text-lg font-medium text-(--text-secondary)">Drop PDF files or a folder here</p>
+            <p className="text-sm text-(--text-muted) mt-1">or click to browse — folders are scanned recursively for PDFs</p>
           </div>
         )}
       </div>
 
       {isMultiFile && (
+        <div className="flex gap-6" data-testid="upload-mode">
+          <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="All files become one book — use for multi-volume works; drag rows to set the volume order">
+            <input type="radio" name="upload-mode" checked={!separateBooks} onChange={() => setSeparateBooks(false)} />
+            One book (volumes)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Each PDF becomes its own book, titled after its filename">
+            <input type="radio" name="upload-mode" checked={separateBooks} onChange={() => setSeparateBooks(true)} />
+            Separate books
+          </label>
+        </div>
+      )}
+
+      {isMultiFile && !separateBooks && (
         <div>
           <label className="block text-sm text-(--text-secondary) mb-1">Book title</label>
           <input
@@ -241,22 +332,87 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
 
       {hasFiles && (
         <>
-          <div className="flex gap-6">
-            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Only needed for scanned PDFs without selectable text">
+          <div className="flex gap-6 flex-wrap">
+            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Run the slow Marker extraction right away to detect chapters (takes minutes per book). Off by default — raw text is always extracted in seconds, and you can extract chapters later from the book page.">
+              <input type="checkbox" checked={fullExtract} onChange={(e) => setFullExtract(e.target.checked)} className="rounded" data-testid="full-extract" />
+              Extract chapters now
+            </label>
+            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Only needed for scanned PDFs without selectable text. Saved on the book — also applies when you extract chapters later.">
               <input type="checkbox" checked={forceOcr} onChange={(e) => setForceOcr(e.target.checked)} className="rounded" />
               Force OCR
             </label>
-            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses DeepSeek to identify chapter boundaries from the table of contents">
-              <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
-              LLM chapter detection
-            </label>
-            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Start synthesizing every chapter right after extraction. Off by default — you can read, translate, export, or synthesize selected chapters from the book page anytime.">
-              <input type="checkbox" checked={autoSynthesize} onChange={(e) => setAutoSynthesize(e.target.checked)} className="rounded" />
-              Synthesize audio after extraction
+            {fullExtract && (
+              <>
+                <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses DeepSeek to identify chapter boundaries from the table of contents">
+                  <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
+                  LLM chapter detection
+                </label>
+                <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Start synthesizing every chapter right after extraction. Off by default — you can read, translate, export, or synthesize selected chapters from the book page anytime.">
+                  <input type="checkbox" checked={autoSynthesize} onChange={(e) => setAutoSynthesize(e.target.checked)} className="rounded" />
+                  Synthesize audio after extraction
+                </label>
+              </>
+            )}
+            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title={`Run an AI prompt against ${isMultiFile && separateBooks ? "each book's" : "the book's"} raw text right after upload — the answer is saved to the book's notes`}>
+              <input type="checkbox" checked={askAi} onChange={(e) => setAskAi(e.target.checked)} className="rounded" data-testid="upload-ask-ai" />
+              Ask AI after upload
             </label>
           </div>
 
-          {autoSynthesize && (
+          {askAi && (
+            <div className="rounded-lg border border-(--border) bg-(--bg-subtle) p-3 space-y-2" data-testid="upload-ai-section">
+              <div className="flex flex-wrap gap-1.5">
+                {AI_PRESETS.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => {
+                      setNotePreset(p.key);
+                      setNotePrompt(p.prompt("book"));
+                    }}
+                    className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
+                      notePreset === p.key
+                        ? "bg-blue-600 border-blue-600 text-white"
+                        : "border-(--border) text-(--text-secondary) hover:bg-(--bg-card)"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+                <div className="inline-flex rounded-md border border-(--border) p-0.5 gap-0.5 ml-auto">
+                  {AI_MODELS.map((m) => (
+                    <button
+                      key={m.key}
+                      type="button"
+                      onClick={() => setNoteModel(m.key)}
+                      title={m.hint}
+                      className={`px-2.5 py-1 rounded text-xs font-medium ${
+                        noteModel === m.key
+                          ? "bg-(--bg-card) text-(--text-primary)"
+                          : "text-(--text-muted) hover:text-(--text-secondary)"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <textarea
+                value={notePrompt}
+                onChange={(e) => setNotePrompt(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                className="w-full resize-y rounded-md border border-(--border-input) bg-(--bg-card) p-2.5 text-sm text-(--text-primary) leading-relaxed focus:outline-none focus:border-blue-500"
+                placeholder="What should the AI answer about each uploaded book?"
+                data-testid="upload-ai-prompt"
+              />
+              <p className="text-xs text-(--text-faint)">
+                Runs against the raw text of {isMultiFile && separateBooks ? "each book" : "the whole book"} once it's extracted (seconds after upload). The answer lands in the book's notes.
+              </p>
+            </div>
+          )}
+
+          {fullExtract && autoSynthesize && (
             <>
               <div className="flex gap-6 items-end">
                 <VoicePicker value={voice} onChange={setVoice} />
@@ -274,8 +430,8 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
             disabled={isUploading}
             className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
-            {isUploading ? "Uploading..." : autoSynthesize ? "Extract & synthesize" : "Extract"}
-            {isMultiFile ? ` (${stagedFiles.length} files)` : ""}
+            {isUploading ? "Uploading..." : !fullExtract ? "Upload" : autoSynthesize ? "Extract & synthesize" : "Extract"}
+            {isMultiFile ? ` (${stagedFiles.length} ${separateBooks ? "books" : "files"})` : ""}
           </button>
         </>
       )}

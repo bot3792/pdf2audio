@@ -14,6 +14,10 @@ import { measureBookDiskUsage, measureDirs, removeDirs, bookTotalSizeCached } fr
 import { chapterChunkPreviewDir } from "../lib/chunk-previews.ts";
 import { translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
 import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
+import { getBookRawText } from "../lib/book-raw-text.ts";
+import { countAsciiNonAscii, estimateTokens, MODEL_CONTEXT_TOKENS } from "../lib/token-estimate.ts";
+import { saveNote } from "../lib/notes.ts";
+import { deepseekChat, DEEPSEEK_MODELS } from "../lib/deepseek.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, unlink, rm } from "node:fs/promises";
@@ -21,6 +25,14 @@ import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
 
 const connectionString = env.DATABASE_URL;
+
+const NOTE_JOB_STALE_MS = 15 * 60_000;
+
+function noteJobRunning(noteJob: Book["noteJob"]): boolean {
+  if (!noteJob) return false;
+  if (noteJob.status !== "queued" && noteJob.status !== "running") return false;
+  return Date.now() - new Date(noteJob.updatedAt).getTime() < NOTE_JOB_STALE_MS;
+}
 
 function computeBookStatus(
   book: Book,
@@ -40,6 +52,18 @@ function computeBookStatus(
   if (statuses.some((s) => s === "failed")) return "failed";
   if (statuses.every((s) => s === "suspended" || s === "done")) return "suspended";
   return book.status;
+}
+
+async function deleteBook(id: string) {
+  const [book] = await db.select().from(books).where(eq(books.id, id));
+
+  await db.delete(books).where(eq(books.id, id));
+
+  if (book?.pdfPath) {
+    await rm(path.dirname(book.pdfPath), { recursive: true, force: true }).catch(() => {});
+  }
+  await rm(bookOutputDir(id), { recursive: true, force: true }).catch(() => {});
+  await rm(bookTmpDir(id), { recursive: true, force: true }).catch(() => {});
 }
 
 // Chunk WAVs only matter for resuming a partial synthesis — finished chapters never reread them
@@ -140,6 +164,7 @@ export const booksRouter = router({
           translating: translations.reduce((sum, t) => sum + t.running, 0),
           cleaning: countOf(cleanupRows, "pending", "cleaning"),
           assembling: book.status === "assembling",
+          aiNote: noteJobRunning(book.noteJob),
         };
         const failures = {
           files: fileRows.reduce((sum, r) => sum + r.hard_failed, 0),
@@ -203,13 +228,29 @@ export const booksRouter = router({
       const totalDurationMs = allChapters.reduce((sum, ch) => sum + (ch.durationMs ?? 0), 0);
       const status = computeBookStatus(book, allChapters);
 
+      // rawText can be megabytes and this query is polled — never ship it
       const files = await db
-        .select()
+        .select({
+          id: bookFiles.id,
+          bookId: bookFiles.bookId,
+          index: bookFiles.index,
+          filename: bookFiles.filename,
+          pdfPath: bookFiles.pdfPath,
+          status: bookFiles.status,
+          selected: bookFiles.selected,
+          skipSynthesis: bookFiles.skipSynthesis,
+          rawWords: bookFiles.rawWords,
+          hasRawText: sql<boolean>`${bookFiles.rawText} is not null`,
+          error: bookFiles.error,
+          createdAt: bookFiles.createdAt,
+        })
         .from(bookFiles)
         .where(eq(bookFiles.bookId, input.id))
         .orderBy(asc(bookFiles.index));
 
-      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs, files };
+      const rawTextTotalWords = files.reduce((sum, f) => sum + (f.rawWords ?? 0), 0);
+
+      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs, files, rawTextTotalWords };
     }),
 
   logs: publicProcedure
@@ -336,6 +377,99 @@ export const booksRouter = router({
 
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       return book;
+    }),
+
+  aiPromptRaw: publicProcedure
+    .input(z.object({
+      bookId: z.string().uuid(),
+      prompt: z.string().min(1).max(4000),
+      model: z.enum(["flash", "pro"]).default("flash"),
+    }))
+    .mutation(async ({ input }) => {
+      const raw = await getBookRawText(input.bookId);
+      if (!raw) throw new Error("No raw text available for this book — the PDF may be scanned or encrypted");
+
+      const tokens = estimateTokens(raw.text) + estimateTokens(input.prompt);
+      if (tokens > MODEL_CONTEXT_TOKENS) {
+        throw new Error(
+          `Raw text (~${Math.round(tokens / 1000)}k tokens) exceeds the model's context — extract chapters and ask per-chapter instead`
+        );
+      }
+
+      const system =
+        "You are a careful reading assistant. You are given the full raw text of a book, extracted directly from its PDF (it may contain page headers, footers, and OCR artifacts). " +
+        "Answer the user's request about this book using only the given text — do not invent facts that are not in it. " +
+        "Respond in the language of the request unless asked otherwise. Format your answer in Markdown where it helps readability (lists, bold, short headings).";
+      const user = `${input.prompt}\n\n---\n${raw.text}`;
+
+      const result = await deepseekChat(system, user, {
+        model: DEEPSEEK_MODELS[input.model],
+        temperature: 0.7,
+        timeoutMs: 600_000,
+      });
+
+      const noteId = await saveNote({
+        bookId: input.bookId,
+        prompt: input.prompt,
+        model: input.model,
+        result,
+        scope: { kind: "book-raw", files: raw.fileCount },
+      });
+
+      return { result, noteId };
+    }),
+
+  rawTextStats: publicProcedure
+    .input(z.object({ bookId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const files = await db
+        .select({ rawText: bookFiles.rawText })
+        .from(bookFiles)
+        .where(eq(bookFiles.bookId, input.bookId));
+      let ascii = 0;
+      let nonAscii = 0;
+      let missingFiles = 0;
+      for (const f of files) {
+        if (!f.rawText) {
+          missingFiles++;
+          continue;
+        }
+        const counts = countAsciiNonAscii(f.rawText);
+        ascii += counts.ascii;
+        nonAscii += counts.nonAscii;
+      }
+      return { ascii, nonAscii, fileCount: files.length - missingFiles, missingFiles };
+    }),
+
+  extractChapters: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+      if (book.status === "extracting" || book.status === "assembling") {
+        throw new Error("Cannot extract chapters while book is processing");
+      }
+
+      const flipped = await db
+        .update(bookFiles)
+        .set({ status: "pending" })
+        .where(and(eq(bookFiles.bookId, input.id), eq(bookFiles.status, "raw")))
+        .returning({ id: bookFiles.id });
+
+      if (flipped.length === 0) {
+        const pending = await db
+          .select({ id: bookFiles.id })
+          .from(bookFiles)
+          .where(and(eq(bookFiles.bookId, input.id), eq(bookFiles.status, "pending")));
+        if (pending.length === 0) throw new Error("All files already extracted");
+      }
+
+      await db.update(books).set({ status: "pending", error: null, updatedAt: new Date() }).where(eq(books.id, input.id));
+      await appendLog(input.id, "Queued chapter extraction");
+      await quickAddJob({ connectionString }, "extract", { bookId: input.id }, { maxAttempts: 1 });
+
+      const [updated] = await db.select().from(books).where(eq(books.id, input.id));
+      return updated;
     }),
 
   redetectChapters: publicProcedure
@@ -785,17 +919,17 @@ export const booksRouter = router({
   delete: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
-      const [book] = await db.select().from(books).where(eq(books.id, input.id));
-
-      await db.delete(books).where(eq(books.id, input.id));
-
-      if (book?.pdfPath) {
-        await rm(path.dirname(book.pdfPath), { recursive: true, force: true }).catch(() => {});
-      }
-      await rm(bookOutputDir(input.id), { recursive: true, force: true }).catch(() => {});
-      await rm(bookTmpDir(input.id), { recursive: true, force: true }).catch(() => {});
-
+      await deleteBook(input.id);
       return { success: true };
+    }),
+
+  deleteMany: publicProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(100) }))
+    .mutation(async ({ input }) => {
+      for (const id of input.ids) {
+        await deleteBook(id);
+      }
+      return { deleted: input.ids.length };
     }),
 
   assemblies: publicProcedure

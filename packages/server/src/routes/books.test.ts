@@ -2,15 +2,21 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDb, resetDb } from "../../test/setup.ts";
-import { books, chapters } from "../schema.ts";
+import { books, bookFiles, chapters, notes } from "../schema.ts";
 
-const { mockQuickAddJob } = vi.hoisted(() => ({
+const { mockQuickAddJob, mockDeepseekChat } = vi.hoisted(() => ({
   mockQuickAddJob: vi.fn(async () => {}),
+  mockDeepseekChat: vi.fn(async (..._args: unknown[]) => "AI answer"),
 }));
 
 vi.mock("graphile-worker", () => ({
   quickAddJob: mockQuickAddJob,
 }));
+
+vi.mock("../lib/deepseek.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/deepseek.ts")>();
+  return { ...actual, deepseekChat: mockDeepseekChat };
+});
 
 vi.mock("../db.ts", async () => {
   const { getDb } = await import("../../test/setup.ts");
@@ -264,5 +270,200 @@ describe("booksRouter.proposeChapters", () => {
 
     const caller = booksRouter.createCaller({});
     await expect(caller.proposeChapters({ id: bookId, method: "llm" })).rejects.toThrow(/already running/);
+  });
+});
+
+describe("booksRouter.extractChapters", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+    mockQuickAddJob.mockReset();
+  });
+
+  async function insertRawBook(statuses: ("raw" | "done" | "pending")[]) {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({
+      id: bookId,
+      title: "Raw Book",
+      filename: "raw.pdf",
+      pdfPath: "/tmp/raw.pdf",
+    });
+    await db.insert(bookFiles).values(
+      statuses.map((status, i) => ({
+        bookId,
+        index: i,
+        filename: `f${i}.pdf`,
+        pdfPath: `/tmp/f${i}.pdf`,
+        status,
+      })),
+    );
+    return bookId;
+  }
+
+  it("flips raw files to pending and queues extract", async () => {
+    const bookId = await insertRawBook(["raw", "raw"]);
+
+    const caller = booksRouter.createCaller({});
+    await caller.extractChapters({ id: bookId });
+
+    const db = getDb();
+    const files = await db.select().from(bookFiles).where(eq(bookFiles.bookId, bookId));
+    expect(files.every((f) => f.status === "pending")).toBe(true);
+    expect(mockQuickAddJob).toHaveBeenCalledWith(
+      expect.any(Object),
+      "extract",
+      { bookId },
+      { maxAttempts: 1 }
+    );
+  });
+
+  it("rejects when every file is already extracted", async () => {
+    const bookId = await insertRawBook(["done"]);
+
+    const caller = booksRouter.createCaller({});
+    await expect(caller.extractChapters({ id: bookId })).rejects.toThrow(/already extracted/i);
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+
+  it("rejects while the book is extracting", async () => {
+    const bookId = await insertRawBook(["raw"]);
+    const db = getDb();
+    await db.update(books).set({ status: "extracting" }).where(eq(books.id, bookId));
+
+    const caller = booksRouter.createCaller({});
+    await expect(caller.extractChapters({ id: bookId })).rejects.toThrow(/while book is processing/i);
+  });
+});
+
+describe("booksRouter.get raw text stats", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+  });
+
+  it("ships rawWords and hasRawText but never rawText", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({
+      id: bookId,
+      title: "Raw Book",
+      filename: "raw.pdf",
+      pdfPath: "/tmp/raw.pdf",
+    });
+    await db.insert(bookFiles).values([
+      { bookId, index: 0, filename: "a.pdf", pdfPath: "/tmp/a.pdf", status: "raw", rawText: "one two three", rawWords: 3 },
+      { bookId, index: 1, filename: "b.pdf", pdfPath: "/tmp/b.pdf", status: "raw" },
+    ]);
+
+    const caller = booksRouter.createCaller({});
+    const book = await caller.get({ id: bookId });
+
+    expect(book.rawTextTotalWords).toBe(3);
+    expect(book.files[0]).toMatchObject({ rawWords: 3, hasRawText: true });
+    expect(book.files[1]).toMatchObject({ rawWords: null, hasRawText: false });
+    expect((book.files[0] as Record<string, unknown>).rawText).toBeUndefined();
+  });
+});
+
+describe("booksRouter.aiPromptRaw", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+    mockDeepseekChat.mockReset();
+    mockDeepseekChat.mockResolvedValue("AI answer");
+  });
+
+  async function insertRawTextBook() {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({
+      id: bookId,
+      title: "Raw Book",
+      filename: "raw.pdf",
+      pdfPath: "/tmp/raw.pdf",
+    });
+    await db.insert(bookFiles).values([
+      { bookId, index: 0, filename: "vol1.pdf", pdfPath: "/tmp/a.pdf", status: "raw", rawText: "First volume text.", rawWords: 3 },
+      { bookId, index: 1, filename: "vol2.pdf", pdfPath: "/tmp/b.pdf", status: "raw", rawText: "Second volume text.", rawWords: 3 },
+    ]);
+    return bookId;
+  }
+
+  it("sends concatenated file texts in index order and saves a note", async () => {
+    const bookId = await insertRawTextBook();
+
+    const caller = booksRouter.createCaller({});
+    const res = await caller.aiPromptRaw({ bookId, prompt: "Summarize the book", model: "flash" });
+
+    expect(res.result).toBe("AI answer");
+    const userMessage = mockDeepseekChat.mock.calls[0][1] as string;
+    expect(userMessage.indexOf("First volume text.")).toBeGreaterThan(-1);
+    expect(userMessage.indexOf("First volume text.")).toBeLessThan(userMessage.indexOf("Second volume text."));
+
+    const db = getDb();
+    const [note] = await db.select().from(notes).where(eq(notes.id, res.noteId));
+    expect(note).toMatchObject({
+      bookId,
+      prompt: "Summarize the book",
+      model: "flash",
+      result: "AI answer",
+      scope: { kind: "book-raw", files: 2 },
+    });
+  });
+
+  it("rejects when the book has no raw text", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({ id: bookId, title: "Empty", filename: "e.pdf", pdfPath: "/tmp/e.pdf" });
+    await db.insert(bookFiles).values({ bookId, index: 0, filename: "e.pdf", pdfPath: "/tmp/e.pdf", status: "raw" });
+
+    const caller = booksRouter.createCaller({});
+    await expect(caller.aiPromptRaw({ bookId, prompt: "Summarize", model: "flash" })).rejects.toThrow(/no raw text/i);
+    expect(mockDeepseekChat).not.toHaveBeenCalled();
+  });
+});
+
+describe("booksRouter.rawTextStats", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+  });
+
+  it("counts ascii/nonAscii across files and reports missing ones", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({ id: bookId, title: "B", filename: "b.pdf", pdfPath: "/tmp/b.pdf" });
+    await db.insert(bookFiles).values([
+      { bookId, index: 0, filename: "a.pdf", pdfPath: "/tmp/a.pdf", status: "raw", rawText: "abcd" },
+      { bookId, index: 1, filename: "b.pdf", pdfPath: "/tmp/b.pdf", status: "raw", rawText: "абв" },
+      { bookId, index: 2, filename: "c.pdf", pdfPath: "/tmp/c.pdf", status: "raw" },
+    ]);
+
+    const caller = booksRouter.createCaller({});
+    const stats = await caller.rawTextStats({ bookId });
+
+    expect(stats).toEqual({ ascii: 4, nonAscii: 3, fileCount: 2, missingFiles: 1 });
+  });
+});
+
+describe("booksRouter.deleteMany", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+  });
+
+  it("deletes all given books and their dependent rows", async () => {
+    const db = getDb();
+    const ids = [crypto.randomUUID(), crypto.randomUUID()];
+    for (const id of ids) {
+      await db.insert(books).values({ id, title: `Book ${id.slice(0, 4)}`, filename: "b.pdf", pdfPath: `/tmp/del-${id}/b.pdf` });
+      await db.insert(chapters).values({ bookId: id, index: 0, title: "Ch", rawText: "text" });
+    }
+    const keptId = crypto.randomUUID();
+    await db.insert(books).values({ id: keptId, title: "Kept", filename: "k.pdf", pdfPath: "/tmp/k.pdf" });
+
+    const caller = booksRouter.createCaller({});
+    const res = await caller.deleteMany({ ids });
+
+    expect(res.deleted).toBe(2);
+    const remaining = await db.select().from(books);
+    expect(remaining.map((b) => b.id)).toEqual([keptId]);
+    expect(await db.select().from(chapters)).toHaveLength(0);
   });
 });

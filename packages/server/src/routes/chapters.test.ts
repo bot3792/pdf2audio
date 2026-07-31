@@ -3,8 +3,16 @@ import { getDb, resetDb, ensureGraphileTables } from "../../test/setup.ts";
 import { books, chapters, type ChapterCleanup } from "../schema.ts";
 import { eq } from "drizzle-orm";
 
-const { mockQuickAddJob } = vi.hoisted(() => ({ mockQuickAddJob: vi.fn(async () => {}) }));
+const { mockQuickAddJob, mockDeepseekChat } = vi.hoisted(() => ({
+  mockQuickAddJob: vi.fn(async () => {}),
+  mockDeepseekChat: vi.fn(async (..._args: unknown[]) => "AI answer"),
+}));
 vi.mock("graphile-worker", () => ({ quickAddJob: mockQuickAddJob }));
+
+vi.mock("../lib/deepseek.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/deepseek.ts")>();
+  return { ...actual, deepseekChat: mockDeepseekChat };
+});
 
 vi.mock("../lib/log.ts", () => ({
   appendLog: vi.fn(async () => {}),
@@ -147,5 +155,31 @@ describe("chapters router cleanup", () => {
     const { bookId } = await insertFixture(db, { cleanup: cleanupState("done") });
 
     await expect(caller.cleanupSelected({ bookId })).rejects.toThrow("No selected chapters need cleanup");
+  });
+});
+
+describe("aiPrompt note auto-save", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+    mockDeepseekChat.mockReset();
+    mockDeepseekChat.mockResolvedValue("AI answer");
+  });
+
+  it("saves a note with a chapter id+title snapshot and returns its id", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+
+    const res = await caller.aiPrompt({ chapterIds: [chapterId], prompt: "Summarize", model: "flash" });
+
+    expect(res.result).toBe("AI answer");
+    const { notes } = await import("../schema.ts");
+    const [note] = await db.select().from(notes).where(eq(notes.id, res.noteId));
+    expect(note).toMatchObject({
+      bookId,
+      prompt: "Summarize",
+      model: "flash",
+      result: "AI answer",
+      scope: { kind: "chapters", chapters: [{ id: chapterId, title: "Ch" }] },
+    });
   });
 });

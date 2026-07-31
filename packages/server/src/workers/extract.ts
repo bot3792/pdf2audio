@@ -135,8 +135,8 @@ async function extractMultipleFiles(
   let filesFailed = 0;
 
   for (const file of files) {
-    // Skip already-done files (append support)
-    if (file.status === "done") continue;
+    // Skip already-done files (append support) and raw-only files (extraction not requested)
+    if (file.status === "done" || file.status === "raw") continue;
 
     // Re-read status to check for cancellation
     const [fresh] = await db.select({ status: bookFiles.status }).from(bookFiles).where(eq(bookFiles.id, file.id));

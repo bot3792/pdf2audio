@@ -614,7 +614,7 @@ export function ChapterModal({
       ) : null}
       {showAi ? (
         <ChapterAiModal
-          chapters={[{ id: chapter.id, title: chapter.title }]}
+          scope={{ kind: "chapters", bookId, chapters: [{ id: chapter.id, title: chapter.title }] }}
           onClose={() => setShowAi(false)}
         />
       ) : null}

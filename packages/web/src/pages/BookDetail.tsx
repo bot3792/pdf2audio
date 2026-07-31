@@ -13,7 +13,8 @@ import { DocumentOutputsSection } from "../components/DocumentOutputsSection.tsx
 import { LogDock } from "../components/LogDock.tsx";
 import { EditableTitle } from "../components/EditableTitle.tsx";
 import { DiskUsageButton } from "../components/DiskUsageButton.tsx";
-import { ChapterAiModal } from "../components/ChapterAiModal.tsx";
+import { ChapterAiModal, type AiScope } from "../components/ChapterAiModal.tsx";
+import { NotesSection } from "../components/NotesSection.tsx";
 import { formatBytes } from "../lib/format.ts";
 
 export function BookDetail() {
@@ -40,7 +41,8 @@ export function BookDetail() {
         );
         const bookActive = data.status === "extracting" || data.status === "assembling";
         const proposalRunning = data.chapterProposal?.status === "running";
-        return (hasActiveFiles || hasActiveChapters || hasActiveCleanups || bookActive || proposalRunning) ? 2000 : false;
+        const noteJobActive = data.noteJob?.status === "queued" || data.noteJob?.status === "running";
+        return (hasActiveFiles || hasActiveChapters || hasActiveCleanups || bookActive || proposalRunning || noteJobActive) ? 2000 : false;
       },
     }
   );
@@ -89,6 +91,7 @@ export function BookDetail() {
   const cancelMutation = trpc.books.cancel.useMutation({ onSuccess: invalidate });
   const retryMutation = trpc.books.retry.useMutation({ onSuccess: invalidate });
   const redetectMutation = trpc.books.redetectChapters.useMutation({ onSuccess: invalidate });
+  const extractChaptersMutation = trpc.books.extractChapters.useMutation({ onSuccess: invalidate });
   const processSelectedMutation = trpc.books.processSelected.useMutation({ onSuccess: invalidate });
   const deleteMutation = trpc.books.delete.useMutation({
     onSuccess: () => window.location.assign("/"),
@@ -121,7 +124,7 @@ export function BookDetail() {
   const [showStructure, setShowStructure] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [createTab, setCreateTab] = useState<"audio" | "document">("audio");
-  const [showAskAi, setShowAskAi] = useState(false);
+  const [askScope, setAskScope] = useState<AiScope | null>(null);
   const setActiveLanguage = (lang: string | null) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -210,6 +213,7 @@ export function BookDetail() {
 
   // Derived state
   const hasActiveFiles = book.files?.some((f) => f.status === "extracting" || f.status === "pending") ?? false;
+  const hasRawText = book.files?.some((f) => f.hasRawText) ?? false;
   const isAssembling = book.status === "assembling";
 
   // Translation view: replace every chapter row with its <activeLanguage> counterpart — no fallback to the original
@@ -523,7 +527,13 @@ export function BookDetail() {
                 Cleanup selected ({selectedCleanable})
               </button>
               <button
-                onClick={() => setShowAskAi(true)}
+                onClick={() =>
+                  setAskScope({
+                    kind: "chapters",
+                    bookId: book.id,
+                    chapters: book.chapters.filter((c) => c.selected).map((c) => ({ id: c.id, title: c.title })),
+                  })
+                }
                 disabled={!!activeLanguage || selectedCount === 0}
                 title={
                   activeLanguage ? "Switch to the Original view — Ask AI reads the original text" :
@@ -556,11 +566,44 @@ export function BookDetail() {
           )}
 
           {book.chapters.length === 0 ? (
-            <p className="text-(--text-muted) text-sm">
-              {book.status === "extracting" || hasActiveFiles
-                ? "Extracting chapters from PDF..."
-                : "No chapters extracted yet."}
-            </p>
+            book.status === "extracting" || hasActiveFiles ? (
+              <p className="text-(--text-muted) text-sm">Extracting chapters from PDF...</p>
+            ) : (
+              <div className="rounded-lg border border-(--border) bg-(--bg-subtle) p-4 space-y-3" data-testid="raw-book-block">
+                <p className="text-sm text-(--text-secondary)">
+                  {hasRawText
+                    ? `Raw text extracted — ${book.rawTextTotalWords.toLocaleString()} words across ${book.files?.length ?? 0} file${(book.files?.length ?? 0) === 1 ? "" : "s"}. Ask AI about the whole book right away, or extract chapters to structure, translate, and listen.`
+                    : "No chapters extracted yet, and no raw text is available — the PDF may be scanned or encrypted."}
+                </p>
+                <div className="flex gap-3 flex-wrap">
+                  <button
+                    onClick={() => extractChaptersMutation.mutate({ id: book.id })}
+                    disabled={extractChaptersMutation.isPending}
+                    title="Run the full extraction (Marker) to detect chapters — takes minutes; uses the Force OCR and LLM chapter detection settings above"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    data-testid="extract-chapters"
+                  >
+                    {extractChaptersMutation.isPending ? "Queuing..." : "Extract chapters"}
+                  </button>
+                  <button
+                    onClick={() => setAskScope({ kind: "book-raw", bookId: book.id, bookTitle: book.title })}
+                    disabled={!hasRawText}
+                    title={
+                      hasRawText
+                        ? "Summarize, question, or run any prompt against the whole book's raw text"
+                        : "No raw text — the PDF may be scanned; run Extract chapters with Force OCR instead"
+                    }
+                    className="px-4 py-2 bg-sky-600 text-white rounded-md text-sm font-medium hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    data-testid="ask-ai-book"
+                  >
+                    Ask AI (whole book)
+                  </button>
+                </div>
+                {extractChaptersMutation.error && (
+                  <p className="text-red-600 text-sm">{extractChaptersMutation.error.message}</p>
+                )}
+              </div>
+            )
           ) : (
             <ChapterTable
               bookId={book.id}
@@ -739,6 +782,8 @@ export function BookDetail() {
           )}
         </section>
 
+        <NotesSection bookId={book.id} noteJob={book.noteJob ?? null} />
+
         {/* STAGE 3: produced outputs, scoped to the active language view */}
         <div className="space-y-6 mb-6">
           <AudioOutputsSection
@@ -788,12 +833,7 @@ export function BookDetail() {
           />
         )}
 
-        {showAskAi && (
-          <ChapterAiModal
-            chapters={book.chapters.filter((c) => c.selected).map((c) => ({ id: c.id, title: c.title }))}
-            onClose={() => setShowAskAi(false)}
-          />
-        )}
+        {askScope && <ChapterAiModal scope={askScope} onClose={() => setAskScope(null)} />}
 
         {showTranslation && (
           <TranslationModal

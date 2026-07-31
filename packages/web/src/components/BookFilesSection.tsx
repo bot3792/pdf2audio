@@ -8,6 +8,7 @@ export type BookFileRow = {
   status: string;
   selected: boolean;
   skipSynthesis: boolean;
+  rawWords?: number | null;
   error: string | null;
 };
 
@@ -240,11 +241,16 @@ export function BookFilesSection({
                     file.status === "extracting" ? "text-blue-600" :
                     "text-(--text-muted)"
                   }`}>
-                    {file.status}
+                    {file.status === "raw" ? "raw text" : file.status}
                     {file.status === "extracting" && (
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 ml-1.5 animate-pulse" />
                     )}
                   </span>
+                  {file.rawWords != null && file.status === "raw" && (
+                    <span className="ml-2 text-xs text-(--text-faint)" title="Words in the raw text layer">
+                      {file.rawWords.toLocaleString()} words
+                    </span>
+                  )}
                   {file.error && (
                     <span className="ml-2 text-xs text-red-500 truncate" title={file.error}>
                       {file.error.length > 30 ? file.error.slice(0, 30) + "..." : file.error}
@@ -279,10 +285,11 @@ export function BookFilesSection({
                     {/* Re-extract */}
                     <button
                       onClick={() => onReExtract(file.id)}
-                      disabled={file.status !== "done" && file.status !== "failed"}
+                      disabled={file.status !== "done" && file.status !== "failed" && file.status !== "raw"}
                       title={
                         file.status === "extracting" ? "Wait for extraction to finish" :
                         file.status === "pending" ? "File hasn't been extracted yet" :
+                        file.status === "raw" ? "Extract chapters from this file" :
                         "Re-extract this file"
                       }
                       className="p-1 rounded text-blue-600 hover:bg-(--bg-selected) disabled:opacity-20 disabled:cursor-not-allowed"

@@ -55,6 +55,7 @@ export async function resetDb(db: TestDatabase) {
         DELETE FROM graphile_worker._private_jobs;
       END IF;
     END $$`);
+  await db.execute(sql`DELETE FROM notes`);
   await db.execute(sql`DELETE FROM assemblies`);
   await db.execute(sql`DELETE FROM documents`);
   await db.execute(sql`DELETE FROM chapter_translations`);
