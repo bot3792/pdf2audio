@@ -12,7 +12,7 @@ A PDF goes through a four-stage pipeline, each stage running as a background job
 PDF Upload → extract → normalize → synthesize → assemble → MP3
 ```
 
-**extract** parses the PDF with [Marker](https://github.com/VikParuchuri/marker) to get structured text and heading hierarchy. Chapter boundaries are detected in tiers: a deterministic pass first looks for numbered chapter headings (Chapter N / Глава N, excluding ToC listing pages); when the LLM option is enabled, a local LLM ([Qwen3.6-27B](https://huggingface.co/mlx-community/Qwen3.6-27B-4bit) via mlx-lm) matches the ToC evidence against the extracted heading list, and its answers are fuzzy-matched back to document blocks. If those don't produce a result, a heading-level heuristic takes over (h1, then h2, then splitting every ~5000 words). Creates a `chapters` row per detected chapter.
+**extract** parses the PDF with [Marker](https://github.com/VikParuchuri/marker) to get structured text and heading hierarchy. Chapter boundaries are detected in tiers: a deterministic pass first looks for numbered chapter headings (Chapter N / Глава N, excluding ToC listing pages); when the LLM option is enabled, DeepSeek locates the printed table of contents in the first/last pages and selects chapter-start headings from the extracted heading list. If those don't produce a result, a heading-level heuristic takes over (h1, then h2, then splitting every ~5000 words). Creates a `chapters` row per detected chapter.
 
 **normalize** (runs per chapter, in parallel) cleans up text for TTS input. Strips markdown syntax, reference markers, bare URLs, and rejoins hyphenated line breaks. Kokoro handles numbers and abbreviations natively, so normalization is intentionally minimal.
 

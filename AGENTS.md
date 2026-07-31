@@ -50,7 +50,7 @@ PDF Upload → extract → normalize (per chapter) → synthesize (per chapter) 
 
 ### Job Flow (Graphile Worker)
 
-1. **extract** (`workers/extract.ts`) — Runs `marker_single` (Python subprocess) on the PDF, outputs structured JSON into a subdirectory. Flattens ALL blocks (not just kept types) with page numbers, polygon coordinates, and an `included` flag. **Chapter detection**: if enabled, first attempts LLM-based detection via Qwen3.6-27B (sends heading list to `scripts/detect_chapters.py`, fuzzy-matches results to blocks); falls back to the numbered-chapter tier (Chapter N / Глава N sequences, ToC listing pages excluded), then the heading-level heuristic (h1 → h2 → fallback word-count split). Stores per-chapter `sourceBlocks` (jsonb) with full block metadata, plus `pageStart`/`pageEnd`. Creates chapter rows in DB. Queues normalize jobs.
+1. **extract** (`workers/extract.ts`) — Runs `marker_single` (Python subprocess) on the PDF, outputs structured JSON into a subdirectory. Flattens ALL blocks (not just kept types) with page numbers, polygon coordinates, and an `included` flag. **Chapter detection**: if enabled, first attempts DeepSeek TOC-guided detection (`lib/toc-detect.ts` — finds the printed TOC, selects chapter-start headings by block index); falls back to the numbered-chapter tier (Chapter N / Глава N sequences, ToC listing pages excluded), then the heading-level heuristic (h1 → h2 → fallback word-count split). Stores per-chapter `sourceBlocks` (jsonb) with full block metadata, plus `pageStart`/`pageEnd`. Creates chapter rows in DB. Queues normalize jobs.
 
 2. **normalize** (`workers/normalize.ts`, per chapter, parallel) — Strips markdown, reference markers, URLs, rejoins hyphenated line breaks. Saves clean text. Queues synthesize job.
 
@@ -81,7 +81,6 @@ Chapters can be individually queued (creates Graphile job) or suspended (no job,
 | Tool | Purpose | Called from |
 |------|---------|------------|
 | **Marker** (`marker_single` CLI, `pip install marker-pdf==1.8.5`) | PDF → structured JSON | `lib/marker.ts` |
-| **Qwen3.6-27B** (`mlx-community/Qwen3.6-27B-4bit`, via `mlx-lm`) | LLM chapter detection from headings | `scripts/detect_chapters.py`, called by `lib/chapter-detect.ts` |
 | **Kokoro TTS** (`pip install kokoro`) | Text → speech via MPS GPU | `scripts/synthesize.py`, called by `lib/kokoro.ts` |
 | **KugelAudio** (`kugelaudio/kugelaudio-0-open` via `pip install mlx-audio`, local 4-bit MLX quant at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit`) | Multilingual TTS narrator (24 EU languages incl. Bulgarian) | `scripts/synthesize_kugel_tts.py`, called by `lib/tts.ts` |
 | **FFmpeg** (system binary) | WAV→MP3, MP3 concatenation | `lib/ffmpeg.ts` |
@@ -147,9 +146,8 @@ packages/server/src/
     log.ts              appendLog() — writes to DB + console
     paths.ts            Data directory path helpers (uploadsDir, tmpDir, outputDir)
     marker.ts           Marker subprocess wrapper + chapter detection logic
-    chapter-detect.ts   Qwen3.6 LLM subprocess wrapper for chapter boundary detection (extract-time only)
     deepseek.ts         Shared DeepSeek chat-completions client (translation + TOC detection)
-    toc-detect.ts       DeepSeek TOC-guided chapter proposal: find printed TOC in first/last pages, select headings
+    toc-detect.ts       DeepSeek TOC-guided chapter detection: find printed TOC in first/last pages, select headings (used at extract time and for proposals)
     cleanup.ts          DeepSeek chunk prompt for OCR-artifact cleanup (reuses splitForTranslation)
     kokoro.ts           Kokoro TTS subprocess wrapper with onProgress callback
     ffmpeg.ts           FFmpeg WAV→MP3 and concat helpers
@@ -229,7 +227,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, 
 
 Waterfall in `lib/marker.ts` -> `extractPdf()`:
 
-1. **LLM-based detection** (when enabled): Sends TOC evidence plus candidate SectionHeader blocks (page, level, text) to Qwen3.6-27B via `scripts/detect_chapters.py` (thinking disabled; selecting ~all candidates is treated as failure). Results are fuzzy-matched back to actual block positions. Falls through if LLM is unavailable, returns <2 chapters, or boundaries don't match blocks.
+1. **LLM-based detection** (when enabled): DeepSeek TOC-guided selection via `lib/toc-detect.ts` — finds the printed TOC in the first/last pages, then selects chapter-start headings from the heading catalog by block index (selecting ~all candidates is treated as failure). Falls through if the API call fails or returns <2 chapters.
 
 1b. **Numbered-chapter tier**: `pickNumberedChapterIndices()` finds Chapter N / Глава N heading sequences (digits or roman numerals), excludes ToC listing pages (≥3 chapter headings on one page), and keeps the longest increasing run of chapter numbers. Used when it finds ≥3 chapters.
 

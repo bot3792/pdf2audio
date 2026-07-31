@@ -7,6 +7,7 @@ import { eq, asc } from "drizzle-orm";
 // But use the REAL database for everything else
 vi.mock("../lib/marker.ts", () => ({
   extractPdf: vi.fn(),
+  ExtractAbortedError: class ExtractAbortedError extends Error {},
 }));
 
 vi.mock("../lib/log.ts", () => ({

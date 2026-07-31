@@ -382,7 +382,7 @@ export function BookDetail() {
                 <span
                   className="text-xs px-2 py-0.5 rounded-full bg-(--bg-subtle) text-(--text-muted)"
                   title={{
-                    "llm": "Boundaries picked by the local LLM from the table of contents",
+                    "llm": "Boundaries picked by DeepSeek from the table of contents",
                     "numbered-headings": "Numbered chapter headings (Chapter N) found in the document",
                     "heading-levels": "Split at the most plausible heading level",
                     "word-split": "No usable headings — split every ~5000 words",

@@ -14,7 +14,7 @@ echo "  python3: $(python3 --version)"
 
 echo ""
 echo "Installing Python dependencies..."
-pip3 install marker-pdf kokoro soundfile mlx-lm mlx mlx-audio numpy huggingface_hub torch
+pip3 install marker-pdf kokoro soundfile mlx mlx-audio numpy huggingface_hub torch
 pip3 install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"
 # mlx-audio pulls transformers 5.x, which breaks marker-pdf (surya needs transformers.onnx)
 pip3 install "transformers==4.57.6" "regex<2025.0.0"
@@ -26,10 +26,6 @@ python3 -c "import marker; print(f'  marker: {marker.__version__}')" 2>/dev/null
 echo ""
 echo "Verifying kokoro..."
 python3 -c "from kokoro import KPipeline; print('  kokoro: OK')"
-
-echo ""
-echo "Caching Qwen3.6 model for chapter detection (~16 GB)..."
-python3 -c "from mlx_lm import load; load('mlx-community/Qwen3.6-27B-4bit'); print('  qwen3.6: OK')" 2>/dev/null || echo "  qwen3.6: download manually with: python3 -c \"from mlx_lm import load; load('mlx-community/Qwen3.6-27B-4bit')\""
 
 echo ""
 echo "Caching Bulgarian narrator model..."

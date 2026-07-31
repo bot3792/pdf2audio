@@ -5,7 +5,8 @@ import path from "node:path";
 import os from "node:os";
 
 import { env } from "../env.ts";
-import { detectChaptersWithLlm } from "./chapter-detect.ts";
+import { describeError } from "./deepseek.ts";
+import { detectChaptersWithDeepseek } from "./toc-detect.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
 
@@ -351,66 +352,6 @@ function splitByWordCount(allBlocks: FlatBlock[], wordsPerChapter = 5000): Extra
   return chapters;
 }
 
-function similarity(a: string, b: string): number {
-  const la = a.toLowerCase();
-  const lb = b.toLowerCase();
-  if (la === lb) return 1;
-  const shorter = la.length < lb.length ? la : lb;
-  const longer = la.length < lb.length ? lb : la;
-  if (longer.length === 0) return 0;
-  if (longer.includes(shorter)) return shorter.length / longer.length;
-  let matches = 0;
-  const longerChars = [...longer];
-  for (const ch of shorter) {
-    const idx = longerChars.indexOf(ch);
-    if (idx !== -1) {
-      matches++;
-      longerChars[idx] = "";
-    }
-  }
-  return matches / longer.length;
-}
-
-export function matchBoundariesToBlocks(
-  allBlocks: FlatBlock[],
-  boundaries: { title: string; page: number }[]
-): number[] {
-  const blockIndices: number[] = [];
-
-  for (const boundary of boundaries) {
-    let bestIndex = -1;
-    let bestScore = 0;
-    for (let i = 0; i < allBlocks.length; i++) {
-      const block = allBlocks[i];
-      if (block.type !== "SectionHeader" || !block.included) continue;
-      const pageDist = Math.abs(block.page - boundary.page);
-      if (pageDist > 3) continue;
-      const sim = similarity(block.text, boundary.title);
-      const score = sim - pageDist * 0.1;
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = i;
-      }
-    }
-    if (bestIndex !== -1 && bestScore > 0.3) {
-      blockIndices.push(bestIndex);
-    }
-  }
-
-  return blockIndices.sort((a, b) => a - b);
-}
-
-function chaptersFromLlmBoundaries(
-  allBlocks: FlatBlock[],
-  boundaries: { title: string; page: number }[]
-): ExtractedChapter[] | null {
-  const blockIndices = matchBoundariesToBlocks(allBlocks, boundaries);
-  if (blockIndices.length < 2) return null;
-
-  const chapters = sliceChaptersAtIndices(allBlocks, blockIndices);
-  return chapters.length >= 2 ? chapters : null;
-}
-
 type LogFn = (message: string) => Promise<void>;
 
 const noopLog: LogFn = async () => {};
@@ -572,25 +513,19 @@ export async function collectBlocksFromMarkerOutput(outDir: string): Promise<Fla
 async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath: string, log: LogFn, options: ExtractOptions): Promise<DetectionResult> {
   const allBlocks = await collectBlocksFromMarkerJson(markerJsonPath);
 
-  if (options.llmChapterDetection !== false) {
-    await log("Attempting LLM chapter detection...");
+  if (options.llmChapterDetection) {
     try {
-      const boundaries = await detectChaptersWithLlm(markerJsonPath, pdfPath, log);
-      if (boundaries && boundaries.length >= 2) {
-        const chapters = chaptersFromLlmBoundaries(allBlocks, boundaries);
-        if (chapters) {
-          await log(`LLM detected ${chapters.length} chapters`);
-          return { chapters, method: "llm" };
-        }
-        await log("LLM boundaries didn't match blocks, falling back to heuristic");
-      } else {
-        await log("LLM returned no usable chapters, falling back to heuristic");
+      const selected = await detectChaptersWithDeepseek([{ fileIndex: null, blocks: allBlocks, pdfPath }], log);
+      const selections = selected?.get(null) ?? [];
+      if (selections.length >= 2) {
+        const titles = new Map(selections.filter((s) => s.title).map((s) => [s.blockIndex, s.title!]));
+        const chapters = sliceChaptersAtIndices(allBlocks, selections.map((s) => s.blockIndex), titles);
+        if (chapters.length >= 2) return { chapters, method: "llm" };
       }
+      await log("DeepSeek returned no usable chapters, falling back to heuristic");
     } catch (err) {
-      await log(`LLM chapter detection failed: ${err instanceof Error ? err.message : String(err)}`);
+      await log(`DeepSeek chapter detection failed: ${describeError(err)} — falling back to heuristic`);
     }
-  } else if (options.llmChapterDetection === false) {
-    await log("LLM chapter detection disabled, using heuristic");
   }
 
   return detectChaptersFromBlocks(allBlocks);

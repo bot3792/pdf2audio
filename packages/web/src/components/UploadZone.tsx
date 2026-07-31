@@ -246,7 +246,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
               <input type="checkbox" checked={forceOcr} onChange={(e) => setForceOcr(e.target.checked)} className="rounded" />
               Force OCR
             </label>
-            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses a local LLM to identify chapter boundaries from the table of contents">
+            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses DeepSeek to identify chapter boundaries from the table of contents">
               <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
               LLM chapter detection
             </label>

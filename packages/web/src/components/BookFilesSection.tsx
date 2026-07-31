@@ -175,7 +175,7 @@ export function BookFilesSection({
         </label>
         <label
           className="flex items-center gap-1.5 text-xs text-(--text-muted)"
-          title="Uses the local LLM to pick chapter boundaries from the table of contents during extraction and re-detection. Applies to every extraction of this book."
+          title="Uses DeepSeek to pick chapter boundaries from the table of contents during extraction and re-detection. Applies to every extraction of this book."
         >
           <input
             type="checkbox"
