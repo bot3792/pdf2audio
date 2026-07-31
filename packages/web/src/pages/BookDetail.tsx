@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link, useSearchParams } from "react-router";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router";
 import { trpc } from "../trpc.ts";
 import { ChapterTable } from "../components/ChapterTable.tsx";
 import { voiceSupportsSpeedControl } from "../lib/voices.ts";
@@ -15,10 +15,12 @@ import { EditableTitle } from "../components/EditableTitle.tsx";
 import { DiskUsageButton } from "../components/DiskUsageButton.tsx";
 import { ChapterAiModal, type AiScope } from "../components/ChapterAiModal.tsx";
 import { NotesSection } from "../components/NotesSection.tsx";
+import { loadBookSort, sortBooks } from "../lib/book-sort.ts";
 import { formatBytes } from "../lib/format.ts";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const utils = trpc.useUtils();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeLanguage = searchParams.get("lang");
@@ -140,6 +142,14 @@ export function BookDetail() {
     { bookId: id! },
     { enabled: !!id },
   );
+
+  // Prev/next navigation follows the home list's persisted sort order
+  const { data: allBooks } = trpc.books.list.useQuery(undefined, { staleTime: 30_000 });
+  const bookSort = loadBookSort();
+  const orderedBooks = allBooks ? sortBooks(allBooks, bookSort.key, bookSort.dir) : [];
+  const bookIndex = orderedBooks.findIndex((b) => b.id === id);
+  const prevBook = bookIndex > 0 ? orderedBooks[bookIndex - 1] : null;
+  const nextBook = bookIndex >= 0 && bookIndex < orderedBooks.length - 1 ? orderedBooks[bookIndex + 1] : null;
 
   const { data: translationRows = [] } = trpc.translations.listForBook.useQuery(
     { bookId: id!, language: activeLanguage! },
@@ -311,9 +321,36 @@ export function BookDetail() {
   return (
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-6xl mx-auto px-4 py-8 pb-20">
-        <Link to="/" className="text-sm text-blue-600 hover:text-blue-800 mb-4 inline-block">
-          &larr; Back
-        </Link>
+        <div className="flex items-center justify-between mb-4">
+          <Link to="/" className="text-sm text-blue-600 hover:text-blue-800">
+            &larr; Back
+          </Link>
+          <div className="flex items-center gap-2" data-testid="book-nav">
+            <button
+              onClick={() => prevBook && navigate(`/books/${prevBook.id}`)}
+              disabled={!prevBook}
+              title={prevBook ? `Previous book: "${prevBook.title}"` : "This is the first book in the list"}
+              className="px-2.5 py-1 rounded-md text-sm text-blue-600 hover:bg-(--bg-subtle) disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="prev-book"
+            >
+              &larr; Prev
+            </button>
+            {bookIndex >= 0 && (
+              <span className="text-xs text-(--text-faint) tabular-nums" title={`Position in the home list's current sort (${bookSort.key})`}>
+                {bookIndex + 1} of {orderedBooks.length}
+              </span>
+            )}
+            <button
+              onClick={() => nextBook && navigate(`/books/${nextBook.id}`)}
+              disabled={!nextBook}
+              title={nextBook ? `Next book: "${nextBook.title}"` : "This is the last book in the list"}
+              className="px-2.5 py-1 rounded-md text-sm text-blue-600 hover:bg-(--bg-subtle) disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="next-book"
+            >
+              Next &rarr;
+            </button>
+          </div>
+        </div>
 
         {/* Header */}
         <div className="flex items-start justify-between gap-4 mb-6">

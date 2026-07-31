@@ -1,22 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { RouterOutputs } from "../../../server/src/router.ts";
 import { trpc } from "../trpc.ts";
 import { formatBytes, formatRelativeTime } from "../lib/format.ts";
+import { loadBookSort, saveBookSort, sortBooks, type BookSortDir, type BookSortKey } from "../lib/book-sort.ts";
 
-type BookRow = RouterOutputs["books"]["list"][number];
-
-type SortKey = "title" | "chapters" | "outputs" | "size" | "created" | "lastActivity";
-type SortDir = "asc" | "desc";
-
-const SORT_VALUE: Record<SortKey, (b: BookRow) => string | number> = {
-  title: (b) => b.title.toLowerCase(),
-  chapters: (b) => b.chapterCount,
-  outputs: (b) => b.outputs.assemblies + b.outputs.pdfs + b.outputs.epubs,
-  size: (b) => b.sizeBytes,
-  created: (b) => new Date(b.createdAt).getTime(),
-  lastActivity: (b) => new Date(b.lastActivityAt).getTime(),
-};
+type SortKey = BookSortKey;
+type SortDir = BookSortDir;
 
 function ActivityPill({ label, color, pulse = true }: { label: string; color: string; pulse?: boolean }) {
   return (
@@ -71,20 +60,14 @@ export function BookList() {
     },
   });
 
-  const [sortKey, setSortKey] = useState<SortKey>(() => {
-    const stored = localStorage.getItem("bookList.sortKey");
-    return stored && stored in SORT_VALUE ? (stored as SortKey) : "lastActivity";
-  });
-  const [sortDir, setSortDir] = useState<SortDir>(() =>
-    localStorage.getItem("bookList.sortDir") === "asc" ? "asc" : "desc",
-  );
+  const [sortKey, setSortKey] = useState<SortKey>(() => loadBookSort().key);
+  const [sortDir, setSortDir] = useState<SortDir>(() => loadBookSort().dir);
 
   function handleSort(key: SortKey) {
     const dir = key === sortKey ? (sortDir === "asc" ? "desc" : "asc") : key === "title" ? "asc" : "desc";
     setSortKey(key);
     setSortDir(dir);
-    localStorage.setItem("bookList.sortKey", key);
-    localStorage.setItem("bookList.sortDir", dir);
+    saveBookSort(key, dir);
   }
 
   if (isLoading) {
@@ -95,12 +78,7 @@ export function BookList() {
     return <p className="text-(--text-muted) py-4">No books yet. Upload a PDF to get started.</p>;
   }
 
-  const sorted = [...books].sort((a, b) => {
-    const va = SORT_VALUE[sortKey](a);
-    const vb = SORT_VALUE[sortKey](b);
-    const cmp = typeof va === "string" ? va.localeCompare(vb as string) : (va as number) - (vb as number);
-    return sortDir === "asc" ? cmp : -cmp;
-  });
+  const sorted = sortBooks(books, sortKey, sortDir);
 
   // Prune ids of books deleted elsewhere so counts never lie
   const selectedBooks = sorted.filter((b) => selectedIds.has(b.id));
