@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { MarkdownBlock } from "./MarkdownBlock.tsx";
 
@@ -65,28 +66,39 @@ export function NotesSection({ bookId, noteJob }: { bookId: string; noteJob: Not
           const scopeTitle = note.scope.kind === "chapters" ? note.scope.chapters.map((c) => c.title).join("\n") : undefined;
           return (
             <div key={note.id} className="py-2" data-testid="note-row">
-              <button
-                onClick={() => setExpandedId(expanded ? null : note.id)}
-                className="w-full flex items-center gap-3 text-left group"
-              >
-                <svg
-                  className={`w-3 h-3 shrink-0 text-(--text-faint) transition-transform ${expanded ? "rotate-90" : ""}`}
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setExpandedId(expanded ? null : note.id)}
+                  className="flex items-center gap-3 text-left group flex-1 min-w-0"
                 >
-                  <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z" />
-                </svg>
-                <span className="text-sm text-(--text-primary) truncate flex-1 group-hover:text-(--text-secondary)">
-                  {note.prompt}
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-(--bg-subtle) text-(--text-muted) shrink-0" title={scopeTitle}>
-                  {scopeLabel}
-                </span>
-                <span className="text-xs text-(--text-faint) shrink-0">{MODEL_LABELS[note.model]}</span>
-                <span className="text-xs text-(--text-faint) shrink-0">
-                  {new Date(note.createdAt).toLocaleDateString()}
-                </span>
-              </button>
+                  <svg
+                    className={`w-3 h-3 shrink-0 text-(--text-faint) transition-transform ${expanded ? "rotate-90" : ""}`}
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                  >
+                    <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z" />
+                  </svg>
+                  <span className="text-sm text-(--text-primary) truncate flex-1 group-hover:text-(--text-secondary)">
+                    {note.prompt}
+                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-(--bg-subtle) text-(--text-muted) shrink-0" title={scopeTitle}>
+                    {scopeLabel}
+                  </span>
+                  <span className="text-xs text-(--text-faint) shrink-0">{MODEL_LABELS[note.model]}</span>
+                  <span className="text-xs text-(--text-faint) shrink-0">
+                    {new Date(note.createdAt).toLocaleDateString()}
+                  </span>
+                </button>
+                {note.scope.kind === "book-raw" && note.scope.digestBookId && (
+                  <Link
+                    to={`/books/${note.scope.digestBookId}`}
+                    className="text-xs text-sky-600 hover:text-sky-800 shrink-0"
+                    title="This summary is a chapter of a digest book — open it"
+                  >
+                    digest ↗
+                  </Link>
+                )}
+              </div>
               {expanded && (
                 <div className="mt-2 ml-6 space-y-2">
                   <MarkdownBlock testId="note-result">{note.result}</MarkdownBlock>

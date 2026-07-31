@@ -467,3 +467,136 @@ describe("booksRouter.deleteMany", () => {
     expect(await db.select().from(chapters)).toHaveLength(0);
   });
 });
+
+describe("synthetic book guards", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+    mockQuickAddJob.mockReset();
+  });
+
+  async function insertDigestBook() {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({ id: bookId, title: "Digest", kind: "digest" });
+    await db.insert(chapters).values({ bookId, index: 0, title: "Summary", rawText: "generated text", status: "suspended" });
+    return bookId;
+  }
+
+  it("retry refuses and keeps chapters", async () => {
+    const bookId = await insertDigestBook();
+    const caller = booksRouter.createCaller({});
+
+    await expect(caller.retry({ id: bookId })).rejects.toThrow(/synthetic/i);
+
+    const db = getDb();
+    expect(await db.select().from(chapters).where(eq(chapters.bookId, bookId))).toHaveLength(1);
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+
+  it("redetectChapters refuses without flipping status", async () => {
+    const bookId = await insertDigestBook();
+    const caller = booksRouter.createCaller({});
+
+    await expect(caller.redetectChapters({ id: bookId })).rejects.toThrow(/synthetic/i);
+
+    const db = getDb();
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(book.status).toBe("pending");
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+
+  it("extractChapters, proposeChapters, and applyChapterBoundaries refuse cleanly", async () => {
+    const bookId = await insertDigestBook();
+    const caller = booksRouter.createCaller({});
+
+    await expect(caller.extractChapters({ id: bookId })).rejects.toThrow(/synthetic/i);
+    await expect(caller.proposeChapters({ id: bookId, method: "llm" })).rejects.toThrow(/synthetic/i);
+    await expect(
+      caller.applyChapterBoundaries({ id: bookId, boundaries: [{ fileIndex: null, blockIndex: 0 }] })
+    ).rejects.toThrow(/synthetic/i);
+
+    const db = getDb();
+    expect(await db.select().from(chapters).where(eq(chapters.bookId, bookId))).toHaveLength(1);
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+
+  it("structure returns no files for a synthetic book", async () => {
+    const bookId = await insertDigestBook();
+    const caller = booksRouter.createCaller({});
+
+    const { files } = await caller.structure({ id: bookId });
+    expect(files).toEqual([]);
+  });
+});
+
+describe("booksRouter.createDigest", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+    mockQuickAddJob.mockReset();
+  });
+
+  async function insertSourceWithRawText(title: string, rawText: string | null) {
+    const db = getDb();
+    const id = crypto.randomUUID();
+    await db.insert(books).values({ id, title, filename: "s.pdf", pdfPath: "/tmp/s.pdf" });
+    await db.insert(bookFiles).values({ id: crypto.randomUUID(), bookId: id, index: 0, filename: "s.pdf", pdfPath: "/tmp/s.pdf", status: "raw", rawText });
+    return id;
+  }
+
+  it("creates a digest book with origin and queues the digest job", async () => {
+    const a = await insertSourceWithRawText("A", "text a");
+    const b = await insertSourceWithRawText("B", "text b");
+
+    const caller = booksRouter.createCaller({});
+    const digestBook = await caller.createDigest({
+      title: "Weekly digest",
+      sourceBookIds: [a, b],
+      prompt: "Narrate",
+      model: "flash",
+    });
+
+    expect(digestBook.kind).toBe("digest");
+    expect(digestBook.pdfPath).toBeNull();
+    expect(digestBook.skipSynthesis).toBe(true);
+    expect(digestBook.origin).toEqual({ type: "digest", sourceBookIds: [a, b], prompt: "Narrate", model: "flash" });
+    expect(digestBook.digestJob?.status).toBe("running");
+    expect(mockQuickAddJob).toHaveBeenCalledWith(
+      expect.any(Object),
+      "digest",
+      { bookId: digestBook.id },
+      { maxAttempts: 1 }
+    );
+  });
+
+  it("rejects when a source has no text", async () => {
+    const a = await insertSourceWithRawText("Good", "text");
+    const b = await insertSourceWithRawText("Scanned book", null);
+
+    const caller = booksRouter.createCaller({});
+    await expect(
+      caller.createDigest({ title: "D", sourceBookIds: [a, b], prompt: "Narrate", model: "flash" })
+    ).rejects.toThrow(/Scanned book/);
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+
+  it("resumeDigest re-queues a failed digest and rejects fresh-running ones", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const [digestBook] = await db
+      .insert(books)
+      .values({
+        title: "D",
+        kind: "digest",
+        origin: { type: "digest", sourceBookIds: [crypto.randomUUID(), crypto.randomUUID()], prompt: "p", model: "flash" },
+        digestJob: { status: "failed", error: "boom", createdAt: now, updatedAt: now },
+      })
+      .returning();
+
+    const caller = booksRouter.createCaller({});
+    const resumed = await caller.resumeDigest({ id: digestBook.id });
+    expect(resumed.digestJob?.status).toBe("running");
+    expect(mockQuickAddJob).toHaveBeenCalledTimes(1);
+
+    await expect(caller.resumeDigest({ id: digestBook.id })).rejects.toThrow(/already running/);
+  });
+});

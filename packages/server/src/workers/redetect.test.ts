@@ -128,3 +128,20 @@ describe("redetect worker", () => {
     expect(book.error).toContain("No chapters detected");
   });
 });
+
+describe("redetect on synthetic books", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+  });
+
+  it("refuses before deleting anything", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({ id: bookId, title: "Digest", kind: "digest" });
+    await db.insert(chapters).values({ bookId, index: 0, title: "Summary", rawText: "text", status: "suspended" });
+
+    await expect(redetect({ bookId })).rejects.toThrow(/synthetic/i);
+
+    expect(await db.select().from(chapters).where(eq(chapters.bookId, bookId))).toHaveLength(1);
+  });
+});

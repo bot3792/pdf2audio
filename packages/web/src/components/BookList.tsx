@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { formatBytes, formatRelativeTime } from "../lib/format.ts";
 import { loadBookSort, saveBookSort, sortBooks, type BookSortDir, type BookSortKey } from "../lib/book-sort.ts";
+import { DigestModal } from "./DigestModal.tsx";
 
 type SortKey = BookSortKey;
 type SortDir = BookSortDir;
@@ -53,6 +54,7 @@ export function BookList() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+  const [showDigest, setShowDigest] = useState(false);
   const deleteManyMutation = trpc.books.deleteMany.useMutation({
     onSuccess: () => {
       setSelectedIds(new Set());
@@ -116,6 +118,15 @@ export function BookList() {
     <div className="space-y-3">
       <div className="flex items-center gap-3">
         <button
+          onClick={() => setShowDigest(true)}
+          disabled={selectedCount < 2}
+          title={selectedCount < 2 ? "Select at least 2 books with the checkboxes" : "Create a digest book — one AI summary chapter per selected book, ready to listen to"}
+          className="px-3 py-1.5 bg-sky-600 text-white rounded-md text-xs font-medium hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          data-testid="create-digest"
+        >
+          Create digest ({selectedCount})
+        </button>
+        <button
           onClick={deleteSelected}
           disabled={selectedCount === 0 || deleteManyMutation.isPending}
           title={selectedCount === 0 ? "Select books to delete with the checkboxes" : "Delete the selected books with all their chapters, audio, and files"}
@@ -163,7 +174,7 @@ export function BookList() {
               book.failures.cleanup > 0 ? `${book.failures.cleanup} cleanup(s)` : null,
             ].filter(Boolean).join(", ");
             const idle =
-              !book.activity.extracting && !book.activity.assembling && !book.activity.aiNote &&
+              !book.activity.extracting && !book.activity.assembling && !book.activity.aiNote && !book.activity.digest &&
               book.activity.synthesizing === 0 && book.activity.translating === 0 && book.activity.cleaning === 0;
             const outputParts = [
               book.outputs.assemblies > 0 ? `${book.outputs.assemblies} MP3` : null,
@@ -186,7 +197,12 @@ export function BookList() {
                   <Link to={`/books/${book.id}`} className="text-blue-600 hover:text-blue-800 font-medium">
                     {book.title}
                   </Link>
-                  {book.skipSynthesis && (
+                  {book.kind === "digest" && (
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 align-middle" title="Digest — AI summary chapters from other books">
+                      digest
+                    </span>
+                  )}
+                  {book.skipSynthesis && book.kind === "pdf" && (
                     <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-(--bg-subtle) text-(--text-muted) align-middle" title="Reader mode — extraction only, audio on demand">
                       reader
                     </span>
@@ -219,6 +235,9 @@ export function BookList() {
                     )}
                     {book.activity.aiNote && (
                       <ActivityPill label="AI note" color="bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300" />
+                    )}
+                    {book.activity.digest && (
+                      <ActivityPill label="digesting" color="bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300" />
                     )}
                     {totalFailures > 0 && (
                       <span
@@ -266,6 +285,13 @@ export function BookList() {
         </tbody>
       </table>
       </div>
+
+      {showDigest && (
+        <DigestModal
+          sourceBooks={selectedBooks.map((b) => ({ id: b.id, title: b.title }))}
+          onClose={() => setShowDigest(false)}
+        />
+      )}
     </div>
   );
 }

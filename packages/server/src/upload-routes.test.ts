@@ -207,3 +207,27 @@ describe("POST /upload/:bookId (append)", () => {
     expect(jobNames).toEqual(["rawExtract", "extract"]);
   });
 });
+
+describe("POST /upload/:bookId on synthetic books", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+    mockQuickAddJob.mockReset();
+  });
+
+  it("rejects with 400 and creates no phantom file rows", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({ id: bookId, title: "Digest", kind: "digest" });
+
+    const app = await createApp();
+    const { payload, headers } = multipartBody([
+      { name: "file", value: "%PDF-fake", filename: "extra.pdf" },
+    ]);
+
+    const res = await app.inject({ method: "POST", url: `/upload/${bookId}`, payload, headers });
+
+    expect(res.statusCode).toBe(400);
+    expect(await db.select().from(bookFiles).where(eq(bookFiles.bookId, bookId))).toHaveLength(0);
+    expect(mockQuickAddJob).not.toHaveBeenCalled();
+  });
+});

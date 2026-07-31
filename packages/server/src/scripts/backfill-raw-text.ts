@@ -3,6 +3,7 @@ import { books, bookFiles } from "../schema.ts";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
+import path from "node:path";
 
 const allBooks = await db.select({ id: books.id, title: books.title, filename: books.filename, pdfPath: books.pdfPath }).from(books);
 
@@ -19,7 +20,7 @@ for (const book of allBooks) {
     await db.insert(bookFiles).values({
       bookId: book.id,
       index: 0,
-      filename: book.filename,
+      filename: book.filename ?? path.basename(book.pdfPath),
       pdfPath: book.pdfPath,
       status: "done",
     });

@@ -51,11 +51,15 @@ PDF Upload → rawExtract (seconds, always) [→ bookNote (optional AI answer �
 
 Every upload extracts raw text with `pdftotext` in seconds (stored per file in `book_files.raw_text`); the slow Marker extraction is **opt-in** ("Extract chapters now" checkbox, default off) and can be run later via `books.extractChapters` from the book page. Raw-only files carry `book_files.status = "raw"` and are skipped by the extract worker until flipped to `pending`. Whole-book Ask AI (`books.aiPromptRaw`) and the upload-time AI prompt run against the concatenated raw text; every AI answer is auto-saved to the `notes` table.
 
+**Synthetic books** (`books.kind !== "pdf"`, currently `"digest"`): books with no PDF (`pdfPath`/`filename` null, zero `book_files` rows) whose chapters are AI-generated text. A **digest** is created from the home page (select books → Create digest): one `digest` job sequentially summarizes each source book (chapter text preferred, raw text fallback via `lib/book-source-text.ts`), saves each summary as a note on the source book, and inserts one suspended chapter per source with a `chapters.source` back-link (`{kind:"book",bookId,title}` — snapshot; future feed chapters use `{kind:"url"}`). Provenance in `books.origin`, run state in `books.digest_job` (progress "3/10", idempotent resume — already-summarized sources are skipped). Everything downstream (normalize/synthesize/translate/cleanup/assemble/export) works on synthetic chapters unchanged; every PDF-assuming path (extract, redetect, retry, structure, propose, applyChapterBoundaries, append-upload) is guarded on `kind !== "pdf"` — keep it that way when adding features.
+
 ### Job Flow (Graphile Worker)
 
 0. **rawExtract** (`workers/raw-extract.ts`, always queued at upload) — `pdftotext` per file with `rawText IS NULL` (idempotent for appends), stores `rawText`/`rawWords`. Soft-fails (log only) on scanned/encrypted PDFs. Chains a **bookNote** job when the upload requested an AI prompt; marks `books.noteJob` failed if no file yielded text.
 
 0b. **bookNote** (`workers/book-note.ts`, translate pool) — Runs the upload-time AI prompt against the whole book's raw text via DeepSeek, saves the answer as a note, tracks state in `books.note_job` jsonb (queued/running/done/failed, 15-min stale guard).
+
+0c. **digest** (`workers/digest.ts`, translate pool) — Builds a digest book's chapters: sequentially summarizes each source book from `origin.sourceBookIds`, one suspended chapter + source-book note per source; state in `books.digest_job`; re-queue resumes (sources with an existing chapter are skipped).
 
 1. **extract** (`workers/extract.ts`) — Runs `marker_single` (Python subprocess) on the PDF, outputs structured JSON into a subdirectory. Flattens ALL blocks (not just kept types) with page numbers, polygon coordinates, and an `included` flag. **Chapter detection**: if enabled, first attempts DeepSeek TOC-guided detection (`lib/toc-detect.ts` — finds the printed TOC, selects chapter-start headings by block index); falls back to the numbered-chapter tier (Chapter N / Глава N sequences, ToC listing pages excluded), then the heading-level heuristic (h1 → h2 → fallback word-count split). Stores per-chapter `sourceBlocks` (jsonb) with full block metadata, plus `pageStart`/`pageEnd`. Creates chapter rows in DB. Queues normalize jobs.
 
@@ -102,7 +106,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 ### Tables
 
-**books** — id (uuid), title, filename, pdfPath, outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, createdAt, updatedAt
+**books** — id (uuid), title, kind (`pdf` | `digest`, default pdf), filename + pdfPath (nullable — null for synthetic books), outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, noteJob (jsonb), origin (jsonb `BookOrigin` — digest provenance), digestJob (jsonb `DigestJob`), createdAt, updatedAt
 
 **chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), pageStart (integer, 1-based), pageEnd (integer, 1-based), sourceBlocks (jsonb — array of block metadata with type, text, page, included, level?, polygon?), createdAt
 

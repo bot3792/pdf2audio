@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Link } from "react-router";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { ChapterModal } from "./ChapterModal.tsx";
 import { ChapterAiModal } from "./ChapterAiModal.tsx";
@@ -21,6 +22,7 @@ export type ChapterRow = {
   pageStart: number | null;
   pageEnd: number | null;
   sourceFileIndex: number | null;
+  source?: { kind: "book"; bookId: string; title: string } | { kind: "url"; url: string; title?: string } | null;
   synthesizedWith: { voice?: string; speed?: number | null } | null;
   // Translation view: rows without a finished translation can't be synthesized (but can be selected for bulk translation)
   synthesizable?: boolean;
@@ -443,6 +445,26 @@ export function ChapterTable({
                         <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-600">
                           edited
                         </span>
+                      ) : null}
+                      {chapter.source?.kind === "book" ? (
+                        <Link
+                          to={`/books/${chapter.source.bookId}`}
+                          className="text-xs text-sky-600 hover:text-sky-800"
+                          title={`Open the source book: "${chapter.source.title}"`}
+                          data-testid="chapter-source-link"
+                        >
+                          source ↗
+                        </Link>
+                      ) : chapter.source?.kind === "url" ? (
+                        <a
+                          href={chapter.source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-sky-600 hover:text-sky-800"
+                          title={chapter.source.title ?? chapter.source.url}
+                        >
+                          source ↗
+                        </a>
                       ) : null}
                       {chapter.pageStart ? (
                         sourceFile ? (

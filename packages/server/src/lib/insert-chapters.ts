@@ -1,10 +1,10 @@
 import { db } from "../db.ts";
-import { chapters } from "../schema.ts";
+import { chapters, type ChapterSource } from "../schema.ts";
 import { appendLog } from "./log.ts";
 
 export async function insertSuspendedChapters(
   bookId: string,
-  detected: { title: string; text: string; pageStart: number | null; pageEnd: number | null; sourceBlocks: unknown }[],
+  detected: { title: string; text: string; pageStart: number | null; pageEnd: number | null; sourceBlocks: unknown; source?: ChapterSource }[],
   chapterOffset: number,
   sourceFileIndex: number | null,
 ) {
@@ -25,6 +25,7 @@ export async function insertSuspendedChapters(
         pageEnd: ch.pageEnd,
         sourceBlocks: ch.sourceBlocks,
         sourceFileIndex,
+        ...(ch.source ? { source: ch.source } : {}),
         status: "suspended",
       });
   }

@@ -11,6 +11,7 @@ import { translateTitles } from "./translate-titles.ts";
 import { cleanup } from "./cleanup.ts";
 import { rawExtract } from "./raw-extract.ts";
 import { bookNote } from "./book-note.ts";
+import { digest } from "./digest.ts";
 import { synthesizeTranslation } from "./synthesize-translation.ts";
 import { sweepStrandedWork } from "./sweep.ts";
 import { env } from "../env.ts";
@@ -95,6 +96,7 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
       translateTitles: wrapTask("translateTitles", (payload) => translateTitles(payload as any)),
       cleanup: wrapTask("cleanup", (payload) => cleanup(payload as any)),
       bookNote: wrapTask("bookNote", (payload) => bookNote(payload as any)),
+      digest: wrapTask("digest", (payload) => digest(payload as any)),
     },
   },
 ];

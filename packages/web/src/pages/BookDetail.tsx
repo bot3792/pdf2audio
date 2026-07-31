@@ -44,7 +44,8 @@ export function BookDetail() {
         const bookActive = data.status === "extracting" || data.status === "assembling";
         const proposalRunning = data.chapterProposal?.status === "running";
         const noteJobActive = data.noteJob?.status === "queued" || data.noteJob?.status === "running";
-        return (hasActiveFiles || hasActiveChapters || hasActiveCleanups || bookActive || proposalRunning || noteJobActive) ? 2000 : false;
+        const digestRunning = data.digestJob?.status === "running";
+        return (hasActiveFiles || hasActiveChapters || hasActiveCleanups || bookActive || proposalRunning || noteJobActive || digestRunning) ? 2000 : false;
       },
     }
   );
@@ -94,6 +95,7 @@ export function BookDetail() {
   const retryMutation = trpc.books.retry.useMutation({ onSuccess: invalidate });
   const redetectMutation = trpc.books.redetectChapters.useMutation({ onSuccess: invalidate });
   const extractChaptersMutation = trpc.books.extractChapters.useMutation({ onSuccess: invalidate });
+  const resumeDigestMutation = trpc.books.resumeDigest.useMutation({ onSuccess: invalidate });
   const processSelectedMutation = trpc.books.processSelected.useMutation({ onSuccess: invalidate });
   const deleteMutation = trpc.books.delete.useMutation({
     onSuccess: () => window.location.assign("/"),
@@ -239,6 +241,10 @@ export function BookDetail() {
   const hasActiveFiles = book.files?.some((f) => f.status === "extracting" || f.status === "pending") ?? false;
   const hasRawText = book.files?.some((f) => f.hasRawText) ?? false;
   const isAssembling = book.status === "assembling";
+  const isSynthetic = book.kind !== "pdf";
+  const digestRunning = book.digestJob?.status === "running";
+  const digestFailed = book.digestJob?.status === "failed";
+  const digestTotal = book.origin?.type === "digest" ? book.origin.sourceBookIds.length : 0;
 
   // Translation view: replace every chapter row with its <activeLanguage> counterpart — no fallback to the original
   const translationByChapter = new Map(translationRows.map((t) => [t.chapterId, t]));
@@ -464,8 +470,9 @@ export function BookDetail() {
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <button
               onClick={() => setShowStructure(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-(--border-input) bg-(--bg-card) text-sm font-medium text-(--text-primary) shadow-sm hover:bg-(--bg-subtle)"
-              title="Review every detected heading and edit chapter boundaries by hand"
+              disabled={book.kind !== "pdf"}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-(--border-input) bg-(--bg-card) text-sm font-medium text-(--text-primary) shadow-sm hover:bg-(--bg-subtle) disabled:opacity-50 disabled:cursor-not-allowed"
+              title={book.kind !== "pdf" ? "Synthetic book — no PDF structure to edit" : "Review every detected heading and edit chapter boundaries by hand"}
               data-testid="open-structure"
             >
               <svg className="w-4 h-4 text-blue-600" viewBox="0 0 16 16" fill="currentColor">
@@ -617,7 +624,37 @@ export function BookDetail() {
           )}
 
           {book.chapters.length === 0 ? (
-            book.status === "extracting" || hasActiveFiles ? (
+            isSynthetic ? (
+              <div className="rounded-lg border border-(--border) bg-(--bg-subtle) p-4 space-y-3" data-testid="digest-block">
+                {digestRunning ? (
+                  <div className="flex items-center gap-2 text-sm text-(--text-secondary)">
+                    <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                    Generating digest — {book.digestJob?.progress ?? "starting"}
+                    {digestTotal > 0 ? ` of ${digestTotal} books` : ""}... chapters appear as summaries finish.
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-(--text-secondary)">
+                      {digestFailed
+                        ? `Digest failed: ${book.digestJob?.error ?? "unknown error"}`
+                        : "No chapters were generated."}
+                    </p>
+                    <button
+                      onClick={() => resumeDigestMutation.mutate({ id: book.id })}
+                      disabled={resumeDigestMutation.isPending}
+                      title="Re-run the digest — books that already have a summary chapter are skipped"
+                      className="px-4 py-2 bg-sky-600 text-white rounded-md text-sm font-medium hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      data-testid="resume-digest"
+                    >
+                      {resumeDigestMutation.isPending ? "Queuing..." : "Resume digest"}
+                    </button>
+                    {resumeDigestMutation.error && (
+                      <p className="text-red-600 text-sm">{resumeDigestMutation.error.message}</p>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : book.status === "extracting" || hasActiveFiles ? (
               <p className="text-(--text-muted) text-sm">Extracting chapters from PDF...</p>
             ) : (
               <div className="rounded-lg border border-(--border) bg-(--bg-subtle) p-4 space-y-3" data-testid="raw-book-block">
@@ -656,6 +693,26 @@ export function BookDetail() {
               </div>
             )
           ) : (
+            <>
+            {isSynthetic && digestRunning && (
+              <div className="flex items-center gap-2 text-sm text-(--text-muted) mb-2" data-testid="digest-progress">
+                <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                Generating digest — {book.digestJob?.progress ?? "starting"}{digestTotal > 0 ? ` of ${digestTotal} books` : ""}...
+              </div>
+            )}
+            {isSynthetic && digestFailed && (
+              <div className="flex items-center gap-3 text-sm mb-2" data-testid="digest-partial-failed">
+                <span className="text-red-600">Digest incomplete: {book.digestJob?.error ?? "some sources failed"}</span>
+                <button
+                  onClick={() => resumeDigestMutation.mutate({ id: book.id })}
+                  disabled={resumeDigestMutation.isPending}
+                  title="Re-run the digest — books that already have a summary chapter are skipped"
+                  className="text-sky-600 hover:underline font-medium disabled:opacity-50"
+                >
+                  Resume
+                </button>
+              </div>
+            )}
             <ChapterTable
               bookId={book.id}
               chapters={viewChapters}
@@ -674,6 +731,7 @@ export function BookDetail() {
               languages={languages.map((l) => l.language)}
               onSwitchLanguage={setActiveLanguage}
             />
+            </>
           )}
 
           {/* Create outputs from the selected chapters */}

@@ -39,6 +39,13 @@ export const AI_PRESETS: AiPreset[] = [
   },
 ];
 
+// Digest chapters are read aloud — flowing prose, never lists
+export const DIGEST_LISTENING_PROMPT =
+  "Narrate a spoken summary of this book, about 5 minutes of listening (roughly 600-1200 words). " +
+  "Write flowing prose paragraphs in an engaging, radio-essay style — no bullet points, no headings, no markdown. " +
+  "Cover the book's core ideas, how it is structured, and its most striking details or arguments. " +
+  "Write in the same language as the book's text. Start directly with the content — no preamble about being a summary.";
+
 export const AI_MODELS = [
   { key: "flash", label: "V4 Flash", hint: "Fast and cheap — good default", contextTokens: 1_000_000 },
   { key: "pro", label: "V4 Pro", hint: "Flagship reasoning model — slower, for harder questions", contextTokens: 1_000_000 },

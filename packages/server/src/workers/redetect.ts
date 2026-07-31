@@ -18,6 +18,8 @@ export async function redetect(payload: RedetectPayload) {
 
   const [book] = await db.select().from(books).where(eq(books.id, bookId));
   if (!book) throw new Error(`Book ${bookId} not found`);
+  // Must be checked before any deletion — re-detection reads marker output that synthetic books never have
+  if (book.kind !== "pdf") throw new Error("Cannot re-detect chapters on a synthetic book");
 
   await db.update(books).set({ status: "extracting", error: null, updatedAt: new Date() }).where(eq(books.id, bookId));
 
@@ -64,6 +66,7 @@ export async function redetect(payload: RedetectPayload) {
 
     if (files.length === 0) {
       // Legacy single-file book
+      if (!book.pdfPath) throw new Error("Book has no PDF files");
       const { chapters: detected, method } = await redetectChaptersFromExistingMarkerOutput(bookTmpDir(bookId), book.pdfPath, log, {
         llmChapterDetection: book.llmChapterDetection,
       });

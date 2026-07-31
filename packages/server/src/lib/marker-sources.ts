@@ -19,6 +19,8 @@ export async function listMarkerSources(book: Book): Promise<MarkerSource[]> {
     .orderBy(asc(bookFiles.index));
 
   if (files.length === 0) {
+    // Zero files means legacy single-PDF book — unless the book is synthetic, which has no PDF at all
+    if (book.kind !== "pdf" || !book.pdfPath || !book.filename) return [];
     return [{ fileIndex: null, filename: book.filename, pdfPath: book.pdfPath, outDir: bookTmpDir(book.id) }];
   }
 

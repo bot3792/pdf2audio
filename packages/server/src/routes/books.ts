@@ -34,6 +34,11 @@ function noteJobRunning(noteJob: Book["noteJob"]): boolean {
   return Date.now() - new Date(noteJob.updatedAt).getTime() < NOTE_JOB_STALE_MS;
 }
 
+function digestJobRunning(digestJob: Book["digestJob"]): boolean {
+  if (digestJob?.status !== "running") return false;
+  return Date.now() - new Date(digestJob.updatedAt).getTime() < NOTE_JOB_STALE_MS;
+}
+
 function computeBookStatus(
   book: Book,
   chapterList: Pick<Chapter, "status">[],
@@ -165,6 +170,7 @@ export const booksRouter = router({
           cleaning: countOf(cleanupRows, "pending", "cleaning"),
           assembling: book.status === "assembling",
           aiNote: noteJobRunning(book.noteJob),
+          digest: digestJobRunning(book.digestJob),
         };
         const failures = {
           files: fileRows.reduce((sum, r) => sum + r.hard_failed, 0),
@@ -181,6 +187,7 @@ export const booksRouter = router({
         return {
           id: book.id,
           title: book.title,
+          kind: book.kind,
           createdAt: book.createdAt,
           skipSynthesis: book.skipSynthesis,
           error: book.status === "failed" ? book.error : null,
@@ -351,6 +358,10 @@ export const booksRouter = router({
       })
     )
     .mutation(async ({ input }) => {
+      const [existing] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!existing) throw new Error("Book not found");
+      if (existing.kind !== "pdf") throw new Error("Synthetic books have no PDF to re-extract");
+
       const updates: Record<string, unknown> = {
         status: "pending",
         error: null,
@@ -377,6 +388,82 @@ export const booksRouter = router({
 
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       return book;
+    }),
+
+  createDigest: publicProcedure
+    .input(z.object({
+      title: z.string().trim().min(1),
+      sourceBookIds: z.array(z.string().uuid()).min(2).max(50),
+      prompt: z.string().min(1).max(4000),
+      model: z.enum(["flash", "pro"]).default("flash"),
+    }))
+    .mutation(async ({ input }) => {
+      const sources = await db
+        .select({ id: books.id, title: books.title })
+        .from(books)
+        .where(inArray(books.id, input.sourceBookIds));
+      const foundIds = new Set(sources.map((s) => s.id));
+      const missing = input.sourceBookIds.filter((id) => !foundIds.has(id));
+      if (missing.length > 0) throw new Error(`${missing.length} selected book(s) no longer exist`);
+
+      const unusable: string[] = [];
+      for (const id of input.sourceBookIds) {
+        const [chapter] = await db.select({ id: chapters.id }).from(chapters).where(eq(chapters.bookId, id)).limit(1);
+        if (chapter) continue;
+        const [file] = await db
+          .select({ id: bookFiles.id })
+          .from(bookFiles)
+          .where(and(eq(bookFiles.bookId, id), sql`${bookFiles.rawText} is not null`))
+          .limit(1);
+        if (!file) unusable.push(sources.find((s) => s.id === id)!.title);
+      }
+      if (unusable.length > 0) {
+        throw new Error(`No text available for: ${unusable.map((t) => `"${t}"`).join(", ")} — extract them (with Force OCR if scanned) first`);
+      }
+
+      const now = new Date().toISOString();
+      const [digestBook] = await db
+        .insert(books)
+        .values({
+          title: input.title,
+          kind: "digest",
+          skipSynthesis: true,
+          origin: { type: "digest", sourceBookIds: input.sourceBookIds, prompt: input.prompt, model: input.model },
+          digestJob: { status: "running", createdAt: now, updatedAt: now },
+        })
+        .returning();
+
+      await appendLog(digestBook.id, `Creating digest from ${input.sourceBookIds.length} books`);
+      await quickAddJob({ connectionString }, "digest", { bookId: digestBook.id }, { maxAttempts: 1 });
+
+      return digestBook;
+    }),
+
+  resumeDigest: publicProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const [book] = await db.select().from(books).where(eq(books.id, input.id));
+      if (!book) throw new Error("Book not found");
+      if (book.origin?.type !== "digest") throw new Error("Not a digest book");
+
+      const runningSince = book.digestJob?.status === "running" ? new Date(book.digestJob.updatedAt).getTime() : null;
+      if (runningSince && Date.now() - runningSince < 15 * 60_000) {
+        throw new Error("The digest is already running");
+      }
+
+      const now = new Date().toISOString();
+      await db
+        .update(books)
+        .set({
+          digestJob: { status: "running", createdAt: book.digestJob?.createdAt ?? now, updatedAt: now },
+          updatedAt: new Date(),
+        })
+        .where(eq(books.id, input.id));
+      await appendLog(input.id, "Resuming digest — already-summarized books are skipped");
+      await quickAddJob({ connectionString }, "digest", { bookId: input.id }, { maxAttempts: 1 });
+
+      const [updated] = await db.select().from(books).where(eq(books.id, input.id));
+      return updated;
     }),
 
   aiPromptRaw: publicProcedure
@@ -446,6 +533,7 @@ export const booksRouter = router({
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       if (!book) throw new Error("Book not found");
+      if (book.kind !== "pdf") throw new Error("Synthetic books have no PDF to extract");
       if (book.status === "extracting" || book.status === "assembling") {
         throw new Error("Cannot extract chapters while book is processing");
       }
@@ -483,6 +571,7 @@ export const booksRouter = router({
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       if (!book) throw new Error("Book not found");
+      if (book.kind !== "pdf") throw new Error("Cannot re-detect chapters on a synthetic book");
       if (book.status === "extracting" || book.status === "assembling") {
         throw new Error("Cannot re-detect chapters while book is processing");
       }
@@ -569,6 +658,7 @@ export const booksRouter = router({
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       if (!book) throw new Error("Book not found");
+      if (book.kind !== "pdf") throw new Error("Synthetic books have no PDF structure");
 
       // Stale-running escape hatch in case a propose job died without writing back
       const runningSince = book.chapterProposal?.status === "running" ? new Date(book.chapterProposal.createdAt).getTime() : null;
@@ -606,6 +696,7 @@ export const booksRouter = router({
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       if (!book) throw new Error("Book not found");
+      if (book.kind !== "pdf") throw new Error("Synthetic books have no PDF structure");
       if (book.status === "extracting" || book.status === "assembling") {
         throw new Error("Cannot apply chapter boundaries while book is processing");
       }

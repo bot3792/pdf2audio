@@ -22,6 +22,7 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
   try {
     const [book] = await db.select().from(books).where(eq(books.id, bookId));
     if (!book) throw new Error(`Book ${bookId} not found`);
+    if (book.kind !== "pdf") throw new Error("Synthetic books have no PDF to extract");
 
     const files = await db
       .select()
@@ -31,9 +32,10 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
 
     if (files.length === 0) {
       // Legacy book without book_files rows — use book.pdfPath directly
+      if (!book.pdfPath) throw new Error("Book has no PDF files");
       const abort = registerExtractAbort(bookId);
       try {
-        await extractSinglePdf(book, bookTmpDir(bookId), log, addJob, 0, null, book.skipSynthesis, abort.signal);
+        await extractSinglePdf({ ...book, pdfPath: book.pdfPath }, bookTmpDir(bookId), log, addJob, 0, null, book.skipSynthesis, abort.signal);
       } finally {
         clearExtractAbort(bookId);
       }
@@ -71,7 +73,7 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
 }
 
 async function extractSinglePdf(
-  book: typeof books.$inferSelect,
+  book: typeof books.$inferSelect & { pdfPath: string },
   tmpOut: string,
   log: (msg: string) => Promise<void>,
   addJob: WorkerUtils["addJob"],

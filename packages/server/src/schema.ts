@@ -38,13 +38,30 @@ export type NoteJob = {
 
 export type NoteScope =
   | { kind: "chapters"; chapters: { id: string; title: string }[] }
-  | { kind: "book-raw"; files: number };
+  | { kind: "book-raw"; files: number; digestBookId?: string };
+
+export type BookOrigin = { type: "digest"; sourceBookIds: string[]; prompt: string; model: "flash" | "pro" };
+
+export type DigestJob = {
+  status: "running" | "done" | "failed";
+  progress?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// Snapshot title so the link label survives source deletion
+export type ChapterSource =
+  | { kind: "book"; bookId: string; title: string }
+  | { kind: "url"; url: string; title?: string };
 
 export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
-  filename: text("filename").notNull(),
-  pdfPath: text("pdf_path").notNull(),
+  // "pdf" books have filename/pdfPath; synthetic kinds (digest, ...) have neither
+  kind: text("kind").$type<"pdf" | "digest">().notNull().default("pdf"),
+  filename: text("filename"),
+  pdfPath: text("pdf_path"),
   outputPath: text("output_path"),
   status: text("status", {
     enum: ["pending", "extracting", "synthesizing", "assembling", "done", "failed", "suspended"],
@@ -60,6 +77,8 @@ export const books = pgTable("books", {
   skipSynthesis: boolean("skip_synthesis").notNull().default(false),
   totalChapters: integer("total_chapters").notNull().default(0),
   noteJob: jsonb("note_job").$type<NoteJob>(),
+  origin: jsonb("origin").$type<BookOrigin>(),
+  digestJob: jsonb("digest_job").$type<DigestJob>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -83,6 +102,7 @@ export const chapters = pgTable("chapters", {
   pageEnd: integer("page_end"),
   sourceBlocks: jsonb("source_blocks"),
   sourceFileIndex: integer("source_file_index"),
+  source: jsonb("source").$type<ChapterSource>(),
   synthesizedWith: jsonb("synthesized_with").$type<{ voice?: string; speed?: number | null }>(),
   cleanup: jsonb("cleanup").$type<ChapterCleanup>(),
   error: text("error"),

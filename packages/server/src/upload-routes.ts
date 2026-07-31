@@ -126,6 +126,9 @@ export function registerUploadRoutes(fastify: FastifyInstance) {
     if (!book) {
       return reply.code(404).send({ error: "Book not found" });
     }
+    if (book.kind !== "pdf") {
+      return reply.code(400).send({ error: "Cannot add PDF files to a synthetic book" });
+    }
     const pdfDir = path.join(uploadsDir, bookId);
     await mkdir(pdfDir, { recursive: true });
 
@@ -139,7 +142,7 @@ export function registerUploadRoutes(fastify: FastifyInstance) {
       await db.insert(bookFiles).values({
         bookId,
         index: 0,
-        filename: book.filename,
+        filename: book.filename ?? path.basename(book.pdfPath),
         pdfPath: book.pdfPath,
         status: "done",
       });
