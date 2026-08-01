@@ -70,6 +70,32 @@ describe("foldersRouter CRUD", () => {
   });
 });
 
+describe("foldersRouter.move", () => {
+  it("reparents a folder and allows moving to root", async () => {
+    const { a, c } = await makeTree();
+    await caller.move({ id: c.id, parentId: a.id });
+    let path = await caller.path({ id: c.id });
+    expect(path.map((p) => p.name)).toEqual(["A", "C"]);
+
+    await caller.move({ id: c.id, parentId: null });
+    path = await caller.path({ id: c.id });
+    expect(path.map((p) => p.name)).toEqual(["C"]);
+  });
+
+  it("rejects moving a folder into itself or its own subtree", async () => {
+    const { a, c } = await makeTree();
+    await expect(caller.move({ id: a.id, parentId: a.id })).rejects.toThrow("into itself");
+    await expect(caller.move({ id: a.id, parentId: c.id })).rejects.toThrow("into itself");
+  });
+
+  it("rejects a missing target", async () => {
+    const { a } = await makeTree();
+    await expect(caller.move({ id: a.id, parentId: crypto.randomUUID() })).rejects.toThrow(
+      "Target folder not found",
+    );
+  });
+});
+
 describe("foldersRouter.deleteStats", () => {
   it("counts the subtree recursively", async () => {
     const db = getDb();

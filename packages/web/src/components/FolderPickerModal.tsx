@@ -6,10 +6,12 @@ type FolderNode = { id: string; name: string; depth: number };
 
 export function FolderPickerModal({
   bookIds,
+  folderIds,
   onClose,
   onMoved,
 }: {
   bookIds: string[];
+  folderIds: string[];
   onClose: () => void;
   onMoved: () => void;
 }) {
@@ -18,30 +20,37 @@ export function FolderPickerModal({
   const { data: allFolders = [] } = trpc.folders.list.useQuery();
   const [targetId, setTargetId] = useState<string | null>(null);
   const [newName, setNewName] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
+  // Moving a folder into itself or its own subtree is invalid — hide those targets
   const tree = useMemo(() => {
     const childrenOf = new Map<string | null, typeof allFolders>();
     for (const f of allFolders) {
       const key = f.parentId ?? null;
       childrenOf.set(key, [...(childrenOf.get(key) ?? []), f]);
     }
+    const excluded = new Set<string>();
+    const excludeWalk = (id: string) => {
+      excluded.add(id);
+      for (const child of childrenOf.get(id) ?? []) excludeWalk(child.id);
+    };
+    for (const id of folderIds) excludeWalk(id);
+
     const nodes: FolderNode[] = [];
     const walk = (parentId: string | null, depth: number) => {
       for (const f of childrenOf.get(parentId) ?? []) {
+        if (excluded.has(f.id)) continue;
         nodes.push({ id: f.id, name: f.name, depth });
         walk(f.id, depth + 1);
       }
     };
     walk(null, 0);
     return nodes;
-  }, [allFolders]);
+  }, [allFolders, folderIds]);
 
-  const moveMutation = trpc.books.moveToFolder.useMutation({
-    onSuccess: () => {
-      utils.books.list.invalidate();
-      onMoved();
-    },
-  });
+  const moveBooksMutation = trpc.books.moveToFolder.useMutation();
+  const moveFolderMutation = trpc.folders.move.useMutation();
   const createMutation = trpc.folders.create.useMutation({
     onSuccess: (folder) => {
       setNewName(null);
@@ -49,6 +58,33 @@ export function FolderPickerModal({
       utils.folders.list.invalidate();
     },
   });
+
+  const itemCount = bookIds.length + folderIds.length;
+  const itemLabel = [
+    bookIds.length > 0 ? `${bookIds.length} book${bookIds.length === 1 ? "" : "s"}` : null,
+    folderIds.length > 0 ? `${folderIds.length} folder${folderIds.length === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(" and ");
+
+  async function move() {
+    if (moving) return;
+    setMoving(true);
+    setMoveError(null);
+    try {
+      if (bookIds.length > 0) await moveBooksMutation.mutateAsync({ ids: bookIds, folderId: targetId });
+      for (const id of folderIds) {
+        await moveFolderMutation.mutateAsync({ id, parentId: targetId });
+      }
+      utils.books.list.invalidate();
+      utils.folders.list.invalidate();
+      onMoved();
+    } catch (err) {
+      setMoveError(err instanceof Error ? err.message : String(err));
+      utils.books.list.invalidate();
+      utils.folders.list.invalidate();
+    } finally {
+      setMoving(false);
+    }
+  }
 
   const row = (id: string | null, label: string, depth: number) => (
     <button
@@ -74,7 +110,7 @@ export function FolderPickerModal({
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-(--border) shrink-0">
           <span className="text-sm font-medium text-(--text-primary)">
-            Move {bookIds.length} book{bookIds.length === 1 ? "" : "s"} to…
+            Move {itemLabel} to…
           </span>
           <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-tertiary) p-1" title="Close">
             <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -113,17 +149,17 @@ export function FolderPickerModal({
               + New folder…
             </button>
           )}
-          {(moveMutation.error || createMutation.error) && (
-            <p className="text-sm text-red-600">{(moveMutation.error ?? createMutation.error)!.message}</p>
+          {(moveError || createMutation.error) && (
+            <p className="text-sm text-red-600">{moveError ?? createMutation.error!.message}</p>
           )}
           <div className="flex justify-end">
             <button
-              onClick={() => moveMutation.mutate({ ids: bookIds, folderId: targetId })}
-              disabled={moveMutation.isPending}
+              onClick={move}
+              disabled={moving || itemCount === 0}
               className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="folder-picker-move"
             >
-              {moveMutation.isPending ? "Moving..." : `Move ${bookIds.length} book${bookIds.length === 1 ? "" : "s"}`}
+              {moving ? "Moving..." : `Move ${itemLabel}`}
             </button>
           </div>
         </div>

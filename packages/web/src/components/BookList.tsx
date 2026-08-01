@@ -5,6 +5,7 @@ import { formatBytes, formatRelativeTime } from "../lib/format.ts";
 import { loadBookSort, saveBookSort, sortBooks, type BookSortDir, type BookSortKey, type FolderRow } from "../lib/book-sort.ts";
 import { DigestModal } from "./DigestModal.tsx";
 import { FolderPickerModal } from "./FolderPickerModal.tsx";
+import { setDragItems, getDragItems, hasDragItems, type DragItems } from "../lib/dnd.ts";
 
 type SortKey = BookSortKey;
 type SortDir = BookSortDir;
@@ -18,10 +19,23 @@ function ActivityPill({ label, color, pulse = true }: { label: string; color: st
   );
 }
 
-function FolderTableRow({ folder }: { folder: FolderRow }) {
+function FolderTableRow({
+  folder,
+  selected,
+  onToggleSelect,
+  onDragStartRow,
+  onDropItems,
+}: {
+  folder: FolderRow;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onDragStartRow: (e: React.DragEvent) => void;
+  onDropItems: (items: DragItems) => void;
+}) {
   const utils = trpc.useUtils();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(folder.name);
+  const [dragOver, setDragOver] = useState(false);
   const renameMutation = trpc.folders.rename.useMutation({
     onSuccess: () => utils.books.list.invalidate(),
   });
@@ -48,8 +62,35 @@ function FolderTableRow({ folder }: { folder: FolderRow }) {
   }
 
   return (
-    <tr className="hover:bg-(--bg-card-hover)" data-testid="folder-row">
-      <td className="px-3 py-3" />
+    <tr
+      className={`hover:bg-(--bg-card-hover) ${selected ? "bg-(--bg-selected)" : ""} ${dragOver ? "outline outline-2 -outline-offset-2 outline-blue-500" : ""}`}
+      data-testid="folder-row"
+      draggable
+      onDragStart={onDragStartRow}
+      onDragOver={(e) => {
+        if (!hasDragItems(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        setDragOver(false);
+        const items = getDragItems(e);
+        if (!items) return;
+        e.preventDefault();
+        onDropItems(items);
+      }}
+    >
+      <td className="px-3 py-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onClick={onToggleSelect}
+          readOnly
+          className="rounded"
+        />
+      </td>
       <td className="px-4 py-3 max-w-md">
         <div className="flex items-center gap-2 group">
           {renaming ? (
@@ -160,9 +201,11 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
   const folderRows = data?.folders ?? [];
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [showDigest, setShowDigest] = useState(false);
   const [showMove, setShowMove] = useState(false);
+  const [dropError, setDropError] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const deleteManyMutation = trpc.books.deleteMany.useMutation({
     onSuccess: () => {
@@ -170,6 +213,9 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
       utils.books.list.invalidate();
     },
   });
+  const deleteFolderMutation = trpc.folders.delete.useMutation();
+  const moveBooksMutation = trpc.books.moveToFolder.useMutation();
+  const moveFolderMutation = trpc.folders.move.useMutation();
   const createFolderMutation = trpc.folders.create.useMutation({
     onSuccess: () => {
       setNewFolderName(null);
@@ -194,10 +240,52 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
   const sorted = sortBooks(books ?? [], sortKey, sortDir);
   const isEmpty = sorted.length === 0 && folderRows.length === 0;
 
-  // Prune ids of books deleted elsewhere so counts never lie
+  // Prune ids of rows deleted/moved elsewhere so counts never lie
   const selectedBooks = sorted.filter((b) => selectedIds.has(b.id));
   const selectedCount = selectedBooks.length;
+  const selectedFolders = folderRows.filter((f) => selectedFolderIds.has(f.id));
+  const selectedFolderCount = selectedFolders.length;
+  const totalSelected = selectedCount + selectedFolderCount;
   const allSelected = selectedCount === sorted.length && sorted.length > 0;
+
+  const selectionLabel = [
+    selectedCount > 0 ? `${selectedCount} book${selectedCount === 1 ? "" : "s"}` : null,
+    selectedFolderCount > 0 ? `${selectedFolderCount} folder${selectedFolderCount === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(" and ");
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setSelectedFolderIds(new Set());
+  }
+
+  // Dragging a selected row drags the whole selection; an unselected row drags alone
+  function dragItemsFor(kind: "book" | "folder", id: string): DragItems {
+    const inSelection = kind === "book" ? selectedIds.has(id) : selectedFolderIds.has(id);
+    if (inSelection && totalSelected > 0) {
+      return { bookIds: selectedBooks.map((b) => b.id), folderIds: selectedFolders.map((f) => f.id) };
+    }
+    return kind === "book" ? { bookIds: [id], folderIds: [] } : { bookIds: [], folderIds: [id] };
+  }
+
+  async function dropItemsInto(targetFolderId: string, items: DragItems) {
+    const folderIds = items.folderIds.filter((id) => id !== targetFolderId);
+    if (items.bookIds.length === 0 && folderIds.length === 0) return;
+    setDropError(null);
+    try {
+      if (items.bookIds.length > 0) {
+        await moveBooksMutation.mutateAsync({ ids: items.bookIds, folderId: targetFolderId });
+      }
+      for (const id of folderIds) {
+        await moveFolderMutation.mutateAsync({ id, parentId: targetFolderId });
+      }
+      clearSelection();
+    } catch (err) {
+      setDropError(err instanceof Error ? err.message : String(err));
+    } finally {
+      utils.books.list.invalidate();
+      utils.folders.list.invalidate();
+    }
+  }
 
   function handleCheckboxClick(bookId: string, index: number, e: React.MouseEvent) {
     setSelectedIds((prev) => {
@@ -215,11 +303,22 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
     setLastClickedIndex(index);
   }
 
-  function deleteSelected() {
-    const titles = selectedBooks.slice(0, 5).map((b) => `"${b.title}"`).join(", ");
-    const suffix = selectedCount > 5 ? `, and ${selectedCount - 5} more` : "";
-    if (!confirm(`Delete ${selectedCount} book(s) with all their chapters, audio, and files?\n\n${titles}${suffix}`)) return;
-    deleteManyMutation.mutate({ ids: selectedBooks.map((b) => b.id) });
+  async function deleteSelected() {
+    const titles = [...selectedFolders.map((f) => `📁 "${f.name}"`), ...selectedBooks.map((b) => `"${b.title}"`)]
+      .slice(0, 5).join(", ");
+    const suffix = totalSelected > 5 ? `, and ${totalSelected - 5} more` : "";
+    const folderWarning = selectedFolderCount > 0 ? " Deleting a folder permanently removes ALL books and subfolders inside it." : "";
+    if (!confirm(`Delete ${selectionLabel} with all their chapters, audio, and files?${folderWarning}\n\n${titles}${suffix}`)) return;
+    for (const f of selectedFolders) {
+      await deleteFolderMutation.mutateAsync({ id: f.id }).catch(() => {});
+    }
+    if (selectedBooks.length > 0) {
+      deleteManyMutation.mutate({ ids: selectedBooks.map((b) => b.id) });
+    } else {
+      clearSelection();
+      utils.books.list.invalidate();
+    }
+    setSelectedFolderIds(new Set());
   }
 
   const th = (label: string, key: SortKey, align?: "left" | "right") => (
@@ -240,24 +339,24 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
         </button>
         <button
           onClick={() => setShowMove(true)}
-          disabled={selectedCount === 0}
-          title={selectedCount === 0 ? "Select books to move with the checkboxes" : "Move the selected books into a folder"}
+          disabled={totalSelected === 0}
+          title={totalSelected === 0 ? "Select books or folders to move with the checkboxes" : "Move the selection into a folder — or drag rows onto a folder"}
           className="px-3 py-1.5 rounded-md text-xs font-medium border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) disabled:opacity-50 disabled:cursor-not-allowed"
           data-testid="move-to-folder"
         >
-          Move to folder ({selectedCount})
+          Move to folder ({totalSelected})
         </button>
         <button
           onClick={deleteSelected}
-          disabled={selectedCount === 0 || deleteManyMutation.isPending}
-          title={selectedCount === 0 ? "Select books to delete with the checkboxes" : "Delete the selected books with all their chapters, audio, and files"}
+          disabled={totalSelected === 0 || deleteManyMutation.isPending || deleteFolderMutation.isPending}
+          title={totalSelected === 0 ? "Select books or folders to delete with the checkboxes" : "Delete the selection with all its chapters, audio, and files"}
           className="px-3 py-1.5 bg-red-600 text-white rounded-md text-xs font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
           data-testid="delete-selected-books"
         >
-          {deleteManyMutation.isPending ? "Deleting..." : `Delete selected (${selectedCount})`}
+          {deleteManyMutation.isPending || deleteFolderMutation.isPending ? "Deleting..." : `Delete selected (${totalSelected})`}
         </button>
-        {deleteManyMutation.error && (
-          <span className="text-sm text-red-600">{deleteManyMutation.error.message}</span>
+        {(deleteManyMutation.error || dropError) && (
+          <span className="text-sm text-red-600">{deleteManyMutation.error?.message ?? dropError}</span>
         )}
         <div className="ml-auto flex items-center gap-2">
           {createFolderMutation.error && (
@@ -322,7 +421,21 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
         </thead>
         <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
           {folderRows.map((folder) => (
-            <FolderTableRow key={folder.id} folder={folder} />
+            <FolderTableRow
+              key={folder.id}
+              folder={folder}
+              selected={selectedFolderIds.has(folder.id)}
+              onToggleSelect={() =>
+                setSelectedFolderIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(folder.id)) next.delete(folder.id);
+                  else next.add(folder.id);
+                  return next;
+                })
+              }
+              onDragStartRow={(e) => setDragItems(e, dragItemsFor("folder", folder.id))}
+              onDropItems={(items) => dropItemsInto(folder.id, items)}
+            />
           ))}
           {sorted.map((book, bookIndex) => {
             const totalFailures =
@@ -343,7 +456,12 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
             ].filter(Boolean);
 
             return (
-              <tr key={book.id} className={`hover:bg-(--bg-card-hover) ${selectedIds.has(book.id) ? "bg-(--bg-selected)" : ""}`}>
+              <tr
+                key={book.id}
+                className={`hover:bg-(--bg-card-hover) ${selectedIds.has(book.id) ? "bg-(--bg-selected)" : ""}`}
+                draggable
+                onDragStart={(e) => setDragItems(e, dragItemsFor("book", book.id))}
+              >
                 <td className="px-3 py-3">
                   <input
                     type="checkbox"
@@ -457,10 +575,11 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
       {showMove && (
         <FolderPickerModal
           bookIds={selectedBooks.map((b) => b.id)}
+          folderIds={selectedFolders.map((f) => f.id)}
           onClose={() => setShowMove(false)}
           onMoved={() => {
             setShowMove(false);
-            setSelectedIds(new Set());
+            clearSelection();
           }}
         />
       )}

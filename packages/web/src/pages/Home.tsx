@@ -3,6 +3,7 @@ import { trpc } from "../trpc.ts";
 import { UploadZone } from "../components/UploadZone.tsx";
 import { BookList } from "../components/BookList.tsx";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
+import type { DragItems } from "../lib/dnd.ts";
 
 export function Home() {
   const utils = trpc.useUtils();
@@ -13,6 +14,22 @@ export function Home() {
   );
   const currentFolder = folderPath.at(-1);
 
+  const moveBooksMutation = trpc.books.moveToFolder.useMutation();
+  const moveFolderMutation = trpc.folders.move.useMutation();
+  async function dropOnCrumb(targetFolderId: string | null, items: DragItems) {
+    try {
+      if (items.bookIds.length > 0) {
+        await moveBooksMutation.mutateAsync({ ids: items.bookIds, folderId: targetFolderId });
+      }
+      for (const id of items.folderIds.filter((fid) => fid !== targetFolderId)) {
+        await moveFolderMutation.mutateAsync({ id, parentId: targetFolderId });
+      }
+    } finally {
+      utils.books.list.invalidate();
+      utils.folders.list.invalidate();
+    }
+  }
+
   return (
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-screen-2xl mx-auto px-6 py-8">
@@ -20,10 +37,13 @@ export function Home() {
         {folderId && (
           <div className="mb-4">
             <Breadcrumbs
+              onDropItems={dropOnCrumb}
               items={[
-                { to: "/", label: "Home" },
+                { to: "/", label: "Home", dropFolderId: null },
                 ...folderPath.map((f, i) =>
-                  i === folderPath.length - 1 ? { label: f.name } : { to: `/folders/${f.id}`, label: f.name },
+                  i === folderPath.length - 1
+                    ? { label: f.name }
+                    : { to: `/folders/${f.id}`, label: f.name, dropFolderId: f.id },
                 ),
               ]}
             />

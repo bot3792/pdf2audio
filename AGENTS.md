@@ -108,7 +108,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **books** — id (uuid), title, kind (`pdf` | `digest`, default pdf), filename + pdfPath (nullable — null for synthetic books), outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, noteJob (jsonb), origin (jsonb `BookOrigin` — digest provenance), digestJob (jsonb `DigestJob`), folderId (FK folders, `set null` on folder delete — book deletion must go through `lib/delete-book.ts` for disk cleanup, so never cascade), createdAt, updatedAt
 
-**folders** — id (uuid), name, parentId (self-FK, cascade — nested folders), createdAt, updatedAt. Books live in at most one folder (null = home/root). Home shows only root-level folder rows + unfiled books; `/folders/:id` shows a folder's contents. Recursive aggregates (bookCount/active/size) are computed in `books.list`; subtree/ancestor walks via CTE helpers in `lib/folders.ts`. `folders.delete` collects all descendant books first and deletes each via `deleteBook` before removing the folder row. Folder reparenting is not implemented yet (no cycle detection needed until it is).
+**folders** — id (uuid), name, parentId (self-FK, cascade — nested folders), createdAt, updatedAt. Books live in at most one folder (null = home/root). Home shows only root-level folder rows + unfiled books; `/folders/:id` shows a folder's contents. Recursive aggregates (bookCount/active/size) are computed in `books.list`; subtree/ancestor walks via CTE helpers in `lib/folders.ts`. `folders.delete` collects all descendant books first and deletes each via `deleteBook` before removing the folder row. `folders.move` reparents a folder (rejects moves into the folder's own subtree).
 
 **chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), pageStart (integer, 1-based), pageEnd (integer, 1-based), sourceBlocks (jsonb — array of block metadata with type, text, page, included, level?, polygon?), createdAt
 
@@ -220,7 +220,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, 
 
 - `books.list` — `{ folders, books }` scoped to a folder (`folderId` input, null/omitted = root): direct-child books with activity/failure/size stats + child-folder rows with recursive aggregates
 - `books.moveToFolder` — Move books into a folder (or null to unfile)
-- `folders.list` / `create` / `rename` / `path` / `deleteStats` / `delete` — Folder CRUD; `delete` is recursive (books via `deleteBook`, subfolders via FK cascade); `deleteStats` preflights the confirm dialog
+- `folders.list` / `create` / `rename` / `move` / `path` / `deleteStats` / `delete` — Folder CRUD; `move` reparents with subtree-cycle rejection; `delete` is recursive (books via `deleteBook`, subfolders via FK cascade); `deleteStats` preflights the confirm dialog
 - `books.get` — Single book with all chapters (status is computed from chapters)
 - `books.logs` — Fetch log entries for a book (with optional `after` cursor)
 - `books.clearLogs` — Delete all log entries for a book

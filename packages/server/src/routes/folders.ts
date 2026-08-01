@@ -41,6 +41,26 @@ export const foldersRouter = router({
       return { success: true };
     }),
 
+  move: publicProcedure
+    .input(z.object({ id: z.string().uuid(), parentId: z.string().uuid().nullable() }))
+    .mutation(async ({ input }) => {
+      const [folder] = await db.select().from(folders).where(eq(folders.id, input.id));
+      if (!folder) throw new Error("Folder not found");
+      if (input.parentId) {
+        const subtree = await folderSubtreeIds(input.id);
+        if (subtree.includes(input.parentId)) {
+          throw new Error("Cannot move a folder into itself or its own subtree");
+        }
+        const [target] = await db.select().from(folders).where(eq(folders.id, input.parentId));
+        if (!target) throw new Error("Target folder not found");
+      }
+      await db
+        .update(folders)
+        .set({ parentId: input.parentId, updatedAt: new Date() })
+        .where(eq(folders.id, input.id));
+      return { success: true };
+    }),
+
   path: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ input }) => {
