@@ -6,9 +6,11 @@ import { AI_MODELS, DIGEST_LISTENING_PROMPT, type AiModelKey } from "../lib/ai-p
 
 export function DigestModal({
   sourceBooks,
+  folderId = null,
   onClose,
 }: {
   sourceBooks: { id: string; title: string }[];
+  folderId?: string | null;
   onClose: () => void;
 }) {
   useBodyScrollLock();
@@ -28,6 +30,7 @@ export function DigestModal({
       sourceBookIds: sourceBooks.map((b) => b.id),
       prompt: prompt.trim(),
       model,
+      folderId,
     });
   }
 

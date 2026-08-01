@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, Link, useNavigate, useSearchParams } from "react-router";
+import { useParams, useNavigate, useSearchParams } from "react-router";
 import { trpc } from "../trpc.ts";
 import { ChapterTable } from "../components/ChapterTable.tsx";
+import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
 import { voiceSupportsSpeedControl } from "../lib/voices.ts";
 import { VoicePicker } from "../components/VoicePicker.tsx";
 import { SpeedSlider } from "../components/SpeedSlider.tsx";
@@ -109,7 +110,7 @@ export function BookDetail() {
   const resumeDigestMutation = trpc.books.resumeDigest.useMutation({ onSuccess: invalidate });
   const processSelectedMutation = trpc.books.processSelected.useMutation({ onSuccess: invalidate });
   const deleteMutation = trpc.books.delete.useMutation({
-    onSuccess: () => window.location.assign("/"),
+    onSuccess: () => window.location.assign(book?.folderId ? `/folders/${book.folderId}` : "/"),
   });
   const assembleMutation = trpc.books.assemble.useMutation({ onSuccess: invalidate });
   const deleteAssemblyMutation = trpc.books.deleteAssembly.useMutation({ onSuccess: invalidate });
@@ -356,9 +357,12 @@ export function BookDetail() {
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-6xl mx-auto px-4 py-8 pb-20">
         <div className="flex items-center justify-between mb-4">
-          <Link to="/" className="text-sm text-blue-600 hover:text-blue-800">
-            &larr; Back
-          </Link>
+          <Breadcrumbs
+            items={[
+              { to: "/", label: "Home" },
+              ...(book.folderPath ?? []).map((f) => ({ to: `/folders/${f.id}`, label: f.name })),
+            ]}
+          />
           <div className="flex items-center gap-2" data-testid="book-nav">
             <button
               onClick={() => prevBook && navigate(`/books/${prevBook.id}`)}

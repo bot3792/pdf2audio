@@ -4,6 +4,7 @@ import { trpc } from "../trpc.ts";
 import { formatBytes, formatRelativeTime } from "../lib/format.ts";
 import { loadBookSort, saveBookSort, sortBooks, type BookSortDir, type BookSortKey, type FolderRow } from "../lib/book-sort.ts";
 import { DigestModal } from "./DigestModal.tsx";
+import { FolderPickerModal } from "./FolderPickerModal.tsx";
 
 type SortKey = BookSortKey;
 type SortDir = BookSortDir;
@@ -161,6 +162,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [showDigest, setShowDigest] = useState(false);
+  const [showMove, setShowMove] = useState(false);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const deleteManyMutation = trpc.books.deleteMany.useMutation({
     onSuccess: () => {
@@ -235,6 +237,15 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
           data-testid="create-digest"
         >
           Create digest ({selectedCount})
+        </button>
+        <button
+          onClick={() => setShowMove(true)}
+          disabled={selectedCount === 0}
+          title={selectedCount === 0 ? "Select books to move with the checkboxes" : "Move the selected books into a folder"}
+          className="px-3 py-1.5 rounded-md text-xs font-medium border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) disabled:opacity-50 disabled:cursor-not-allowed"
+          data-testid="move-to-folder"
+        >
+          Move to folder ({selectedCount})
         </button>
         <button
           onClick={deleteSelected}
@@ -439,7 +450,18 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
       {showDigest && (
         <DigestModal
           sourceBooks={selectedBooks.map((b) => ({ id: b.id, title: b.title }))}
+          folderId={folderId}
           onClose={() => setShowDigest(false)}
+        />
+      )}
+      {showMove && (
+        <FolderPickerModal
+          bookIds={selectedBooks.map((b) => b.id)}
+          onClose={() => setShowMove(false)}
+          onMoved={() => {
+            setShowMove(false);
+            setSelectedIds(new Set());
+          }}
         />
       )}
     </div>
