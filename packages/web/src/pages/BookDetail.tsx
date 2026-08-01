@@ -622,6 +622,19 @@ export function BookDetail() {
                 Ask AI ({selectedCount})
               </button>
               <button
+                onClick={() => setAskScope({ kind: "book-raw", bookId: book.id, bookTitle: book.title })}
+                disabled={book.rawTextTotalWords === 0}
+                title={
+                  book.rawTextTotalWords === 0
+                    ? "No raw text available for this book"
+                    : "Summarize, question, or run any prompt against the whole book's raw text — same as the upload-time AI prompt"
+                }
+                className="px-4 py-2 rounded-md text-sm font-medium border border-sky-600 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="ask-ai-book"
+              >
+                Ask AI (whole book)
+              </button>
+              <button
                 onClick={() => {
                   if (confirm(`Delete ${selectedCount} selected chapter(s) and their audio?`)) {
                     deleteChaptersMutation.mutate({ bookId: book.id });
