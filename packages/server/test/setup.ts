@@ -63,6 +63,7 @@ export async function resetDb(db: TestDatabase) {
   await db.execute(sql`DELETE FROM book_files`);
   await db.execute(sql`DELETE FROM book_logs`);
   await db.execute(sql`DELETE FROM books`);
+  await db.execute(sql`DELETE FROM folders`);
 }
 
 // Mirrors the real graphile-worker private schema (task_id FK, not a task_identifier column)

@@ -169,6 +169,13 @@
       "when": 1785537479323,
       "tag": "0023_first_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785566302246,
+      "tag": "0024_tidy_greymalkin",
+      "breakpoints": true
     }
   ]
 }

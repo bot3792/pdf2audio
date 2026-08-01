@@ -4,7 +4,8 @@ import { db } from "../db.ts";
 import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
-import { uploadsDir, bookTmpDir, bookOutputDir } from "../lib/paths.ts";
+import { uploadsDir, bookOutputDir } from "../lib/paths.ts";
+import { deleteBook } from "../lib/delete-book.ts";
 import { appendLog } from "../lib/log.ts";
 import { parseTtsVoice } from "../lib/tts.ts";
 import { collectBlocksFromMarkerOutput, sliceChaptersAtIndices, type ExtractedChapter } from "../lib/marker.ts";
@@ -73,18 +74,6 @@ function computeBookStatus(
   if (statuses.some((s) => s === "failed")) return "failed";
   if (statuses.every((s) => s === "suspended" || s === "done")) return "suspended";
   return book.status;
-}
-
-async function deleteBook(id: string) {
-  const [book] = await db.select().from(books).where(eq(books.id, id));
-
-  await db.delete(books).where(eq(books.id, id));
-
-  if (book?.pdfPath) {
-    await rm(path.dirname(book.pdfPath), { recursive: true, force: true }).catch(() => {});
-  }
-  await rm(bookOutputDir(id), { recursive: true, force: true }).catch(() => {});
-  await rm(bookTmpDir(id), { recursive: true, force: true }).catch(() => {});
 }
 
 // Chunk WAVs only matter for resuming a partial synthesis — finished chapters never reread them

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, real, integer, timestamp, boolean, jsonb, unique } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, real, integer, timestamp, boolean, jsonb, unique, index, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 export type ChapterProposalBoundary = {
   fileIndex: number | null;
@@ -55,6 +55,14 @@ export type ChapterSource =
   | { kind: "book"; bookId: string; title: string }
   | { kind: "url"; url: string; title?: string };
 
+export const folders = pgTable("folders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  parentId: uuid("parent_id").references((): AnyPgColumn => folders.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("folders_parent_id_idx").on(t.parentId)]);
+
 export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
@@ -79,9 +87,11 @@ export const books = pgTable("books", {
   noteJob: jsonb("note_job").$type<NoteJob>(),
   origin: jsonb("origin").$type<BookOrigin>(),
   digestJob: jsonb("digest_job").$type<DigestJob>(),
+  // "set null", never cascade: book deletion must go through deleteBook (disk cleanup)
+  folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [index("books_folder_id_idx").on(t.folderId)]);
 
 export const chapters = pgTable("chapters", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -206,3 +216,4 @@ export type Assembly = typeof assemblies.$inferSelect;
 export type BookDocument = typeof documents.$inferSelect;
 export type ChapterTranslation = typeof chapterTranslations.$inferSelect;
 export type Note = typeof notes.$inferSelect;
+export type Folder = typeof folders.$inferSelect;
