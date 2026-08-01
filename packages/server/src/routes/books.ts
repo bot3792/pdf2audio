@@ -198,6 +198,8 @@ export const booksRouter = router({
         chaptersWithAudio,
         activity,
         failures,
+        // Cancellations are deliberate — only real failures get the red badge (mirrors hard_failed)
+        failed: book.status === "failed" && !(book.error ?? "").startsWith("Cancelled"),
         languages: translations.map((t) => ({ language: t.language, done: t.done })),
         outputs: {
           assemblies: assembliesBy.get(book.id)?.[0]?.count ?? 0,
@@ -242,9 +244,9 @@ export const booksRouter = router({
         }
         const descendantBooks = allBooks.filter((b) => b.folderId && subtree.has(b.folderId));
         const stats = descendantBooks.map((b) => deriveBookStats(b));
-        const failedCount = descendantBooks.filter((b, i) => {
+        const failedCount = descendantBooks.filter((_b, i) => {
           const f = stats[i].failures;
-          return b.status === "failed" || f.files + f.chapters + f.translations + f.cleanup > 0;
+          return stats[i].failed || f.files + f.chapters + f.translations + f.cleanup > 0;
         }).length;
         const sizes = await Promise.all(descendantBooks.map((b) => bookTotalSizeCached(b.id)));
         return {

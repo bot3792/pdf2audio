@@ -399,15 +399,15 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
                     {book.activity.digest && (
                       <ActivityPill label="digesting" color="bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300" />
                     )}
-                    {totalFailures > 0 && (
+                    {(totalFailures > 0 || book.failed) && (
                       <span
                         className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-(--badge-failed-bg) text-(--badge-failed-text)"
-                        title={`Failed: ${failureDetail}${book.error ? ` — ${book.error}` : ""}`}
+                        title={totalFailures > 0 ? `Failed: ${failureDetail}${book.error ? ` — ${book.error}` : ""}` : book.error ?? "Failed"}
                       >
-                        {totalFailures} failed
+                        {totalFailures > 0 ? `${totalFailures} failed` : "failed"}
                       </span>
                     )}
-                    {idle && totalFailures === 0 && <span className="text-xs text-(--text-faint)">—</span>}
+                    {idle && totalFailures === 0 && !book.failed && <span className="text-xs text-(--text-faint)">—</span>}
                   </div>
                 </td>
                 <td className="px-4 py-3">

@@ -143,6 +143,23 @@ describe("booksRouter.list folder scoping", () => {
     const legacy = await booksCaller.list();
     expect(legacy.books.map((bk) => bk.title)).toEqual(["Root book"]);
   });
+
+  it("counts book-level failures but not cancellations, and flags book rows", async () => {
+    const db = getDb();
+    const [folder] = await db.insert(folders).values({ name: "F" }).returning();
+    await db.insert(books).values([
+      { title: "Broken", folderId: folder.id, status: "failed", error: "All 1 file(s) failed extraction" },
+      { title: "Cancelled", folderId: folder.id, status: "failed", error: "Cancelled by user" },
+      { title: "Fine", folderId: folder.id, status: "done" },
+    ]);
+
+    const root = await booksCaller.list({ folderId: null });
+    expect(root.folders[0].failedBookCount).toBe(1);
+
+    const inside = await booksCaller.list({ folderId: folder.id });
+    const byTitle = Object.fromEntries(inside.books.map((bk) => [bk.title, bk.failed]));
+    expect(byTitle).toEqual({ Broken: true, Cancelled: false, Fine: false });
+  });
 });
 
 describe("booksRouter.moveToFolder", () => {
