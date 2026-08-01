@@ -37,6 +37,12 @@ export const AI_PRESETS: AiPreset[] = [
     prompt: (s) =>
       `List the key people, places, and terms mentioned in ${subjectPhrase[s]}, each with a one-line description of who or what they are.`,
   },
+  {
+    key: "didyouknow",
+    label: "Did you know?",
+    prompt: (s) =>
+      `List the most surprising and essential takeaways from ${subjectPhrase[s]} — the specific facts, claims, and ideas someone would only know after actually reading it. Skip anything guessable from the title alone. Start each item with a short curiosity hook (vary the phrasing, e.g. "Did you know that ...", "Few people realize ...") followed by a couple of sentences of substance.`,
+  },
 ];
 
 // Digest chapters are read aloud — flowing prose, never lists
@@ -45,6 +51,17 @@ export const DIGEST_LISTENING_PROMPT =
   "Write flowing prose paragraphs in an engaging, radio-essay style — no bullet points, no headings, no markdown. " +
   "Cover the book's core ideas, how it is structured, and its most striking details or arguments. " +
   "Write in the same language as the book's text. Start directly with the content — no preamble about being a summary.";
+
+export const DIGEST_DID_YOU_KNOW_PROMPT =
+  "Narrate the most surprising and essential takeaways from this book — the things that make it unique and that you would only know if you had actually read it — about 5 minutes of listening (roughly 600-1200 words). " +
+  "Open with a strong \"Did you know that ...\" hook, then keep a curiosity-driven cadence: concrete facts, striking claims, unexpected arguments, memorable examples. Vary the phrasing of the hooks so it never sounds like a repeated formula, and skip anything a listener could guess from the title alone. " +
+  "Write flowing prose paragraphs in an engaging, spoken style — no bullet points, no headings, no markdown. " +
+  "Write in the same language as the book's text. Start directly with the content — no preamble.";
+
+export const DIGEST_PRESETS = [
+  { key: "essay", label: "Radio essay", prompt: DIGEST_LISTENING_PROMPT },
+  { key: "didyouknow", label: "Did you know?", prompt: DIGEST_DID_YOU_KNOW_PROMPT },
+] as const;
 
 export const AI_MODELS = [
   { key: "flash", label: "V4 Flash", hint: "Fast and cheap — good default", contextTokens: 1_000_000 },

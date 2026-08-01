@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { trpc } from "../trpc.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
-import { AI_MODELS, DIGEST_LISTENING_PROMPT, type AiModelKey } from "../lib/ai-presets.ts";
+import { AI_MODELS, DIGEST_LISTENING_PROMPT, DIGEST_PRESETS, type AiModelKey } from "../lib/ai-presets.ts";
 
 export function DigestModal({
   sourceBooks,
@@ -68,6 +68,22 @@ export function DigestModal({
             <label className="block text-sm text-(--text-secondary) mb-1">
               Summary prompt <span className="text-(--text-faint)">— runs once per book; each answer becomes a chapter</span>
             </label>
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              {DIGEST_PRESETS.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => setPrompt(p.prompt)}
+                  className={`text-xs px-3 py-1 rounded-full border font-medium ${
+                    prompt === p.prompt
+                      ? "bg-blue-600 border-blue-600 text-white"
+                      : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
+                  }`}
+                  data-testid={`digest-preset-${p.key}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
