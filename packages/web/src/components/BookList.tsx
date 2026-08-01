@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { formatBytes, formatRelativeTime } from "../lib/format.ts";
-import { loadBookSort, saveBookSort, sortBooks, type BookSortDir, type BookSortKey } from "../lib/book-sort.ts";
+import { loadBookSort, saveBookSort, sortBooks, type BookSortDir, type BookSortKey, type FolderRow } from "../lib/book-sort.ts";
 import { DigestModal } from "./DigestModal.tsx";
 
 type SortKey = BookSortKey;
@@ -14,6 +14,110 @@ function ActivityPill({ label, color, pulse = true }: { label: string; color: st
       {pulse && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
       {label}
     </span>
+  );
+}
+
+function FolderTableRow({ folder }: { folder: FolderRow }) {
+  const utils = trpc.useUtils();
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState(folder.name);
+  const renameMutation = trpc.folders.rename.useMutation({
+    onSuccess: () => utils.books.list.invalidate(),
+  });
+  const deleteMutation = trpc.folders.delete.useMutation({
+    onSuccess: () => utils.books.list.invalidate(),
+  });
+
+  function saveRename() {
+    const trimmed = name.trim();
+    if (trimmed && trimmed !== folder.name) renameMutation.mutate({ id: folder.id, name: trimmed });
+    else setName(folder.name);
+    setRenaming(false);
+  }
+
+  async function deleteFolder() {
+    const stats = await utils.folders.deleteStats.fetch({ id: folder.id });
+    const subfolders = stats.folderCount - 1;
+    if (!confirm(
+      `Delete folder "${folder.name}" and everything in it?\n\nThis permanently deletes ${stats.bookCount} book(s)` +
+      (subfolders > 0 ? ` and ${subfolders} subfolder(s)` : "") +
+      ` including all audio and files.`,
+    )) return;
+    deleteMutation.mutate({ id: folder.id });
+  }
+
+  return (
+    <tr className="hover:bg-(--bg-card-hover)" data-testid="folder-row">
+      <td className="px-3 py-3" />
+      <td className="px-4 py-3 max-w-md">
+        <div className="flex items-center gap-2 group">
+          {renaming ? (
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onBlur={saveRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveRename();
+                if (e.key === "Escape") { setName(folder.name); setRenaming(false); }
+              }}
+              className="text-sm font-medium bg-transparent border-b border-blue-500 outline-none text-(--text-primary)"
+            />
+          ) : (
+            <Link to={`/folders/${folder.id}`} className="text-(--text-primary) hover:text-blue-700 font-medium">
+              📁 {folder.name}
+            </Link>
+          )}
+          <button
+            onClick={() => setRenaming(true)}
+            disabled={renaming}
+            title="Rename folder"
+            className="text-(--text-faint) hover:text-(--text-secondary) text-xs disabled:opacity-50"
+          >
+            ✎
+          </button>
+          <button
+            onClick={deleteFolder}
+            disabled={deleteMutation.isPending}
+            title="Delete folder and everything in it"
+            className="text-(--text-faint) hover:text-red-600 text-xs disabled:opacity-50"
+            data-testid="delete-folder"
+          >
+            {deleteMutation.isPending ? "…" : "🗑"}
+          </button>
+        </div>
+      </td>
+      <td className="px-4 py-3 text-right">
+        <span className="text-sm tabular-nums text-(--text-secondary)">{folder.bookCount}</span>
+        <span className="block text-[11px] text-(--text-faint)">book{folder.bookCount === 1 ? "" : "s"}</span>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap gap-1.5">
+          {folder.activeBookCount > 0 && (
+            <ActivityPill label={`${folder.activeBookCount} active`} color="bg-(--badge-synthesizing-bg) text-(--badge-synthesizing-text)" />
+          )}
+          {folder.failedBookCount > 0 && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-(--badge-failed-bg) text-(--badge-failed-text)">
+              {folder.failedBookCount} failed
+            </span>
+          )}
+          {folder.activeBookCount === 0 && folder.failedBookCount === 0 && (
+            <span className="text-xs text-(--text-faint)">—</span>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-3"><span className="text-xs text-(--text-faint)">—</span></td>
+      <td className="px-4 py-3"><span className="text-xs text-(--text-faint)">—</span></td>
+      <td className="px-4 py-3 text-right text-sm tabular-nums text-(--text-tertiary)">
+        {formatBytes(folder.sizeBytes)}
+      </td>
+      <td className="px-4 py-3 text-right text-sm tabular-nums text-(--text-tertiary)">
+        {new Date(folder.createdAt).toLocaleDateString()}
+      </td>
+      <td className="px-4 py-3 text-right text-sm text-(--text-tertiary)" title={folder.lastActivityAt ? new Date(folder.lastActivityAt).toLocaleString() : undefined}>
+        {folder.lastActivityAt ? formatRelativeTime(folder.lastActivityAt) : <span className="text-xs text-(--text-faint)">—</span>}
+      </td>
+    </tr>
   );
 }
 
@@ -57,9 +161,16 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [showDigest, setShowDigest] = useState(false);
+  const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const deleteManyMutation = trpc.books.deleteMany.useMutation({
     onSuccess: () => {
       setSelectedIds(new Set());
+      utils.books.list.invalidate();
+    },
+  });
+  const createFolderMutation = trpc.folders.create.useMutation({
+    onSuccess: () => {
+      setNewFolderName(null);
       utils.books.list.invalidate();
     },
   });
@@ -78,15 +189,8 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
     return <p className="text-(--text-muted) py-4">Loading...</p>;
   }
 
-  if (!books || (books.length === 0 && folderRows.length === 0)) {
-    return (
-      <p className="text-(--text-muted) py-4">
-        {folderId ? "This folder is empty." : "No books yet. Upload a PDF to get started."}
-      </p>
-    );
-  }
-
-  const sorted = sortBooks(books, sortKey, sortDir);
+  const sorted = sortBooks(books ?? [], sortKey, sortDir);
+  const isEmpty = sorted.length === 0 && folderRows.length === 0;
 
   // Prune ids of books deleted elsewhere so counts never lie
   const selectedBooks = sorted.filter((b) => selectedIds.has(b.id));
@@ -144,7 +248,43 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
         {deleteManyMutation.error && (
           <span className="text-sm text-red-600">{deleteManyMutation.error.message}</span>
         )}
+        <div className="ml-auto flex items-center gap-2">
+          {createFolderMutation.error && (
+            <span className="text-sm text-red-600">{createFolderMutation.error.message}</span>
+          )}
+          {newFolderName !== null ? (
+            <input
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onBlur={() => { if (!newFolderName.trim()) setNewFolderName(null); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newFolderName.trim()) {
+                  createFolderMutation.mutate({ name: newFolderName.trim(), parentId: folderId });
+                }
+                if (e.key === "Escape") setNewFolderName(null);
+              }}
+              placeholder="Folder name…"
+              className="px-2 py-1.5 text-xs rounded-md border border-(--border) bg-(--bg-card) text-(--text-primary) outline-none focus:border-blue-500"
+              data-testid="new-folder-name"
+            />
+          ) : (
+            <button
+              onClick={() => setNewFolderName("")}
+              title="Create a folder here"
+              className="px-3 py-1.5 rounded-md text-xs font-medium border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
+              data-testid="new-folder"
+            >
+              + New folder
+            </button>
+          )}
+        </div>
       </div>
+      {isEmpty ? (
+        <p className="text-(--text-muted) py-4">
+          {folderId ? "This folder is empty." : "No books yet. Upload a PDF to get started."}
+        </p>
+      ) : (
       <div className="overflow-x-auto rounded-lg border border-(--border)">
       <table className="w-full min-w-[72rem] divide-y divide-(--divide)">
         <thead className="bg-(--bg-subtle)">
@@ -170,7 +310,10 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
           </tr>
         </thead>
         <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
-          {sorted.map((book) => {
+          {folderRows.map((folder) => (
+            <FolderTableRow key={folder.id} folder={folder} />
+          ))}
+          {sorted.map((book, bookIndex) => {
             const totalFailures =
               book.failures.files + book.failures.chapters + book.failures.translations + book.failures.cleanup;
             const failureDetail = [
@@ -194,7 +337,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
                   <input
                     type="checkbox"
                     checked={selectedIds.has(book.id)}
-                    onClick={(e) => handleCheckboxClick(book.id, sorted.indexOf(book), e)}
+                    onClick={(e) => handleCheckboxClick(book.id, bookIndex, e)}
                     readOnly
                     className="rounded"
                   />
@@ -291,6 +434,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
         </tbody>
       </table>
       </div>
+      )}
 
       {showDigest && (
         <DigestModal

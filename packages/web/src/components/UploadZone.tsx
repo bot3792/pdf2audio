@@ -6,6 +6,7 @@ import { AI_MODELS, AI_PRESETS, type AiModelKey } from "../lib/ai-presets.ts";
 
 type UploadZoneProps = {
   onUploadComplete: () => void;
+  folderId?: string | null;
 };
 
 function formatFileSize(bytes: number): string {
@@ -14,7 +15,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function UploadZone({ onUploadComplete }: UploadZoneProps) {
+export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
@@ -76,6 +77,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
     formData.append("fullExtract", String(fullExtract));
     formData.append("llmChapterDetection", String(fullExtract && llmChapterDetection));
     formData.append("skipSynthesis", String(!(fullExtract && autoSynthesize)));
+    if (folderId) formData.append("folderId", folderId);
     if (askAi && notePrompt.trim()) {
       formData.append("notePrompt", notePrompt.trim());
       formData.append("noteModel", noteModel);
