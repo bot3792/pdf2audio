@@ -5,9 +5,11 @@ import { chaptersRouter } from "./routes/chapters.ts";
 import { bookFilesRouter } from "./routes/bookFiles.ts";
 import { translationsRouter } from "./routes/translations.ts";
 import { notesRouter } from "./routes/notes.ts";
+import { foldersRouter } from "./routes/folders.ts";
 
 export const appRouter = router({
   books: booksRouter,
+  folders: foldersRouter,
   chapters: chaptersRouter,
   bookFiles: bookFilesRouter,
   translations: translationsRouter,
