@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getDb, resetDb } from "../../test/setup.ts";
+import { ensureGraphileTables, getDb, insertJob, resetDb } from "../../test/setup.ts";
 import { books, bookFiles, chapters, notes } from "../schema.ts";
 
 const { mockQuickAddJob, mockDeepseekChat } = vi.hoisted(() => ({
@@ -361,6 +361,46 @@ describe("booksRouter.get raw text stats", () => {
     expect(book.files[0]).toMatchObject({ rawWords: 3, hasRawText: true });
     expect(book.files[1]).toMatchObject({ rawWords: null, hasRawText: false });
     expect((book.files[0] as Record<string, unknown>).rawText).toBeUndefined();
+  });
+});
+
+describe("booksRouter.get derived status", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+  });
+
+  it("reports done, not assembling, when all chapters are done but no assembly exists", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({
+      id: bookId,
+      title: "Digest",
+      kind: "digest",
+      status: "done",
+      outputPath: null,
+    });
+    await db.insert(chapters).values([
+      { bookId, index: 0, title: "Ch 1", rawText: "text", status: "done" },
+      { bookId, index: 1, title: "Ch 2", rawText: "text", status: "done" },
+    ]);
+
+    const caller = booksRouter.createCaller({});
+    const book = await caller.get({ id: bookId });
+
+    expect(book.status).toBe("done");
+  });
+
+  it("reports assembleQueued while an assemble job is in the queue", async () => {
+    const db = getDb();
+    await ensureGraphileTables(db);
+    const bookId = crypto.randomUUID();
+    await db.insert(books).values({ id: bookId, title: "Book", status: "done" });
+
+    const caller = booksRouter.createCaller({});
+    expect((await caller.get({ id: bookId })).assembleQueued).toBe(false);
+
+    await insertJob(db, "assemble", { bookId });
+    expect((await caller.get({ id: bookId })).assembleQueued).toBe(true);
   });
 });
 

@@ -129,7 +129,7 @@ export async function assemble(payload: AssemblePayload) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await log(`Assembly failed: ${message}`);
-    await db.update(books).set({ error: message, updatedAt: new Date() }).where(eq(books.id, bookId));
+    await db.update(books).set({ status: "failed", error: message, updatedAt: new Date() }).where(eq(books.id, bookId));
     throw err;
   }
 }

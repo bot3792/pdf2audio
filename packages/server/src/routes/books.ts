@@ -39,6 +39,24 @@ function digestJobRunning(digestJob: Book["digestJob"]): boolean {
   return Date.now() - new Date(digestJob.updatedAt).getTime() < NOTE_JOB_STALE_MS;
 }
 
+// Assemble jobs have no per-row DB state; the queue is the only signal that one is
+// pending but not yet running (books.status only flips once the worker picks it up).
+async function hasQueuedAssembleJob(bookId: string): Promise<boolean> {
+  const [{ jobs_table }] = (await db.execute(
+    sql`SELECT to_regclass('graphile_worker._private_jobs') AS jobs_table`,
+  )) as unknown as Array<{ jobs_table: string | null }>;
+  if (!jobs_table) return false;
+
+  const rows = (await db.execute(sql`
+    SELECT 1
+    FROM graphile_worker._private_jobs j
+    JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+    WHERE t.identifier IN ('assemble', 'assembleDocument') AND j.payload->>'bookId' = ${bookId}
+    LIMIT 1
+  `)) as unknown as unknown[];
+  return rows.length > 0;
+}
+
 function computeBookStatus(
   book: Book,
   chapterList: Pick<Chapter, "status">[],
@@ -51,9 +69,7 @@ function computeBookStatus(
   const statuses = chapterList.map((c) => c.status);
   if (statuses.some((s) => s === "synthesizing" || s === "normalizing")) return "synthesizing";
   if (statuses.some((s) => s === "pending")) return "synthesizing";
-  if (statuses.every((s) => s === "done")) {
-    return book.outputPath ? "done" : "assembling";
-  }
+  if (statuses.every((s) => s === "done")) return "done";
   if (statuses.some((s) => s === "failed")) return "failed";
   if (statuses.every((s) => s === "suspended" || s === "done")) return "suspended";
   return book.status;
@@ -256,8 +272,9 @@ export const booksRouter = router({
         .orderBy(asc(bookFiles.index));
 
       const rawTextTotalWords = files.reduce((sum, f) => sum + (f.rawWords ?? 0), 0);
+      const assembleQueued = await hasQueuedAssembleJob(input.id);
 
-      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs, files, rawTextTotalWords };
+      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs, files, rawTextTotalWords, assembleQueued };
     }),
 
   logs: publicProcedure

@@ -41,7 +41,7 @@ export function BookDetail() {
         const hasActiveCleanups = data.chapters?.some((c: { cleanup?: { status: string } | null }) =>
           c.cleanup?.status === "cleaning" || c.cleanup?.status === "pending"
         );
-        const bookActive = data.status === "extracting" || data.status === "assembling";
+        const bookActive = data.status === "extracting" || data.status === "assembling" || data.assembleQueued;
         const proposalRunning = data.chapterProposal?.status === "running";
         const noteJobActive = data.noteJob?.status === "queued" || data.noteJob?.status === "running";
         const digestRunning = data.digestJob?.status === "running";
@@ -61,6 +61,17 @@ export function BookDetail() {
     { bookId: id! },
     { enabled: !!id },
   );
+
+  const assemblyActive = book ? book.status === "assembling" || book.assembleQueued : undefined;
+  const prevAssemblyActive = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    if (prevAssemblyActive.current === true && assemblyActive === false) {
+      utils.books.assemblies.invalidate({ bookId: id! });
+      utils.books.documents.invalidate({ bookId: id! });
+      utils.books.diskUsage.invalidate({ bookId: id! });
+    }
+    prevAssemblyActive.current = assemblyActive;
+  }, [assemblyActive]);
 
   const { data: originalAudioSize } = trpc.chapters.selectedAudioSize.useQuery(
     { bookId: id! },

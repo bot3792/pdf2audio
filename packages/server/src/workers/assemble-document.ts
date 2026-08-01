@@ -124,7 +124,7 @@ export async function assembleDocument(payload: AssembleDocumentPayload) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await log(`Document export failed: ${message}`);
-    await db.update(books).set({ error: message, updatedAt: new Date() }).where(eq(books.id, bookId));
+    await db.update(books).set({ status: "failed", error: message, updatedAt: new Date() }).where(eq(books.id, bookId));
     throw err;
   }
 }
