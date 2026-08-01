@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations } from "../schema.ts";
+import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations, folders } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
 import { uploadsDir, bookOutputDir } from "../lib/paths.ts";
 import { deleteBook } from "../lib/delete-book.ts";
+import { folderAncestors } from "../lib/folders.ts";
 import { appendLog } from "../lib/log.ts";
 import { parseTtsVoice } from "../lib/tts.ts";
 import { collectBlocksFromMarkerOutput, sliceChaptersAtIndices, type ExtractedChapter } from "../lib/marker.ts";
@@ -96,7 +97,11 @@ async function cleanableChunkDirs(bookId: string): Promise<string[]> {
 }
 
 export const booksRouter = router({
-  list: publicProcedure.query(async () => {
+  list: publicProcedure
+    .input(z.object({ folderId: z.string().uuid().nullable().default(null) }).optional())
+    .query(async ({ input }) => {
+    const folderId = input?.folderId ?? null;
+    // Books and aggregates stay unscoped: subtree rollups for folder rows need them all
     const allBooks = await db.select().from(books).orderBy(desc(books.createdAt));
 
     const chapterAgg = (await db.execute(sql`
@@ -153,66 +158,114 @@ export const booksRouter = router({
     const documentsBy = byBook(documentAgg);
     const lastLogBy = new Map(lastLogAgg.map((r) => [r.book_id, r.last]));
 
+    const deriveBookStats = (book: Book) => {
+      const chapterCounts = chaptersBy.get(book.id) ?? [];
+      const countOf = (rows: { status: string; count: number }[], ...statuses: string[]) =>
+        rows.filter((r) => statuses.includes(r.status)).reduce((sum, r) => sum + r.count, 0);
+
+      const chapterCount = chapterCounts.reduce((sum, r) => sum + r.count, 0);
+      const chaptersWithAudio = countOf(chapterCounts, "done");
+      const translations = translationsBy.get(book.id) ?? [];
+      const fileRows = filesBy.get(book.id) ?? [];
+      const cleanupRows = cleanupBy.get(book.id) ?? [];
+      const documentRows = documentsBy.get(book.id) ?? [];
+
+      const activity = {
+        extracting: countOf(fileRows, "extracting", "pending") > 0 || book.status === "extracting",
+        synthesizing:
+          countOf(chapterCounts, "pending", "normalizing", "synthesizing") +
+          translations.reduce((sum, t) => sum + t.audio_running, 0),
+        translating: translations.reduce((sum, t) => sum + t.running, 0),
+        cleaning: countOf(cleanupRows, "pending", "cleaning"),
+        assembling: book.status === "assembling",
+        aiNote: noteJobRunning(book.noteJob),
+        digest: digestJobRunning(book.digestJob),
+      };
+      const failures = {
+        files: fileRows.reduce((sum, r) => sum + r.hard_failed, 0),
+        chapters: countOf(chapterCounts, "failed"),
+        translations: translations.reduce((sum, t) => sum + t.failed, 0),
+        cleanup: countOf(cleanupRows, "failed"),
+      };
+
+      const lastLog = lastLogBy.get(book.id);
+      const lastActivityAt = new Date(
+        Math.max(new Date(book.updatedAt).getTime(), lastLog ? new Date(lastLog).getTime() : 0),
+      );
+
+      return {
+        chapterCount,
+        chaptersWithAudio,
+        activity,
+        failures,
+        languages: translations.map((t) => ({ language: t.language, done: t.done })),
+        outputs: {
+          assemblies: assembliesBy.get(book.id)?.[0]?.count ?? 0,
+          pdfs: documentRows.find((d) => d.format === "pdf")?.count ?? 0,
+          epubs: documentRows.find((d) => d.format === "epub")?.count ?? 0,
+        },
+        lastActivityAt,
+      };
+    };
+    const isActive = (a: ReturnType<typeof deriveBookStats>["activity"]) =>
+      a.extracting || a.synthesizing > 0 || a.translating > 0 || a.cleaning > 0 || a.assembling || a.aiNote || a.digest;
+
     const overview = await Promise.all(
-      allBooks.map(async (book) => {
-        const chapterCounts = chaptersBy.get(book.id) ?? [];
-        const countOf = (rows: { status: string; count: number }[], ...statuses: string[]) =>
-          rows.filter((r) => statuses.includes(r.status)).reduce((sum, r) => sum + r.count, 0);
-
-        const chapterCount = chapterCounts.reduce((sum, r) => sum + r.count, 0);
-        const chaptersWithAudio = countOf(chapterCounts, "done");
-        const translations = translationsBy.get(book.id) ?? [];
-        const fileRows = filesBy.get(book.id) ?? [];
-        const cleanupRows = cleanupBy.get(book.id) ?? [];
-        const documentRows = documentsBy.get(book.id) ?? [];
-
-        const activity = {
-          extracting: countOf(fileRows, "extracting", "pending") > 0 || book.status === "extracting",
-          synthesizing:
-            countOf(chapterCounts, "pending", "normalizing", "synthesizing") +
-            translations.reduce((sum, t) => sum + t.audio_running, 0),
-          translating: translations.reduce((sum, t) => sum + t.running, 0),
-          cleaning: countOf(cleanupRows, "pending", "cleaning"),
-          assembling: book.status === "assembling",
-          aiNote: noteJobRunning(book.noteJob),
-          digest: digestJobRunning(book.digestJob),
-        };
-        const failures = {
-          files: fileRows.reduce((sum, r) => sum + r.hard_failed, 0),
-          chapters: countOf(chapterCounts, "failed"),
-          translations: translations.reduce((sum, t) => sum + t.failed, 0),
-          cleanup: countOf(cleanupRows, "failed"),
-        };
-
-        const lastLog = lastLogBy.get(book.id);
-        const lastActivityAt = new Date(
-          Math.max(new Date(book.updatedAt).getTime(), lastLog ? new Date(lastLog).getTime() : 0),
-        );
-
-        return {
+      allBooks
+        .filter((book) => (book.folderId ?? null) === folderId)
+        .map(async (book) => ({
           id: book.id,
           title: book.title,
           kind: book.kind,
           createdAt: book.createdAt,
           skipSynthesis: book.skipSynthesis,
           error: book.status === "failed" ? book.error : null,
-          chapterCount,
-          chaptersWithAudio,
-          activity,
-          failures,
-          languages: translations.map((t) => ({ language: t.language, done: t.done })),
-          outputs: {
-            assemblies: assembliesBy.get(book.id)?.[0]?.count ?? 0,
-            pdfs: documentRows.find((d) => d.format === "pdf")?.count ?? 0,
-            epubs: documentRows.find((d) => d.format === "epub")?.count ?? 0,
-          },
-          lastActivityAt,
+          ...deriveBookStats(book),
           sizeBytes: await bookTotalSizeCached(book.id),
+        })),
+    );
+
+    const allFolders = await db.select().from(folders).orderBy(asc(folders.name));
+    const childrenOf = new Map<string | null, typeof allFolders>();
+    for (const f of allFolders) {
+      const key = f.parentId ?? null;
+      childrenOf.set(key, [...(childrenOf.get(key) ?? []), f]);
+    }
+    const folderRows = await Promise.all(
+      (childrenOf.get(folderId) ?? []).map(async (folder) => {
+        const subtree = new Set<string>();
+        const stack = [folder.id];
+        while (stack.length) {
+          const id = stack.pop()!;
+          subtree.add(id);
+          for (const child of childrenOf.get(id) ?? []) stack.push(child.id);
+        }
+        const descendantBooks = allBooks.filter((b) => b.folderId && subtree.has(b.folderId));
+        const stats = descendantBooks.map((b) => deriveBookStats(b));
+        const failedCount = descendantBooks.filter((b, i) => {
+          const f = stats[i].failures;
+          return b.status === "failed" || f.files + f.chapters + f.translations + f.cleanup > 0;
+        }).length;
+        const sizes = await Promise.all(descendantBooks.map((b) => bookTotalSizeCached(b.id)));
+        return {
+          id: folder.id,
+          name: folder.name,
+          createdAt: folder.createdAt,
+          bookCount: descendantBooks.length,
+          activeBookCount: stats.filter((s) => isActive(s.activity)).length,
+          failedBookCount: failedCount,
+          sizeBytes: sizes.reduce((sum, n) => sum + n, 0),
+          lastActivityAt: stats.length
+            ? new Date(Math.max(...stats.map((s) => s.lastActivityAt.getTime())))
+            : null,
         };
       }),
     );
 
-    return overview.sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
+    return {
+      folders: folderRows,
+      books: overview.sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime()),
+    };
   }),
 
   get: publicProcedure
@@ -262,8 +315,9 @@ export const booksRouter = router({
 
       const rawTextTotalWords = files.reduce((sum, f) => sum + (f.rawWords ?? 0), 0);
       const assembleQueued = await hasQueuedAssembleJob(input.id);
+      const folderPath = book.folderId ? await folderAncestors(book.folderId) : [];
 
-      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs, files, rawTextTotalWords, assembleQueued };
+      return { ...book, status, chapters: chaptersWithStats, totalWords, totalDurationMs, files, rawTextTotalWords, assembleQueued, folderPath };
     }),
 
   logs: publicProcedure
@@ -402,6 +456,7 @@ export const booksRouter = router({
       sourceBookIds: z.array(z.string().uuid()).min(2).max(50),
       prompt: z.string().min(1).max(4000),
       model: z.enum(["flash", "pro"]).default("flash"),
+      folderId: z.string().uuid().nullable().default(null),
     }))
     .mutation(async ({ input }) => {
       const sources = await db
@@ -436,6 +491,7 @@ export const booksRouter = router({
           skipSynthesis: true,
           origin: { type: "digest", sourceBookIds: input.sourceBookIds, prompt: input.prompt, model: input.model },
           digestJob: { status: "running", createdAt: now, updatedAt: now },
+          folderId: input.folderId,
         })
         .returning();
 
@@ -1027,6 +1083,23 @@ export const booksRouter = router({
         await deleteBook(id);
       }
       return { deleted: input.ids.length };
+    }),
+
+  moveToFolder: publicProcedure
+    .input(z.object({
+      ids: z.array(z.string().uuid()).min(1).max(100),
+      folderId: z.string().uuid().nullable(),
+    }))
+    .mutation(async ({ input }) => {
+      if (input.folderId) {
+        const [folder] = await db.select().from(folders).where(eq(folders.id, input.folderId));
+        if (!folder) throw new Error("Folder not found");
+      }
+      await db
+        .update(books)
+        .set({ folderId: input.folderId, updatedAt: new Date() })
+        .where(inArray(books.id, input.ids));
+      return { moved: input.ids.length };
     }),
 
   assemblies: publicProcedure

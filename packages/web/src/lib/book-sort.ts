@@ -1,6 +1,7 @@
 import type { RouterOutputs } from "../../../server/src/router.ts";
 
-export type BookRow = RouterOutputs["books"]["list"][number];
+export type BookRow = RouterOutputs["books"]["list"]["books"][number];
+export type FolderRow = RouterOutputs["books"]["list"]["folders"][number];
 
 export type BookSortKey = "title" | "chapters" | "outputs" | "size" | "created" | "lastActivity";
 export type BookSortDir = "asc" | "desc";

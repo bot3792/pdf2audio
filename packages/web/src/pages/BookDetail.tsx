@@ -156,10 +156,13 @@ export function BookDetail() {
     { enabled: !!id },
   );
 
-  // Prev/next navigation follows the home list's persisted sort order
-  const { data: allBooks } = trpc.books.list.useQuery(undefined, { staleTime: 30_000 });
+  // Prev/next navigation follows the home list's persisted sort order, scoped to the book's folder
+  const { data: siblingList } = trpc.books.list.useQuery(
+    { folderId: book?.folderId ?? null },
+    { staleTime: 30_000, enabled: !!book },
+  );
   const bookSort = loadBookSort();
-  const orderedBooks = allBooks ? sortBooks(allBooks, bookSort.key, bookSort.dir) : [];
+  const orderedBooks = siblingList ? sortBooks(siblingList.books, bookSort.key, bookSort.dir) : [];
   const bookIndex = orderedBooks.findIndex((b) => b.id === id);
   const prevBook = bookIndex > 0 ? orderedBooks[bookIndex - 1] : null;
   const nextBook = bookIndex >= 0 && bookIndex < orderedBooks.length - 1 ? orderedBooks[bookIndex + 1] : null;

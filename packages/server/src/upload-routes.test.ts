@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, resetDb } from "../test/setup.ts";
-import { books, bookFiles } from "./schema.ts";
+import { books, bookFiles, folders } from "./schema.ts";
 import { eq, asc } from "drizzle-orm";
 
 const { mockQuickAddJob } = vi.hoisted(() => ({
@@ -87,6 +87,37 @@ describe("POST /upload", () => {
       { bookId: book.id },
       { maxAttempts: 1 },
     );
+  });
+
+  it("assigns the book to the given folder", async () => {
+    const db = getDb();
+    const [folder] = await db.insert(folders).values({ name: "History" }).returning();
+    const app = await createApp();
+    const { payload, headers } = multipartBody([
+      { name: "file", value: "%PDF-fake", filename: "my_book.pdf" },
+      { name: "folderId", value: folder.id },
+    ]);
+
+    const res = await app.inject({ method: "POST", url: "/upload", payload, headers });
+
+    expect(res.statusCode).toBe(200);
+    const [book] = await db.select().from(books);
+    expect(book.folderId).toBe(folder.id);
+  });
+
+  it("rejects an unknown folderId", async () => {
+    const app = await createApp();
+    const { payload, headers } = multipartBody([
+      { name: "file", value: "%PDF-fake", filename: "my_book.pdf" },
+      { name: "folderId", value: crypto.randomUUID() },
+    ]);
+
+    const res = await app.inject({ method: "POST", url: "/upload", payload, headers });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("Folder not found");
+    const db = getDb();
+    expect(await db.select().from(books)).toHaveLength(0);
   });
 
   it("queues extract as well when fullExtract is set", async () => {

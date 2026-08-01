@@ -17,9 +17,13 @@ vi.mock("../lib/delete-book.ts", () => ({
   deleteBook: mockDeleteBook,
 }));
 
+vi.mock("graphile-worker", () => ({ quickAddJob: vi.fn(async () => {}) }));
+
 import { foldersRouter } from "./folders.ts";
+import { booksRouter } from "./books.ts";
 
 const caller = foldersRouter.createCaller({});
+const booksCaller = booksRouter.createCaller({});
 
 async function makeTree() {
   const db = getDb();
@@ -111,5 +115,62 @@ describe("foldersRouter.delete", () => {
   it("rejects deleting a missing folder", async () => {
     await expect(caller.delete({ id: crypto.randomUUID() })).rejects.toThrow("Folder not found");
     expect(mockDeleteBook).not.toHaveBeenCalled();
+  });
+});
+
+describe("booksRouter.list folder scoping", () => {
+  it("returns only direct children plus folder rows with recursive aggregates", async () => {
+    const db = getDb();
+    const { a, b } = await makeTree();
+    await db.insert(books).values([
+      { title: "Root book" },
+      { title: "In A", folderId: a.id },
+      { title: "In B", folderId: b.id },
+    ]);
+
+    const root = await booksCaller.list({ folderId: null });
+    expect(root.books.map((bk) => bk.title)).toEqual(["Root book"]);
+    expect(root.folders.map((f) => f.name)).toEqual(["A"]);
+    expect(root.folders[0].bookCount).toBe(2);
+    expect(typeof root.folders[0].sizeBytes).toBe("number");
+    expect(root.folders[0].lastActivityAt).not.toBeNull();
+
+    const insideA = await booksCaller.list({ folderId: a.id });
+    expect(insideA.books.map((bk) => bk.title)).toEqual(["In A"]);
+    expect(insideA.folders.map((f) => f.name)).toEqual(["B"]);
+    expect(insideA.folders[0].bookCount).toBe(1);
+
+    const legacy = await booksCaller.list();
+    expect(legacy.books.map((bk) => bk.title)).toEqual(["Root book"]);
+  });
+});
+
+describe("booksRouter.moveToFolder", () => {
+  it("moves books into a folder and back to root", async () => {
+    const db = getDb();
+    const { a } = await makeTree();
+    const id1 = crypto.randomUUID();
+    const id2 = crypto.randomUUID();
+    await db.insert(books).values([
+      { id: id1, title: "One" },
+      { id: id2, title: "Two" },
+    ]);
+
+    await booksCaller.moveToFolder({ ids: [id1, id2], folderId: a.id });
+    let rows = await db.select().from(books);
+    expect(rows.every((r) => r.folderId === a.id)).toBe(true);
+
+    await booksCaller.moveToFolder({ ids: [id1], folderId: null });
+    rows = await db.select().from(books).where(eq(books.id, id1));
+    expect(rows[0].folderId).toBeNull();
+  });
+
+  it("rejects a nonexistent target folder", async () => {
+    const db = getDb();
+    const id = crypto.randomUUID();
+    await db.insert(books).values({ id, title: "One" });
+    await expect(booksCaller.moveToFolder({ ids: [id], folderId: crypto.randomUUID() })).rejects.toThrow(
+      "Folder not found",
+    );
   });
 });

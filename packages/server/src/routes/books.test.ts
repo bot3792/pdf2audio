@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ensureGraphileTables, getDb, insertJob, resetDb } from "../../test/setup.ts";
-import { books, bookFiles, chapters, notes } from "../schema.ts";
+import { books, bookFiles, chapters, notes, folders } from "../schema.ts";
 
 const { mockQuickAddJob, mockDeepseekChat } = vi.hoisted(() => ({
   mockQuickAddJob: vi.fn(async () => {}),
@@ -606,6 +606,23 @@ describe("booksRouter.createDigest", () => {
       { bookId: digestBook.id },
       { maxAttempts: 1 }
     );
+  });
+
+  it("places the digest in the given folder", async () => {
+    const db = getDb();
+    const [folder] = await db.insert(folders).values({ name: "Digests" }).returning();
+    const a = await insertSourceWithRawText("A", "text a");
+    const b = await insertSourceWithRawText("B", "text b");
+
+    const caller = booksRouter.createCaller({});
+    const digestBook = await caller.createDigest({
+      title: "Weekly digest",
+      sourceBookIds: [a, b],
+      prompt: "Narrate",
+      folderId: folder.id,
+    });
+
+    expect(digestBook.folderId).toBe(folder.id);
   });
 
   it("rejects when a source has no text", async () => {

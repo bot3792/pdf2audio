@@ -46,11 +46,13 @@ function SortableTh({
   );
 }
 
-export function BookList() {
+export function BookList({ folderId = null }: { folderId?: string | null }) {
   const utils = trpc.useUtils();
-  const { data: books, isLoading } = trpc.books.list.useQuery(undefined, {
+  const { data, isLoading } = trpc.books.list.useQuery({ folderId }, {
     refetchInterval: 3000,
   });
+  const books = data?.books;
+  const folderRows = data?.folders ?? [];
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
@@ -76,8 +78,12 @@ export function BookList() {
     return <p className="text-(--text-muted) py-4">Loading...</p>;
   }
 
-  if (!books || books.length === 0) {
-    return <p className="text-(--text-muted) py-4">No books yet. Upload a PDF to get started.</p>;
+  if (!books || (books.length === 0 && folderRows.length === 0)) {
+    return (
+      <p className="text-(--text-muted) py-4">
+        {folderId ? "This folder is empty." : "No books yet. Upload a PDF to get started."}
+      </p>
+    );
   }
 
   const sorted = sortBooks(books, sortKey, sortDir);
