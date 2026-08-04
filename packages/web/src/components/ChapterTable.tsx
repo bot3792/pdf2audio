@@ -585,7 +585,7 @@ export function ChapterTable({
       </div>
 
       {playingChapter ? (
-        <div className="sticky bottom-12 mt-3 bg-(--bg-card) border border-(--border) rounded-lg px-4 py-3 flex items-center gap-4 shadow-lg z-10">
+        <div className="fixed bottom-12 left-1/2 -translate-x-1/2 z-50 w-[min(72rem,calc(100vw-2rem))] bg-(--bg-card) border border-(--border) rounded-lg px-4 py-3 flex items-center gap-4 shadow-lg">
           <button
             onClick={() => handlePlay(playingChapter.id)}
             className="text-lg text-indigo-600 hover:text-indigo-800 w-8 h-8 flex items-center justify-center shrink-0"
