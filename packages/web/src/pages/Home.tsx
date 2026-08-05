@@ -3,6 +3,7 @@ import { trpc } from "../trpc.ts";
 import { UploadZone } from "../components/UploadZone.tsx";
 import { BookList } from "../components/BookList.tsx";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
+import { ProfileSwitcher } from "../components/ProfileSwitcher.tsx";
 import type { DragItems } from "../lib/dnd.ts";
 
 export function Home() {
@@ -33,7 +34,10 @@ export function Home() {
   return (
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-screen-2xl mx-auto px-6 py-8">
-        <h1 className="text-2xl font-bold text-(--text-primary) mb-2">pdf2audio</h1>
+        <div className="flex items-center mb-2">
+          <h1 className="text-2xl font-bold text-(--text-primary)">pdf2audio</h1>
+          <ProfileSwitcher />
+        </div>
         {folderId && (
           <div className="mb-4">
             <Breadcrumbs

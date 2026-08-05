@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
 import { trpc } from "./trpc.ts";
+import { profileHeaders } from "./lib/profile.ts";
 import { Home } from "./pages/Home.tsx";
 import { BookDetail } from "./pages/BookDetail.tsx";
 
@@ -20,6 +21,7 @@ const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
       url: "/trpc",
+      headers: () => profileHeaders(),
     }),
   ],
 });

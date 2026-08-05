@@ -106,9 +106,9 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 ### Tables
 
-**books** — id (uuid), title, kind (`pdf` | `digest`, default pdf), filename + pdfPath (nullable — null for synthetic books), outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, noteJob (jsonb), origin (jsonb `BookOrigin` — digest provenance), digestJob (jsonb `DigestJob`), folderId (FK folders, `set null` on folder delete — book deletion must go through `lib/delete-book.ts` for disk cleanup, so never cascade), createdAt, updatedAt
+**books** — id (uuid), title, kind (`pdf` | `digest`, default pdf), filename + pdfPath (nullable — null for synthetic books), outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, noteJob (jsonb), origin (jsonb `BookOrigin` — digest provenance), digestJob (jsonb `DigestJob`), folderId (FK folders, `set null` on folder delete — book deletion must go through `lib/delete-book.ts` for disk cleanup, so never cascade), profileId (FK profiles, defaults to the fixed default-profile id), createdAt, updatedAt
 
-**folders** — id (uuid), name, parentId (self-FK, cascade — nested folders), createdAt, updatedAt. Books live in at most one folder (null = home/root). Home shows only root-level folder rows + unfiled books; `/folders/:id` shows a folder's contents. Recursive aggregates (bookCount/active/size) are computed in `books.list`; subtree/ancestor walks via CTE helpers in `lib/folders.ts`. `folders.delete` collects all descendant books first and deletes each via `deleteBook` before removing the folder row. `folders.move` reparents a folder (rejects moves into the folder's own subtree).
+**folders** — id (uuid), name, parentId (self-FK, cascade — nested folders), profileId (FK profiles), createdAt, updatedAt. Books live in at most one folder (null = home/root). Home shows only root-level folder rows + unfiled books; `/folders/:id` shows a folder's contents. Recursive aggregates (bookCount/active/size) are computed in `books.list`; subtree/ancestor walks via CTE helpers in `lib/folders.ts`. `folders.delete` collects all descendant books first and deletes each via `deleteBook` before removing the folder row. `folders.move` reparents a folder (rejects moves into the folder's own subtree).
 
 **chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), pageStart (integer, 1-based), pageEnd (integer, 1-based), sourceBlocks (jsonb — array of block metadata with type, text, page, included, level?, polygon?), createdAt
 
@@ -117,6 +117,8 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 **documents** — id (uuid), bookId (FK, cascade delete), language (null = original), format (`pdf` | `epub`), outputPath, chapterCount, chapterSummary, chapterIds (json array), createdAt. Written by the `assembleDocument` worker (Vivliostyle CLI renders selected chapters to PDF/EPUB; first run downloads a rendering browser into the Vivliostyle cache).
 
 **bookLogs** — id (uuid), bookId (FK, cascade delete), message (text), createdAt
+
+**profiles** — id (uuid), name, createdAt. Lightweight workspaces (no auth): folders and books carry a profileId; list/create/move routes are scoped to the caller's profile via the `x-profile-id` request header, resolved in `trpc.ts` `createContext` (missing/invalid header → fixed `DEFAULT_PROFILE_ID`, which migration 0025 seeds as "Default" and backfills all pre-profile data onto). Book-level routes (`books.get`, chapters, translations, notes, file downloads) stay unscoped by design — profiles are an organizational boundary, not a security one. The default profile cannot be deleted; other profiles only when empty.
 
 **notes** — id (uuid), bookId (FK, cascade delete), prompt, model (`flash` | `pro`), result (markdown), scope (jsonb `NoteScope` — chapter id+title snapshot or `book-raw`; no FK to chapters so notes survive chapter re-detection), createdAt. Auto-inserted by `chapters.aiPrompt`, `books.aiPromptRaw`, and the `bookNote` worker via `lib/notes.ts` `saveNote()`.
 
@@ -204,6 +206,7 @@ packages/web/src/
     SpeedSlider.tsx     Speed range slider (0.5x-2.0x)
     StatusBadge.tsx     Color-coded status badge (includes suspended/amber, cancelled/grey)
     BookList.tsx        Books overview table (activity pills, languages, outputs, size, last activity) with auto-refresh polling
+    ProfileSwitcher.tsx Profile dropdown in the Home header (create/rename/delete); active profile id persisted in localStorage and sent as x-profile-id on every request (lib/profile.ts)
 ```
 
 ### Dark Mode
@@ -220,7 +223,8 @@ Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, 
 
 - `books.list` — `{ folders, books }` scoped to a folder (`folderId` input, null/omitted = root): direct-child books with activity/failure/size stats + child-folder rows with recursive aggregates
 - `books.moveToFolder` — Move books into a folder (or null to unfile)
-- `folders.list` / `create` / `rename` / `move` / `path` / `deleteStats` / `delete` — Folder CRUD; `move` reparents with subtree-cycle rejection; `delete` is recursive (books via `deleteBook`, subfolders via FK cascade); `deleteStats` preflights the confirm dialog
+- `folders.list` / `create` / `rename` / `move` / `path` / `deleteStats` / `delete` — Folder CRUD (scoped to the caller's profile); `move` reparents with subtree-cycle rejection; `delete` is recursive (books via `deleteBook`, subfolders via FK cascade); `deleteStats` preflights the confirm dialog
+- `profiles.list` / `create` / `rename` / `delete` — Profile (workspace) CRUD; `list` marks the default profile; `delete` refuses the default profile and non-empty profiles
 - `books.get` — Single book with all chapters (status is computed from chapters)
 - `books.logs` — Fetch log entries for a book (with optional `after` cursor)
 - `books.clearLogs` — Delete all log entries for a book
@@ -242,7 +246,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, 
 
 ## HTTP Endpoints (non-tRPC)
 
-- `POST /upload` — Multipart file upload (PDF + voice + speed fields). Creates book row and queues extract job.
+- `POST /upload` — Multipart file upload (PDF + voice + speed fields; `x-profile-id` header assigns the profile). Creates book row and queues extract job.
 - `GET /download/:bookId` — Serve final assembled MP3
 - `GET /download/assembly/:assemblyId` — Serve a specific assembly MP3
 - `GET /download/document/:documentId` — Serve an exported PDF/EPUB document

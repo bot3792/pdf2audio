@@ -2,7 +2,8 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { env } from "./env.ts";
 import { db } from "./db.ts";
 import { books, bookFiles, folders, type NoteJob } from "./schema.ts";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
+import { profileIdFromHeader } from "./trpc.ts";
 import { uploadsDir } from "./lib/paths.ts";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -75,9 +76,13 @@ export function registerUploadRoutes(fastify: FastifyInstance) {
     const skipSynthesis = fields.skipSynthesis === "true";
     const fullExtract = fields.fullExtract === "true";
 
+    const profileId = profileIdFromHeader(request.headers["x-profile-id"]);
     const folderId = fields.folderId || null;
     if (folderId) {
-      const [folder] = await db.select().from(folders).where(eq(folders.id, folderId));
+      const [folder] = await db
+        .select()
+        .from(folders)
+        .where(and(eq(folders.id, folderId), eq(folders.profileId, profileId)));
       if (!folder) return reply.code(400).send({ error: "Folder not found" });
     }
 
@@ -99,6 +104,7 @@ export function registerUploadRoutes(fastify: FastifyInstance) {
         llmChapterDetection,
         skipSynthesis,
         folderId,
+        profileId,
         ...(noteJob ? { noteJob } : {}),
       })
       .returning();

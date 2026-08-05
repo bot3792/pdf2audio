@@ -1,16 +1,28 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, folders } from "../schema.ts";
-import { eq, asc, inArray } from "drizzle-orm";
+import { books, folders, DEFAULT_PROFILE_ID } from "../schema.ts";
+import { eq, and, asc, inArray } from "drizzle-orm";
 import { folderSubtreeIds, folderAncestors } from "../lib/folders.ts";
 import { deleteBook } from "../lib/delete-book.ts";
 
+// Subtree/ancestor walks stay unscoped: a folder tree never crosses profiles because
+// create/move validate the parent against the caller's profile.
+async function ownedFolder(id: string, profileId: string) {
+  const [folder] = await db
+    .select()
+    .from(folders)
+    .where(and(eq(folders.id, id), eq(folders.profileId, profileId)));
+  return folder;
+}
+
 export const foldersRouter = router({
-  list: publicProcedure.query(async () => {
+  list: publicProcedure.query(async ({ ctx }) => {
+    const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
     return db
       .select({ id: folders.id, name: folders.name, parentId: folders.parentId })
       .from(folders)
+      .where(eq(folders.profileId, profileId))
       .orderBy(asc(folders.name));
   }),
 
@@ -19,39 +31,42 @@ export const foldersRouter = router({
       name: z.string().trim().min(1).max(200),
       parentId: z.string().uuid().nullable().default(null),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
       if (input.parentId) {
-        const [parent] = await db.select().from(folders).where(eq(folders.id, input.parentId));
+        const parent = await ownedFolder(input.parentId, profileId);
         if (!parent) throw new Error("Parent folder not found");
       }
       const [folder] = await db
         .insert(folders)
-        .values({ name: input.name, parentId: input.parentId })
+        .values({ name: input.name, parentId: input.parentId, profileId })
         .returning();
       return folder;
     }),
 
   rename: publicProcedure
     .input(z.object({ id: z.string().uuid(), name: z.string().trim().min(1).max(200) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
       await db
         .update(folders)
         .set({ name: input.name, updatedAt: new Date() })
-        .where(eq(folders.id, input.id));
+        .where(and(eq(folders.id, input.id), eq(folders.profileId, profileId)));
       return { success: true };
     }),
 
   move: publicProcedure
     .input(z.object({ id: z.string().uuid(), parentId: z.string().uuid().nullable() }))
-    .mutation(async ({ input }) => {
-      const [folder] = await db.select().from(folders).where(eq(folders.id, input.id));
+    .mutation(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
+      const folder = await ownedFolder(input.id, profileId);
       if (!folder) throw new Error("Folder not found");
       if (input.parentId) {
         const subtree = await folderSubtreeIds(input.id);
         if (subtree.includes(input.parentId)) {
           throw new Error("Cannot move a folder into itself or its own subtree");
         }
-        const [target] = await db.select().from(folders).where(eq(folders.id, input.parentId));
+        const target = await ownedFolder(input.parentId, profileId);
         if (!target) throw new Error("Target folder not found");
       }
       await db
@@ -63,15 +78,20 @@ export const foldersRouter = router({
 
   path: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
+      const folder = await ownedFolder(input.id, profileId);
+      if (!folder) throw new Error("Folder not found");
       return folderAncestors(input.id);
     }),
 
   deleteStats: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
+      const folder = await ownedFolder(input.id, profileId);
+      if (!folder) throw new Error("Folder not found");
       const subtree = await folderSubtreeIds(input.id);
-      if (subtree.length === 0) throw new Error("Folder not found");
       const bookRows = await db
         .select({ id: books.id })
         .from(books)
@@ -81,9 +101,11 @@ export const foldersRouter = router({
 
   delete: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
+      const folder = await ownedFolder(input.id, profileId);
+      if (!folder) throw new Error("Folder not found");
       const subtree = await folderSubtreeIds(input.id);
-      if (subtree.length === 0) throw new Error("Folder not found");
       const bookRows = await db
         .select({ id: books.id })
         .from(books)

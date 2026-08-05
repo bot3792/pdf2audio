@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations, folders } from "../schema.ts";
+import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations, folders, DEFAULT_PROFILE_ID } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
 import { uploadsDir, bookOutputDir } from "../lib/paths.ts";
@@ -99,10 +99,16 @@ async function cleanableChunkDirs(bookId: string): Promise<string[]> {
 export const booksRouter = router({
   list: publicProcedure
     .input(z.object({ folderId: z.string().uuid().nullable().default(null) }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+    const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
     const folderId = input?.folderId ?? null;
-    // Books and aggregates stay unscoped: subtree rollups for folder rows need them all
-    const allBooks = await db.select().from(books).orderBy(desc(books.createdAt));
+    // Books stay folder-unscoped (subtree rollups need them all); aggregates stay fully
+    // unscoped — they join in memory by book id, so other profiles' rows are inert
+    const allBooks = await db
+      .select()
+      .from(books)
+      .where(eq(books.profileId, profileId))
+      .orderBy(desc(books.createdAt));
 
     const chapterAgg = (await db.execute(sql`
       SELECT book_id, status, count(*)::int AS count FROM chapters GROUP BY book_id, status
@@ -227,7 +233,11 @@ export const booksRouter = router({
         })),
     );
 
-    const allFolders = await db.select().from(folders).orderBy(asc(folders.name));
+    const allFolders = await db
+      .select()
+      .from(folders)
+      .where(eq(folders.profileId, profileId))
+      .orderBy(asc(folders.name));
     const childrenOf = new Map<string | null, typeof allFolders>();
     for (const f of allFolders) {
       const key = f.parentId ?? null;
@@ -383,7 +393,7 @@ export const booksRouter = router({
         skipSynthesis: z.boolean().default(false),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       parseTtsVoice(input.voice);
 
       const id = randomUUID();
@@ -401,6 +411,7 @@ export const booksRouter = router({
           voice: input.voice,
           speed: input.speed,
           skipSynthesis: input.skipSynthesis,
+          profileId: ctx.profileId ?? DEFAULT_PROFILE_ID,
         })
         .returning();
 
@@ -460,7 +471,15 @@ export const booksRouter = router({
       model: z.enum(["flash", "pro"]).default("flash"),
       folderId: z.string().uuid().nullable().default(null),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
+      if (input.folderId) {
+        const [folder] = await db
+          .select({ id: folders.id })
+          .from(folders)
+          .where(and(eq(folders.id, input.folderId), eq(folders.profileId, profileId)));
+        if (!folder) throw new Error("Folder not found");
+      }
       const sources = await db
         .select({ id: books.id, title: books.title })
         .from(books)
@@ -494,6 +513,7 @@ export const booksRouter = router({
           origin: { type: "digest", sourceBookIds: input.sourceBookIds, prompt: input.prompt, model: input.model },
           digestJob: { status: "running", createdAt: now, updatedAt: now },
           folderId: input.folderId,
+          profileId,
         })
         .returning();
 
@@ -1092,15 +1112,19 @@ export const booksRouter = router({
       ids: z.array(z.string().uuid()).min(1).max(100),
       folderId: z.string().uuid().nullable(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
       if (input.folderId) {
-        const [folder] = await db.select().from(folders).where(eq(folders.id, input.folderId));
+        const [folder] = await db
+          .select()
+          .from(folders)
+          .where(and(eq(folders.id, input.folderId), eq(folders.profileId, profileId)));
         if (!folder) throw new Error("Folder not found");
       }
       await db
         .update(books)
         .set({ folderId: input.folderId, updatedAt: new Date() })
-        .where(inArray(books.id, input.ids));
+        .where(and(inArray(books.id, input.ids), eq(books.profileId, profileId)));
       return { moved: input.ids.length };
     }),
 

@@ -6,10 +6,12 @@ import { bookFilesRouter } from "./routes/bookFiles.ts";
 import { translationsRouter } from "./routes/translations.ts";
 import { notesRouter } from "./routes/notes.ts";
 import { foldersRouter } from "./routes/folders.ts";
+import { profilesRouter } from "./routes/profiles.ts";
 
 export const appRouter = router({
   books: booksRouter,
   folders: foldersRouter,
+  profiles: profilesRouter,
   chapters: chaptersRouter,
   bookFiles: bookFilesRouter,
   translations: translationsRouter,

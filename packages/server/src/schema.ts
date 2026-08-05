@@ -55,13 +55,23 @@ export type ChapterSource =
   | { kind: "book"; bookId: string; title: string }
   | { kind: "url"; url: string; title?: string };
 
+// Pre-profiles data is backfilled onto this fixed id; missing x-profile-id headers resolve to it
+export const DEFAULT_PROFILE_ID = "00000000-0000-0000-0000-000000000001";
+
+export const profiles = pgTable("profiles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const folders = pgTable("folders", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   parentId: uuid("parent_id").references((): AnyPgColumn => folders.id, { onDelete: "cascade" }),
+  profileId: uuid("profile_id").notNull().default(DEFAULT_PROFILE_ID).references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index("folders_parent_id_idx").on(t.parentId)]);
+}, (t) => [index("folders_parent_id_idx").on(t.parentId), index("folders_profile_id_idx").on(t.profileId)]);
 
 export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -89,9 +99,10 @@ export const books = pgTable("books", {
   digestJob: jsonb("digest_job").$type<DigestJob>(),
   // "set null", never cascade: book deletion must go through deleteBook (disk cleanup)
   folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
+  profileId: uuid("profile_id").notNull().default(DEFAULT_PROFILE_ID).references(() => profiles.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [index("books_folder_id_idx").on(t.folderId)]);
+}, (t) => [index("books_folder_id_idx").on(t.folderId), index("books_profile_id_idx").on(t.profileId)]);
 
 export const chapters = pgTable("chapters", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -217,3 +228,4 @@ export type BookDocument = typeof documents.$inferSelect;
 export type ChapterTranslation = typeof chapterTranslations.$inferSelect;
 export type Note = typeof notes.$inferSelect;
 export type Folder = typeof folders.$inferSelect;
+export type Profile = typeof profiles.$inferSelect;

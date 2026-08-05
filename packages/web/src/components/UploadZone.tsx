@@ -3,6 +3,7 @@ import { VoicePicker } from "./VoicePicker.tsx";
 import { SpeedSlider } from "./SpeedSlider.tsx";
 import { getVoiceById, voiceSupportsSpeedControl } from "../lib/voices.ts";
 import { AI_MODELS, AI_PRESETS, type AiModelKey } from "../lib/ai-presets.ts";
+import { profileHeaders } from "../lib/profile.ts";
 
 type UploadZoneProps = {
   onUploadComplete: () => void;
@@ -86,7 +87,7 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
   }
 
   async function postUpload(formData: FormData) {
-    const res = await fetch("/upload", { method: "POST", body: formData });
+    const res = await fetch("/upload", { method: "POST", body: formData, headers: profileHeaders() });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.error ?? `Upload failed (${res.status})`);
