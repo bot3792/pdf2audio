@@ -9,6 +9,7 @@ import { parseFile } from "music-metadata";
 import { mkdir, rm, unlink } from "node:fs/promises";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { buildSyncMapFromChunks, writeSyncMap } from "../lib/sync-map.ts";
 import type { WorkerUtils } from "graphile-worker";
 
 export type SynthesizeTranslationPayload = {
@@ -153,6 +154,10 @@ export async function synthesizeTranslation(
 
     const metadata = await parseFile(mp3Path, { duration: true });
     const durationMs = Math.round((metadata.format.duration ?? 0) * 1000);
+
+    // Persist text↔audio timings so read-along exports survive chunk-WAV cleanup
+    const syncMap = await buildSyncMapFromChunks(chunkPreviewDir, durationMs).catch(() => null);
+    if (syncMap) await writeSyncMap(mp3Path, syncMap);
 
     await db
       .update(chapterTranslations)

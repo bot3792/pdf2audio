@@ -10,6 +10,7 @@ import { mkdir, rm, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { WorkerUtils } from "graphile-worker";
 import { chapterChunkPreviewDir, chapterChunkPreviewUrlBase, listChapterChunkPreviews } from "../lib/chunk-previews.ts";
+import { buildSyncMapFromChunks, writeSyncMap } from "../lib/sync-map.ts";
 
 export type SynthesizePayload = {
   chapterId: string;
@@ -142,6 +143,10 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
 
     const metadata = await parseFile(mp3Path, { duration: true });
     const durationMs = Math.round((metadata.format.duration ?? 0) * 1000);
+
+    // Persist text↔audio timings so read-along exports survive chunk-WAV cleanup
+    const syncMap = await buildSyncMapFromChunks(chunkPreviewDir, durationMs).catch(() => null);
+    if (syncMap) await writeSyncMap(mp3Path, syncMap);
 
     await db
       .update(chapters)
