@@ -449,6 +449,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
             const idle =
               !book.activity.extracting && !book.activity.assembling && !book.activity.aiNote && !book.activity.digest &&
               book.activity.synthesizing === 0 && book.activity.translating === 0 && book.activity.cleaning === 0;
+            const noText = !book.hasText && book.kind === "pdf" && !book.activity.extracting;
             const outputParts = [
               book.outputs.assemblies > 0 ? `${book.outputs.assemblies} MP3` : null,
               book.outputs.pdfs > 0 ? `${book.outputs.pdfs} PDF` : null,
@@ -525,7 +526,16 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
                         {totalFailures > 0 ? `${totalFailures} failed` : "failed"}
                       </span>
                     )}
-                    {idle && totalFailures === 0 && !book.failed && <span className="text-xs text-(--text-faint)">—</span>}
+                    {noText && (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                        title="No text extracted — the PDF is likely scanned. Open the book and extract with Force OCR. Without text it can't be used in digests or Ask AI."
+                        data-testid="no-text-pill"
+                      >
+                        no text
+                      </span>
+                    )}
+                    {idle && totalFailures === 0 && !book.failed && !noText && <span className="text-xs text-(--text-faint)">—</span>}
                   </div>
                 </td>
                 <td className="px-4 py-3">

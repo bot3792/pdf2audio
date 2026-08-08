@@ -18,16 +18,28 @@ export function DigestModal({
   const [title, setTitle] = useState(`Digest — ${sourceBooks.length} books`);
   const [prompt, setPrompt] = useState(DIGEST_LISTENING_PROMPT);
   const [model, setModel] = useState<AiModelKey>("flash");
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+
+  const { data: availability } = trpc.books.textAvailability.useQuery({
+    ids: sourceBooks.map((b) => b.id),
+  });
+  const noText = new Set((availability ?? []).filter((a) => !a.hasText).map((a) => a.id));
+  const included = sourceBooks.filter((b) => !excluded.has(b.id));
+  const unusable = included.filter((b) => noText.has(b.id));
 
   const createMutation = trpc.books.createDigest.useMutation({
     onSuccess: (book) => navigate(`/books/${book.id}`),
   });
 
+  function excludeUnusable() {
+    setExcluded(new Set([...excluded, ...unusable.map((b) => b.id)]));
+  }
+
   function create() {
-    if (!title.trim() || !prompt.trim() || createMutation.isPending) return;
+    if (!title.trim() || !prompt.trim() || included.length < 2 || createMutation.isPending) return;
     createMutation.mutate({
       title: title.trim(),
-      sourceBookIds: sourceBooks.map((b) => b.id),
+      sourceBookIds: included.map((b) => b.id),
       prompt: prompt.trim(),
       model,
       folderId,
@@ -43,7 +55,7 @@ export function DigestModal({
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-(--border) shrink-0">
           <span className="text-sm font-medium text-(--text-primary)">
-            Create digest from {sourceBooks.length} books
+            Create digest from {included.length} books
           </span>
           <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-tertiary) p-1" title="Close">
             <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -114,13 +126,48 @@ export function DigestModal({
             </div>
           </div>
 
+          {unusable.length > 0 && (
+            <div
+              className="rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 p-3 space-y-2"
+              data-testid="digest-no-text-warning"
+            >
+              <p className="text-sm text-amber-800 dark:text-amber-300">
+                No text available for {unusable.length} book{unusable.length === 1 ? "" : "s"}:{" "}
+                {unusable.map((b) => `"${b.title}"`).join(", ")} — the digest would fail. Extract them first
+                (with Force OCR if scanned), or leave them out.
+              </p>
+              <button
+                onClick={excludeUnusable}
+                className="px-3 py-1.5 rounded-md text-xs font-medium bg-amber-600 text-white hover:bg-amber-700"
+                data-testid="digest-exclude-unusable"
+              >
+                Exclude {unusable.length} book{unusable.length === 1 ? "" : "s"} without text
+              </button>
+            </div>
+          )}
+
           <div>
             <p className="text-sm text-(--text-secondary) mb-1">Chapters, in order</p>
             <ol className="text-sm text-(--text-muted) list-decimal pl-5 space-y-0.5">
-              {sourceBooks.map((b) => (
-                <li key={b.id} className="truncate" title={b.title}>{b.title}</li>
+              {included.map((b) => (
+                <li key={b.id} className="truncate" title={b.title}>
+                  {noText.has(b.id) && <span title="No text available" className="mr-1">⚠️</span>}
+                  {b.title}
+                </li>
               ))}
             </ol>
+            {excluded.size > 0 && (
+              <p className="text-xs text-(--text-faint) mt-1">
+                {excluded.size} book{excluded.size === 1 ? "" : "s"} without text excluded{" "}
+                <button
+                  onClick={() => setExcluded(new Set())}
+                  className="underline hover:text-(--text-secondary)"
+                  data-testid="digest-undo-exclude"
+                >
+                  Undo
+                </button>
+              </p>
+            )}
           </div>
 
           {createMutation.error && (
@@ -134,7 +181,8 @@ export function DigestModal({
           </p>
           <button
             onClick={create}
-            disabled={!title.trim() || !prompt.trim() || createMutation.isPending}
+            disabled={!title.trim() || !prompt.trim() || included.length < 2 || createMutation.isPending}
+            title={included.length < 2 ? "A digest needs at least 2 books with text" : undefined}
             className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             data-testid="digest-create"
           >

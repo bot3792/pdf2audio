@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useParams } from "react-router";
 import { trpc } from "../trpc.ts";
 import { UploadZone } from "../components/UploadZone.tsx";
 import { BookList } from "../components/BookList.tsx";
+import { BookSearchResults } from "../components/BookSearchResults.tsx";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
 import { ProfileSwitcher } from "../components/ProfileSwitcher.tsx";
 import type { DragItems } from "../lib/dnd.ts";
@@ -9,6 +11,7 @@ import type { DragItems } from "../lib/dnd.ts";
 export function Home() {
   const utils = trpc.useUtils();
   const { folderId = null } = useParams<{ folderId: string }>();
+  const [search, setSearch] = useState("");
   const { data: folderPath = [] } = trpc.folders.path.useQuery(
     { id: folderId! },
     { enabled: !!folderId },
@@ -59,10 +62,36 @@ export function Home() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-(--text-secondary) mb-3">
-            {currentFolder ? `📁 ${currentFolder.name}` : "Books"}
-          </h2>
-          <BookList key={folderId ?? "root"} folderId={folderId} />
+          <div className="flex items-center gap-3 mb-3">
+            <h2 className="text-lg font-semibold text-(--text-secondary)">
+              {currentFolder ? `📁 ${currentFolder.name}` : "Books"}
+            </h2>
+            <div className="ml-auto relative">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") setSearch(""); }}
+                placeholder="Search all books…"
+                className="w-72 pl-3 pr-8 py-1.5 text-sm rounded-md border border-(--border) bg-(--bg-card) text-(--text-primary) outline-none focus:border-blue-500"
+                data-testid="book-search"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  title="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-(--text-faint) hover:text-(--text-secondary)"
+                  data-testid="clear-search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+          {search.trim() ? (
+            <BookSearchResults query={search.trim()} />
+          ) : (
+            <BookList key={folderId ?? "root"} folderId={folderId} />
+          )}
         </section>
       </div>
     </div>

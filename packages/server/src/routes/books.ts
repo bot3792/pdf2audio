@@ -3,7 +3,7 @@ import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations, folders, DEFAULT_PROFILE_ID } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
-import { eq, desc, asc, gt, and, ne, inArray, sql } from "drizzle-orm";
+import { eq, desc, asc, gt, and, ne, inArray, ilike, sql } from "drizzle-orm";
 import { uploadsDir, bookOutputDir } from "../lib/paths.ts";
 import { deleteBook } from "../lib/delete-book.ts";
 import { folderAncestors } from "../lib/folders.ts";
@@ -121,9 +121,10 @@ export const booksRouter = router({
 
     const fileAgg = (await db.execute(sql`
       SELECT book_id, status, count(*)::int AS count,
-        count(*) FILTER (WHERE status = 'failed' AND error NOT LIKE 'Cancelled%')::int AS hard_failed
+        count(*) FILTER (WHERE status = 'failed' AND error NOT LIKE 'Cancelled%')::int AS hard_failed,
+        count(*) FILTER (WHERE raw_text IS NOT NULL)::int AS with_raw_text
       FROM book_files GROUP BY book_id, status
-    `)) as unknown as Array<{ book_id: string; status: string; count: number; hard_failed: number }>;
+    `)) as unknown as Array<{ book_id: string; status: string; count: number; hard_failed: number; with_raw_text: number }>;
 
     const translationAgg = (await db.execute(sql`
       SELECT c.book_id, ct.language,
@@ -202,6 +203,8 @@ export const booksRouter = router({
       return {
         chapterCount,
         chaptersWithAudio,
+        // Mirrors the createDigest/textAvailability guard
+        hasText: chapterCount > 0 || fileRows.reduce((sum, r) => sum + r.with_raw_text, 0) > 0,
         activity,
         failures,
         // Cancellations are deliberate — only real failures get the red badge (mirrors hard_failed)
@@ -279,6 +282,53 @@ export const booksRouter = router({
       books: overview.sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime()),
     };
   }),
+
+  // Mirrors createDigest's per-book guard so the modal can warn before submitting
+  textAvailability: publicProcedure
+    .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(500) }))
+    .query(async ({ input }) => {
+      const withChapters = await db
+        .selectDistinct({ bookId: chapters.bookId })
+        .from(chapters)
+        .where(inArray(chapters.bookId, input.ids));
+      const withRawText = await db
+        .selectDistinct({ bookId: bookFiles.bookId })
+        .from(bookFiles)
+        .where(and(inArray(bookFiles.bookId, input.ids), sql`${bookFiles.rawText} is not null`));
+      const hasText = new Set([...withChapters, ...withRawText].map((r) => r.bookId));
+      return input.ids.map((id) => ({ id, hasText: hasText.has(id) }));
+    }),
+
+  search: publicProcedure
+    .input(z.object({ query: z.string().trim().min(1).max(200) }))
+    .query(async ({ input, ctx }) => {
+      const profileId = ctx.profileId ?? DEFAULT_PROFILE_ID;
+      const words = input.query.split(/\s+/).filter(Boolean).slice(0, 8);
+      const pattern = (w: string) => `%${w.replace(/[\\%_]/g, "\\$&")}%`;
+      const rows = await db
+        .select({ id: books.id, title: books.title, kind: books.kind, folderId: books.folderId, createdAt: books.createdAt })
+        .from(books)
+        .where(and(eq(books.profileId, profileId), ...words.map((w) => ilike(books.title, pattern(w)))))
+        .orderBy(desc(books.createdAt))
+        .limit(50);
+
+      const allFolders = await db
+        .select({ id: folders.id, name: folders.name, parentId: folders.parentId })
+        .from(folders)
+        .where(eq(folders.profileId, profileId));
+      const folderById = new Map(allFolders.map((f) => [f.id, f]));
+      const pathFor = (id: string) => {
+        const path: { id: string; name: string }[] = [];
+        let cur = folderById.get(id);
+        while (cur && path.length < 20) {
+          path.unshift({ id: cur.id, name: cur.name });
+          cur = cur.parentId ? folderById.get(cur.parentId) : undefined;
+        }
+        return path;
+      };
+
+      return rows.map((b) => ({ ...b, folderPath: b.folderId ? pathFor(b.folderId) : [] }));
+    }),
 
   get: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
@@ -466,7 +516,7 @@ export const booksRouter = router({
   createDigest: publicProcedure
     .input(z.object({
       title: z.string().trim().min(1),
-      sourceBookIds: z.array(z.string().uuid()).min(2).max(50),
+      sourceBookIds: z.array(z.string().uuid()).min(2).max(200),
       prompt: z.string().min(1).max(4000),
       model: z.enum(["flash", "pro"]).default("flash"),
       folderId: z.string().uuid().nullable().default(null),

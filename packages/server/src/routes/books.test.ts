@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ensureGraphileTables, getDb, insertJob, resetDb } from "../../test/setup.ts";
-import { books, bookFiles, chapters, notes, folders } from "../schema.ts";
+import { books, bookFiles, chapters, notes, folders, profiles } from "../schema.ts";
 
 const { mockQuickAddJob, mockDeepseekChat } = vi.hoisted(() => ({
   mockQuickAddJob: vi.fn(async () => {}),
@@ -655,5 +655,113 @@ describe("booksRouter.createDigest", () => {
     expect(mockQuickAddJob).toHaveBeenCalledTimes(1);
 
     await expect(caller.resumeDigest({ id: digestBook.id })).rejects.toThrow(/already running/);
+  });
+});
+
+describe("booksRouter.search", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+  });
+
+  it("matches all words case-insensitively and returns the folder path", async () => {
+    const db = getDb();
+    const [root] = await db.insert(folders).values({ name: "History" }).returning();
+    const [sub] = await db.insert(folders).values({ name: "Ancient", parentId: root.id }).returning();
+    await db.insert(books).values([
+      { title: "The Empire of the City", folderId: sub.id },
+      { title: "Empire Falls" },
+      { title: "Unrelated" },
+    ]);
+
+    const caller = booksRouter.createCaller({});
+    const results = await caller.search({ query: "empire CITY" });
+    expect(results.map((b) => b.title)).toEqual(["The Empire of the City"]);
+    expect(results[0].folderPath.map((f) => f.name)).toEqual(["History", "Ancient"]);
+
+    const both = await caller.search({ query: "empire" });
+    expect(both.map((b) => b.title).sort()).toEqual(["Empire Falls", "The Empire of the City"]);
+  });
+
+  it("treats like wildcards as literals", async () => {
+    const db = getDb();
+    await db.insert(books).values([{ title: "100% Cotton" }, { title: "100 Cotton" }]);
+
+    const caller = booksRouter.createCaller({});
+    const results = await caller.search({ query: "100%" });
+    expect(results.map((b) => b.title)).toEqual(["100% Cotton"]);
+  });
+
+  it("is scoped to the caller's profile", async () => {
+    const db = getDb();
+    const [other] = await db.insert(profiles).values({ name: "Wife" }).returning();
+    await db.insert(books).values([
+      { title: "Shared title" },
+      { title: "Shared title", profileId: other.id },
+    ]);
+
+    const results = await booksRouter.createCaller({ profileId: other.id }).search({ query: "shared" });
+    expect(results).toHaveLength(1);
+    expect(results[0].folderPath).toEqual([]);
+  });
+});
+
+describe("booksRouter.textAvailability", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+  });
+
+  it("flags books with chapters or raw text as usable, bare books as not", async () => {
+    const db = getDb();
+    const chaptered = crypto.randomUUID();
+    const rawOnly = crypto.randomUUID();
+    const bare = crypto.randomUUID();
+    await db.insert(books).values([
+      { id: chaptered, title: "Chaptered" },
+      { id: rawOnly, title: "Raw only" },
+      { id: bare, title: "Bare" },
+    ]);
+    await db.insert(chapters).values({ bookId: chaptered, index: 0, title: "Ch 1", rawText: "text" });
+    await db.insert(bookFiles).values([
+      { bookId: rawOnly, index: 0, filename: "r.pdf", pdfPath: "/tmp/r.pdf", status: "raw", rawText: "raw text" },
+      { bookId: bare, index: 0, filename: "b.pdf", pdfPath: "/tmp/b.pdf", status: "pending" },
+    ]);
+
+    const caller = booksRouter.createCaller({});
+    const results = await caller.textAvailability({ ids: [chaptered, rawOnly, bare] });
+    expect(results).toEqual([
+      { id: chaptered, hasText: true },
+      { id: rawOnly, hasText: true },
+      { id: bare, hasText: false },
+    ]);
+  });
+});
+
+describe("booksRouter.list hasText", () => {
+  beforeEach(async () => {
+    await resetDb(getDb());
+  });
+
+  it("flags books without chapters or raw text", async () => {
+    const db = getDb();
+    const chaptered = crypto.randomUUID();
+    const rawOnly = crypto.randomUUID();
+    const bare = crypto.randomUUID();
+    await db.insert(books).values([
+      { id: chaptered, title: "Chaptered" },
+      { id: rawOnly, title: "Raw only" },
+      { id: bare, title: "Bare" },
+    ]);
+    await db.insert(chapters).values({ bookId: chaptered, index: 0, title: "Ch 1", rawText: "text" });
+    await db.insert(bookFiles).values([
+      { bookId: rawOnly, index: 0, filename: "r.pdf", pdfPath: "/tmp/r.pdf", status: "raw", rawText: "raw text" },
+      { bookId: bare, index: 0, filename: "b.pdf", pdfPath: "/tmp/b.pdf", status: "raw" },
+    ]);
+
+    const caller = booksRouter.createCaller({});
+    const { books: overview } = await caller.list({ folderId: null });
+    const byTitle = new Map(overview.map((b) => [b.title, b.hasText]));
+    expect(byTitle.get("Chaptered")).toBe(true);
+    expect(byTitle.get("Raw only")).toBe(true);
+    expect(byTitle.get("Bare")).toBe(false);
   });
 });
