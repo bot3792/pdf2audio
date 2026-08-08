@@ -903,7 +903,7 @@ export function BookDetail() {
                 </div>
               </div>
               <div className={`pt-3 ${createTab === "document" ? "" : "hidden"}`}>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-start gap-2 flex-wrap">
                   <button
                     onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "pdf" })}
                     disabled={!canExportDocument || !!pendingExportFor("pdf")}
@@ -922,20 +922,37 @@ export function BookDetail() {
                   >
                     Export EPUB ({selectedExportable}){langSuffix}
                   </button>
-                  <button
-                    onClick={() => exportDocumentMutation.mutate({
-                      id: book.id,
-                      language: activeLanguage ?? undefined,
-                      format: "epub-sync",
-                      copyToDropDir: !!exportConfig?.readaloudDropDir && copyToImport,
-                    })}
-                    disabled={selectedSyncExportable === 0 || isAssembling || exportDocumentMutation.isPending || !!pendingExportFor("epub-sync")}
-                    title={syncExportTooltip}
-                    className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    data-testid="export-epub-sync"
-                  >
-                    Export synced EPUB ({selectedSyncExportable}){langSuffix}
-                  </button>
+                  <div className="ml-1 flex flex-col gap-1.5 border-l border-(--border) pl-3">
+                    <button
+                      onClick={() => exportDocumentMutation.mutate({
+                        id: book.id,
+                        language: activeLanguage ?? undefined,
+                        format: "epub-sync",
+                        copyToDropDir: !!exportConfig?.readaloudDropDir && copyToImport,
+                      })}
+                      disabled={selectedSyncExportable === 0 || isAssembling || exportDocumentMutation.isPending || !!pendingExportFor("epub-sync")}
+                      title={syncExportTooltip}
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      data-testid="export-epub-sync"
+                    >
+                      Export synced EPUB ({selectedSyncExportable}){langSuffix}
+                    </button>
+                    {exportConfig?.readaloudDropDir && (
+                      <label
+                        className="flex w-fit items-center gap-1.5 text-xs text-(--text-muted) cursor-pointer hover:text-(--text-secondary)"
+                        title={`Copies the synced EPUB to ${exportConfig.readaloudDropDir} so Storyteller picks it up automatically (READALOUD_DROP_DIR in .env)`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={copyToImport}
+                          onChange={(e) => setCopyToImport(e.target.checked)}
+                          className="rounded"
+                          data-testid="copy-to-import"
+                        />
+                        Copy to Storyteller import folder
+                      </label>
+                    )}
+                  </div>
                   {viewPendingExports.length > 0 && (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400" data-testid="export-pending-inline">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -943,21 +960,6 @@ export function BookDetail() {
                     </span>
                   )}
                 </div>
-                {exportConfig?.readaloudDropDir && (
-                  <label
-                    className="mt-2 flex w-fit items-center gap-1.5 text-xs text-(--text-muted) cursor-pointer hover:text-(--text-secondary)"
-                    title={`Copies the synced EPUB to ${exportConfig.readaloudDropDir} so Storyteller picks it up automatically (READALOUD_DROP_DIR in .env)`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={copyToImport}
-                      onChange={(e) => setCopyToImport(e.target.checked)}
-                      className="rounded"
-                      data-testid="copy-to-import"
-                    />
-                    Copy to Storyteller import folder
-                  </label>
-                )}
               </div>
             </div>
           )}
