@@ -337,10 +337,10 @@ export function ChapterTable({
         ) : null}
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-lg border border-(--border)">
+      {/* Table — capped height so long books don't push the output controls off-screen */}
+      <div className="overflow-x-auto overflow-y-auto max-h-[70vh] rounded-lg border border-(--border)">
         <table className="w-full min-w-[56rem] divide-y divide-(--divide)">
-          <thead className="bg-(--bg-subtle)">
+          <thead className="bg-(--bg-subtle) sticky top-0 z-10">
             <tr>
               <th className="px-3 py-3 w-10">
                 <input

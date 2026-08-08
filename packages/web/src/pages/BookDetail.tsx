@@ -3,9 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router";
 import { trpc } from "../trpc.ts";
 import { ChapterTable } from "../components/ChapterTable.tsx";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
-import { voiceSupportsSpeedControl } from "../lib/voices.ts";
-import { VoicePicker } from "../components/VoicePicker.tsx";
-import { SpeedSlider } from "../components/SpeedSlider.tsx";
+import { SynthesizeModal } from "../components/SynthesizeModal.tsx";
 import { StructureModal } from "../components/StructureModal.tsx";
 import { TranslationModal } from "../components/TranslationModal.tsx";
 import { BookFilesSection } from "../components/BookFilesSection.tsx";
@@ -141,6 +139,7 @@ export function BookDetail() {
 
   const [showStructure, setShowStructure] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+  const [showSynthesize, setShowSynthesize] = useState(false);
   const [createTab, setCreateTab] = useState<"audio" | "document">("audio");
   const [askScope, setAskScope] = useState<AiScope | null>(null);
   const setActiveLanguage = (lang: string | null) => {
@@ -176,13 +175,13 @@ export function BookDetail() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-      if (askScope || showStructure || showTranslation) return;
+      if (askScope || showStructure || showTranslation || showSynthesize) return;
       const target = e.key === "[" ? prevBook : nextBook;
       if (target) navigate(`/books/${target.id}`);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [prevBook?.id, nextBook?.id, askScope, showStructure, showTranslation]);
+  }, [prevBook?.id, nextBook?.id, askScope, showStructure, showTranslation, showSynthesize]);
 
   const { data: translationRows = [] } = trpc.translations.listForBook.useQuery(
     { bookId: id!, language: activeLanguage! },
@@ -585,9 +584,35 @@ export function BookDetail() {
             </div>
           )}
 
-          {/* Chapter work toolbar — acts on the selected chapters' text */}
+          {/* Chapter work toolbar — acts on the selected chapters */}
           {book.chapters.length > 0 && (
             <div className="flex gap-3 mb-3 flex-wrap">
+              <button
+                onClick={() => setShowSynthesize(true)}
+                disabled={selectedSynthesizable === 0}
+                title={
+                  selectedSynthesizable === 0
+                    ? (activeLanguage ? "No selected chapters have a translation ready or underway" : "No selected chapters are ready for synthesis")
+                    : "Pick voice and speed, then synthesize the selected chapters"
+                }
+                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="open-synthesize"
+              >
+                Synthesize selected ({selectedSynthesizable}){langSuffix}...
+              </button>
+              <button
+                onClick={() =>
+                  activeLanguage
+                    ? stopAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
+                    : cancelMutation.mutate({ id: book.id })
+                }
+                disabled={!(hasActiveChapters || translationAudioQueued) || cancelMutation.isPending || stopAudioMutation.isPending}
+                title={!(hasActiveChapters || translationAudioQueued) ? "No chapters are actively processing" : "Stop the running synthesis — finished chapters keep their audio, the rest resume later"}
+                className="px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                data-testid="cancel-processing"
+              >
+                Cancel processing
+              </button>
               <button
                 onClick={() => processSelectedTranslationsMutation.mutate({ bookId: book.id, language: activeLanguage! })}
                 disabled={!activeLanguage || selectedTranslatable === 0 || processSelectedTranslationsMutation.isPending}
@@ -818,38 +843,7 @@ export function BookDetail() {
                 </button>
               </div>
               <div className={`pt-3 space-y-3 ${createTab === "audio" ? "" : "hidden"}`}>
-                <div className="flex items-end gap-4 flex-wrap">
-                  <div className="w-64">
-                    <VoicePicker
-                      value={book.voice}
-                      onChange={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
-                    />
-                  </div>
-                  <SpeedSlider
-                    value={book.speed}
-                    onChange={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
-                    disabled={!voiceSupportsSpeedControl(book.voice)}
-                  />
-                </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() =>
-                    activeLanguage
-                      ? processSelectedAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
-                      : processSelectedMutation.mutate({ id: book.id })
-                  }
-                  disabled={!canProcess || processSelectedMutation.isPending || processSelectedAudioMutation.isPending}
-                  title={
-                    selectedSynthesizable === 0 ? (activeLanguage ? "No selected chapters have a translation ready or underway" : "No selected chapters are ready for synthesis") :
-                    !activeLanguage && hasActiveChapters ? "Wait for active chapters to finish" :
-                    isAssembling ? "Wait for assembly to finish" :
-                    activeLanguage ? `Synthesize the selected ${activeLanguage} chapters — ones still translating start when their translation finishes` :
-                    "Use the current selected voice/model to synthesize the selected chapters"
-                  }
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Synthesize selected ({selectedSynthesizable}){langSuffix}
-                </button>
                 <button
                   onClick={() =>
                     activeLanguage
@@ -866,18 +860,6 @@ export function BookDetail() {
                   className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {book.outputPath ? "Re-assemble" : "Assemble"} selected ({selectedWithAudio}){langSuffix}
-                </button>
-                <button
-                  onClick={() =>
-                    activeLanguage
-                      ? stopAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
-                      : cancelMutation.mutate({ id: book.id })
-                  }
-                  disabled={!(hasActiveChapters || translationAudioQueued) || cancelMutation.isPending || stopAudioMutation.isPending}
-                  title={!(hasActiveChapters || translationAudioQueued) ? "No chapters are actively processing" : undefined}
-                  className="px-4 py-2 bg-zinc-600 text-white rounded-md text-sm font-medium hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Cancel processing
                 </button>
                 <button
                   onClick={() => {
@@ -1017,6 +999,33 @@ export function BookDetail() {
         )}
 
         {askScope && <ChapterAiModal scope={askScope} onClose={() => setAskScope(null)} />}
+
+        {showSynthesize && (
+          <SynthesizeModal
+            count={selectedSynthesizable}
+            language={activeLanguage}
+            voice={book.voice}
+            speed={book.speed}
+            onChangeVoice={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
+            onChangeSpeed={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
+            canStart={canProcess && !processSelectedMutation.isPending && !processSelectedAudioMutation.isPending}
+            disabledReason={
+              selectedSynthesizable === 0 ? (activeLanguage ? "No selected chapters have a translation ready or underway" : "No selected chapters are ready for synthesis") :
+              !activeLanguage && hasActiveChapters ? "Wait for active chapters to finish" :
+              isAssembling ? "Wait for assembly to finish" :
+              undefined
+            }
+            onStart={() => {
+              if (activeLanguage) {
+                processSelectedAudioMutation.mutate({ bookId: book.id, language: activeLanguage });
+              } else {
+                processSelectedMutation.mutate({ id: book.id });
+              }
+              setShowSynthesize(false);
+            }}
+            onClose={() => setShowSynthesize(false)}
+          />
+        )}
 
         {showTranslation && (
           <TranslationModal
