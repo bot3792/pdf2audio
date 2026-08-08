@@ -40,7 +40,7 @@ pnpm monorepo with two packages:
 
 Postgres runs in Docker (`docker-compose.yml` at root), mapped to host port **5433** (not 5432, to avoid conflicts).
 
-Environment variables are managed via `.env` at the repo root (gitignored), with `.env.example` as template. The server loads env via `dotenv` in `packages/server/src/env.ts`, validated through a Zod schema. All server code imports the typed `env` object — never reads `process.env` directly.
+Environment variables are managed via `.env` at the repo root (gitignored), with `.env.example` as template. The server loads env via `dotenv` in `packages/server/src/env.ts`, validated through a Zod schema. All server code imports the typed `env` object — never reads `process.env` directly. Vars: `DATABASE_URL`, `DATA_DIR`, `PORT`, `CONDA_ENV_PATH`, optional `DEEPSEEK_API_KEY` (all AI features), optional `READALOUD_DROP_DIR` (synced-EPUB drop folder for Storyteller auto-import).
 
 ## The Pipeline
 
@@ -69,6 +69,16 @@ Every upload extracts raw text with `pdftotext` in seconds (stored per file in `
 
 4. **assemble** (`workers/assemble.ts`, user-triggered) — FFmpeg concatenates selected chapter MP3s into one (or copies directly for single-chapter books). node-id3 writes ID3v2 CHAP/CTOC frames for chapter markers. Assembly is an explicit user action, not auto-queued. Each assembly is recorded in the `assemblies` table with metadata (duration, chapter count, summary).
 
+5. **translate / translateTitles** (`workers/translate.ts`, `translate-titles.ts`, translate pool) — Per-chapter DeepSeek translation into `chapter_translations` (chunked via `lib/translate.ts`, `runToken` fencing, `sourceHash` staleness detection); title-only backfill for translated chapter titles.
+
+6. **synthesizeTranslation** (`workers/synthesize-translation.ts`, tts pool) — TTS for a finished translation (audio state on the `chapter_translations` row, per-language output dir + chunk previews + sync map). Auto-queues a language assembly when every selected translated chapter has audio.
+
+7. **assembleDocument** (`workers/assemble-document.ts`, assembly pool) — Renders selected chapters to `pdf`/`epub` via Vivliostyle CLI, or builds the `epub-sync` read-along EPUB from chapter MP3s + sync maps (`lib/readaloud-epub.ts`); records a `documents` row; optionally copies epub-sync output to `READALOUD_DROP_DIR`.
+
+8. **propose / redetect** (`workers/propose.ts`, `redetect.ts`, extraction pool) — LLM chapter-boundary proposals (structure modal) and full chapter re-detection without re-running marker.
+
+9. **sweep** (`workers/sweep.ts`, startup) — Requeues/fails stranded jobs after a server restart (stuck extracting/assembling books, stale cleanup runs).
+
 Workers run in five pools (`workers/setup.ts`): `tts` (concurrency 2 — MLX contends for the GPU), `raw` (2 — rawExtract, so raw text never queues behind a 30-minute marker run), `extraction` (1 — extract/normalize/redetect/propose), `assembly` (1 — assemble/assembleDocument, separate so exports never queue behind a long extraction), `translate` (3 — translate/translateTitles/cleanup/bookNote). All jobs use `maxAttempts: 1` — no silent retries. Document exports are deduplicated via graphile `jobKey`, and queued/running exports are surfaced by `books.pendingDocumentExports`.
 
 ### Book Status
@@ -96,7 +106,11 @@ Chapters can be individually queued (creates Graphile job) or suspended (no job,
 | **KugelAudio** (`kugelaudio/kugelaudio-0-open` via `pip install mlx-audio`, local 4-bit MLX quant at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit`) | Multilingual TTS narrator (24 EU languages incl. Bulgarian) | `scripts/synthesize_kugel_tts.py`, called by `lib/tts.ts` |
 | **FFmpeg** (system binary) | WAV→MP3, MP3 concatenation | `lib/ffmpeg.ts` |
 | **node-id3** (npm) | ID3v2 chapter markers | `lib/id3-chapters.ts` |
-| **music-metadata** (npm) | Read MP3 duration | `workers/synthesize.ts` |
+| **music-metadata** (npm) | Read MP3/WAV duration | `workers/synthesize.ts`, `lib/sync-map.ts` |
+| **pdftotext** (poppler, system binary) | Fast raw text extraction at upload | `lib/pdf-raw-text.ts` |
+| **DeepSeek API** (`DEEPSEEK_API_KEY`) | Translation, cleanup, TOC detection, digests, Ask AI | `lib/deepseek.ts` |
+| **Vivliostyle CLI** (npm, spawns a rendering browser) | PDF/EPUB document export | `lib/vivliostyle.ts` |
+| **zip/unzip** (system binaries) | EPUB packaging for synced exports | `lib/readaloud-epub.ts` |
 
 ## Database
 
@@ -106,11 +120,15 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 ### Tables
 
-**books** — id (uuid), title, kind (`pdf` | `digest`, default pdf), filename + pdfPath (nullable — null for synthetic books), outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, noteJob (jsonb), origin (jsonb `BookOrigin` — digest provenance), digestJob (jsonb `DigestJob`), folderId (FK folders, `set null` on folder delete — book deletion must go through `lib/delete-book.ts` for disk cleanup, so never cascade), profileId (FK profiles, defaults to the fixed default-profile id), createdAt, updatedAt
+**books** — id (uuid), title, kind (`pdf` | `digest`, default pdf), filename + pdfPath (nullable — null for synthetic books), outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed` | `suspended`), voice, speed, error, forceOcr, llmChapterDetection, chapterDetection, chapterProposal (jsonb), translationLanguage, skipSynthesis, totalChapters, noteJob (jsonb), origin (jsonb `BookOrigin` — digest provenance), digestJob (jsonb `DigestJob`), folderId (FK folders, `set null` on folder delete — book deletion must go through `lib/delete-book.ts` for disk cleanup, so never cascade), profileId (FK profiles, defaults to the fixed default-profile id), createdAt, updatedAt
 
 **folders** — id (uuid), name, parentId (self-FK, cascade — nested folders), profileId (FK profiles), createdAt, updatedAt. Books live in at most one folder (null = home/root). Home shows only root-level folder rows + unfiled books; `/folders/:id` shows a folder's contents. Recursive aggregates (bookCount/active/size) are computed in `books.list`; subtree/ancestor walks via CTE helpers in `lib/folders.ts`. `folders.delete` collects all descendant books first and deletes each via `deleteBook` before removing the folder row. `folders.move` reparents a folder (rejects moves into the folder's own subtree).
 
-**chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), pageStart (integer, 1-based), pageEnd (integer, 1-based), sourceBlocks (jsonb — array of block metadata with type, text, page, included, level?, polygon?), createdAt
+**chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), pageStart/pageEnd (1-based), sourceBlocks (jsonb — block metadata with type, text, page, included, level?, polygon?), sourceFileIndex, source (jsonb `ChapterSource` — digest back-link), synthesizedWith (jsonb voice/speed snapshot), cleanup (jsonb `ChapterCleanup` run state), createdAt
+
+**book_files** — id (uuid), bookId (FK, cascade delete), index, filename, pdfPath, status (`raw` | `pending` | `extracting` | `done` | `failed`), selected, skipSynthesis, rawText, rawWords, error, createdAt. One row per uploaded PDF; `raw` = pdftotext-only, marker neither queued nor planned.
+
+**chapter_translations** — id (uuid), chapterId (FK, cascade delete), language, title, text, status (`pending` | `translating` | `done` | `failed` | `suspended`), progress, error, sourceHash (staleness detection), runToken (write fencing), audioPath, audioDurationMs, audioStatus, audioProgress, audioError, synthesizedWith, createdAt, updatedAt. Unique (chapterId, language). First-class per-language variants — original text always preserved.
 
 **assemblies** — id (uuid), bookId (FK, cascade delete), outputPath, durationMs, chapterCount, chapterSummary, chapterIds (json array), createdAt
 
@@ -131,9 +149,15 @@ When modifying the schema, change `schema.ts` and run `pnpm db:generate` to prod
 All data lives in `./data/` (gitignored):
 
 ```
-data/uploads/{bookId}/    Uploaded PDFs
-data/tmp/{bookId}/        Marker output (JSON inside a subdirectory named after the PDF)
-data/output/{bookId}/     Chapter MP3s (ch000.mp3, ch001.mp3, ...) and final concatenated MP3
+data/uploads/{bookId}/               Uploaded PDFs
+data/tmp/{bookId}/                   Marker output (JSON inside a subdirectory named after the PDF)
+data/output/{bookId}/                Chapter MP3s (ch000.mp3, ...), ch000.sync.json sync maps,
+                                     timestamped assembly MP3s and exported PDF/EPUB/readaloud files
+data/output/{bookId}/{langSlug}/     Translation audio (per-language chNNN.mp3 + sync maps)
+data/output/{bookId}/chunks/         Per-chapter chunk WAV previews + chunks.json manifest
+                                     (chunks/{langSlug}/chNNN/ for translations); disposable once
+                                     the sync map exists
+data/previews/                       Voice preview MP3s (global, shared)
 ```
 
 Path helpers are in `lib/paths.ts`. The `DATA_DIR` env var defaults to `./data`.
@@ -145,70 +169,114 @@ Path helpers are in `lib/paths.ts`. The `DATA_DIR` env var defaults to `./data`.
 ```
 packages/server/src/
   env.ts                Zod-validated environment variables (dotenv + schema)
-  main.ts               Fastify entrypoint: file download, tRPC plugin, static serving
+  main.ts               Fastify entrypoint: file/audio/document download routes, tRPC plugin, static /files/
   upload-routes.ts      POST /upload and /upload/:bookId (multipart) — always queues rawExtract; extract only when fullExtract
   db.ts                 Drizzle postgres connection
   schema.ts             Drizzle table definitions (source of truth for DB schema)
-  trpc.ts               tRPC init (router, publicProcedure, context)
-  router.ts             Root tRPC router combining books + chapters + bookFiles + translations + notes
+  trpc.ts               tRPC init (router, publicProcedure, x-profile-id context)
+  router.ts             Root tRPC router: books, folders, profiles, chapters, bookFiles, translations, notes
   routes/
-    books.ts            list, get, logs, clearLogs, upload, retry, processSelected, extractChapters, aiPromptRaw, rawTextStats, assemble, assemblies, deleteAssembly, cancel, delete
-    chapters.ts         get, queue, suspend, setSelected, setSelectedBatch, setAllSelected, updateText, resetText, queueCleanup, stopCleanup, cleanupSelected, aiPrompt, textStats
-    notes.ts            list (per book, newest first), delete
+    books.ts            Library + book lifecycle + digests + exports (see tRPC Routes below)
+    chapters.ts         Chapter CRUD, selection, text edits, cleanup, AI prompts, audio deletion
+    bookFiles.ts        Source-file selection, re-extract, skip-synthesis, cancel
+    translations.ts     Translation runs, per-language audio synthesis/assembly, audio deletion
+    folders.ts          Folder CRUD (profile-scoped), recursive delete
+    profiles.ts         Profile (workspace) CRUD
+    notes.ts            Per-book notes list/delete
   workers/
     setup.ts            Graphile Worker runner, task wrappers with console logging, five pools
     raw-extract.ts      pdftotext raw text per file (seconds); chains bookNote when requested
-    book-note.ts        Upload-time AI prompt against whole-book raw text → note (state in books.note_job)
-    extract.ts          PDF extraction job
-    normalize.ts        Text normalization job
-    synthesize.ts       TTS synthesis job (skips suspended, writes progress)
-    cleanup.ts          DeepSeek OCR-artifact cleanup job (per chapter, writes customText)
-    assemble.ts         Audio assembly + chapter marker writing job
+    book-note.ts        Upload-time AI prompt against whole-book raw text → note
+    digest.ts           Digest book builder: per-source AI summary → suspended chapter + source note
+    extract.ts          Marker PDF extraction + chapter detection
+    normalize.ts        Text normalization
+    synthesize.ts       TTS synthesis (skips suspended, writes progress + sync map)
+    synthesize-translation.ts  TTS for finished translations (per-language audio + sync map)
+    translate.ts        Per-chapter DeepSeek translation
+    translate-titles.ts Backfill translated chapter titles
+    cleanup.ts          DeepSeek OCR-artifact cleanup (writes customText)
+    propose.ts          LLM chapter-boundary proposals (structure modal)
+    redetect.ts         Chapter re-detection without re-running marker
+    assemble.ts         Audio assembly + ID3 chapter markers
+    assemble-document.ts PDF/EPUB (Vivliostyle) and epub-sync (readaloud) exports
+    sweep.ts            Startup sweep for stranded jobs
   lib/
-    env.ts              (see env.ts above)
     log.ts              appendLog() — writes to DB + console
-    paths.ts            Data directory path helpers (uploadsDir, tmpDir, outputDir)
+    paths.ts            Data directory path helpers (uploadsDir, tmpDir, outputDir, previewsDir)
     marker.ts           Marker subprocess wrapper + chapter detection logic
-    deepseek.ts         Shared DeepSeek chat-completions client (translation + TOC detection)
-    toc-detect.ts       DeepSeek TOC-guided chapter detection: find printed TOC in first/last pages, select headings (used at extract time and for proposals)
-    pdf-raw-text.ts     Whole-document pdftotext wrapper (null on failure/empty)
-    book-raw-text.ts    Concatenate per-file raw texts in index order for whole-book AI calls
-    token-estimate.ts   Server-side pessimistic token estimate (mirrors web modal) for context guards
-    notes.ts            saveNote() shared by aiPrompt, aiPromptRaw, and the bookNote worker
-    cleanup.ts          DeepSeek chunk prompt for OCR-artifact cleanup (reuses splitForTranslation)
+    marker-sources.ts   Locate marker output dirs per source file
+    deepseek.ts         Shared DeepSeek chat-completions client
+    toc-detect.ts       DeepSeek TOC-guided chapter detection
+    pdf-raw-text.ts     Whole-document pdftotext wrapper
+    book-raw-text.ts    Concatenate per-file raw texts for whole-book AI calls
+    book-source-text.ts Best-available text per book for digests (chapters, else raw)
+    token-estimate.ts   Pessimistic token estimate for context guards
+    notes.ts            saveNote() shared by AI prompt paths
+    cleanup.ts          DeepSeek chunk prompts for OCR-artifact cleanup
+    translate.ts        Chunked translation prompts (splitForTranslation)
+    tts.ts              Voice registry + synthesis dispatch (kokoro / bg-mlx / mms / kugel)
+    tts-chunks.ts       Bulgarian narrator text chunking (250-320 chars)
     kokoro.ts           Kokoro TTS subprocess wrapper with onProgress callback
     ffmpeg.ts           FFmpeg WAV→MP3 and concat helpers
     id3-chapters.ts     MP3 chapter marker writing
     normalizer.ts       Text cleanup rules for TTS input
+    sync-map.ts         Text↔audio timing maps (chNNN.sync.json) built from chunk WAV durations
+    readaloud-epub.ts   EPUB 3 Media Overlays builder for epub-sync exports (flat layout + colophon)
+    document-html.ts    HTML rendering for Vivliostyle document exports
+    vivliostyle.ts      Vivliostyle CLI subprocess wrapper
+    chunk-previews.ts   Chunk WAV preview listing + text locating (read-along in the web UI)
+    chapter-artifacts.ts / chapter-reader.ts / chapter-reader-route.ts  Print-view chapter reader (/read/:chapterId)
+    folders.ts          Folder subtree/ancestor recursive CTEs
+    delete-book.ts      The only correct way to delete a book (DB row + disk dirs)
+    disk-usage.ts       Per-book disk usage measurement with cache
+    insert-chapters.ts  Insert suspended chapters (digest + boundary apply)
+    extract-registry.ts In-memory registry of running marker subprocesses (for cancel)
 ```
 
 ## Frontend Structure
 
 ```
 packages/web/src/
-  main.tsx              React root, tRPC/QueryClient providers, BrowserRouter
+  main.tsx              React root, tRPC/QueryClient providers (x-profile-id header), BrowserRouter
   trpc.ts               tRPC React client (imports AppRouter type from server)
   styles.css            Tailwind v4 import + semantic CSS custom properties for dark mode
   lib/
-    voices.ts           Kokoro voice list (54 voices across 9 languages)
-    format.ts           Shared date/duration/log-time formatters
+    voices.ts           Voice list across all TTS engines
+    format.ts           Shared date/duration/size formatters + document format labels
+    languages.ts        Translation language list
+    ai-presets.ts       AI prompt presets (digest, notes, "Did you know?")
+    book-sort.ts        Book list sort keys persisted in localStorage
+    profile.ts          Active profile id in localStorage → x-profile-id header
+    dnd.ts              Drag-and-drop payloads for book/folder moves
+    use-body-scroll-lock.ts  Modal scroll lock hook
   pages/
-    Home.tsx            Upload zone + book list table
-    BookDetail.tsx      Per-book orchestration: queries/mutations/derived state, staged sections (1 Input → 2 Work → 3 Output → danger zone), language view persisted in ?lang= query param
+    Home.tsx            Profile switcher, upload zone, search box, book/folder list, breadcrumbs
+    BookDetail.tsx      Per-book orchestration: staged sections (1 Input → 2 Work → 3 Output → danger zone), language view in ?lang= query param
   components/
-    BookFilesSection.tsx    Stage 1 card: source-file table, add files, re-extract (selected/book/re-detect), book-level extraction settings (Force OCR, LLM chapters — persisted immediately via books.updateSettings)
+    BookFilesSection.tsx    Stage 1 card: source-file table, add files, re-extract, extraction settings
     AudioOutputsSection.tsx Stage 3 card: synthesize/assemble/cancel actions + assemblies list
-    DocumentOutputsSection.tsx Stage 3 card: PDF/EPUB export actions + documents list
-    LogDock.tsx         Sticky bottom log bar (last line, pulse while processing, z-60 above modals) + full scrollable log modal
+    DocumentOutputsSection.tsx Stage 3 card: PDF/EPUB/synced-EPUB export actions + documents list
+    NotesSection.tsx    Auto-saved AI notes per book (markdown, delete)
+    LogDock.tsx         Sticky bottom log bar + full scrollable log modal
     EditableTitle.tsx   Click-to-rename book title
-    ChapterTable.tsx    Chapter table with filter panel (search, status, word count, duration), shift+click range selection, per-chapter checkboxes, sticky audio player, modal trigger
-    ChapterModal.tsx    Chapter detail modal: selection checkbox, prev/next navigation (< > + keyboard arrows), audio player, view mode tabs (custom/clean/raw/split/blocks with scroll sync), text editing with save/cancel/reset, action buttons (queue/suspend/re-synthesize)
-    UploadZone.tsx      Drag-and-drop PDF upload; settings appear once files are staged; extraction-only by default, voice/speed shown only when auto-synthesize is enabled
-    VoicePicker.tsx     Voice selection dropdown grouped by language
+    ChapterTable.tsx    Chapter table with filters, range selection, floating audio player with read-along chunk highlighting
+    ChapterModal.tsx    Chapter detail modal: view tabs, text editing, per-chapter actions
+    ChapterAiModal.tsx  Ask-AI prompt modal per chapter/book (presets, model pick)
+    StructureModal.tsx  Heading-outline structure view, manual boundaries, LLM proposals
+    TranslationModal.tsx Translation language start/progress modal
+    DigestModal.tsx     Create-digest modal (prompt presets, text-availability warnings + exclusion)
+    FolderPickerModal.tsx Move-to-folder tree picker
+    Breadcrumbs.tsx     Droppable folder breadcrumbs
+    BookSearchResults.tsx Search results across all folders with folder-path breadcrumbs
+    BookList.tsx        Books overview table (activity pills, no-text pill, languages, outputs, size) with polling
+    ProfileSwitcher.tsx Profile dropdown in the Home header (create/rename/delete)
+    UploadZone.tsx      Drag-and-drop PDF upload; separate-books mode; upload-time AI prompt
+    PdfPreviewModal.tsx Inline source-PDF preview
+    DiskUsageButton.tsx Per-book disk usage + chunk cleanup
+    MarkdownBlock.tsx   Markdown renderer for notes/AI answers
+    VoicePicker.tsx     Voice selection dropdown grouped by language/engine
     SpeedSlider.tsx     Speed range slider (0.5x-2.0x)
-    StatusBadge.tsx     Color-coded status badge (includes suspended/amber, cancelled/grey)
-    BookList.tsx        Books overview table (activity pills, languages, outputs, size, last activity) with auto-refresh polling
-    ProfileSwitcher.tsx Profile dropdown in the Home header (create/rename/delete); active profile id persisted in localStorage and sent as x-profile-id on every request (lib/profile.ts)
+    StatusBadge.tsx     Color-coded status badge
 ```
 
 ### Dark Mode
@@ -219,40 +287,46 @@ Key tokens: `--bg-page`, `--bg-card`, `--bg-card-hover`, `--bg-subtle`, `--bg-in
 
 Accent colors (blue, red, green, amber, indigo) are **not** tokenized — they're the same in both modes. The log viewer terminal uses a fixed dark background (`bg-zinc-900`) in both modes.
 
-Vite dev server on port 3033 proxies `/trpc`, `/upload`, `/download`, `/audio`, `/files`, and `/preview` to the server on port 3034 (configured in `vite.config.ts`).
+Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/audio`, `/files`, `/preview`, and `/read` to the server on port 3034 (configured in `vite.config.ts`).
 
 ## tRPC Routes
 
-- `books.list` — `{ folders, books }` scoped to a folder (`folderId` input, null/omitted = root): direct-child books with activity/failure/size stats + child-folder rows with recursive aggregates
-- `books.moveToFolder` — Move books into a folder (or null to unfile)
-- `folders.list` / `create` / `rename` / `move` / `path` / `deleteStats` / `delete` — Folder CRUD (scoped to the caller's profile); `move` reparents with subtree-cycle rejection; `delete` is recursive (books via `deleteBook`, subfolders via FK cascade); `deleteStats` preflights the confirm dialog
-- `profiles.list` / `create` / `rename` / `delete` — Profile (workspace) CRUD; `list` marks the default profile; `delete` refuses the default profile and non-empty profiles
-- `books.get` — Single book with all chapters (status is computed from chapters)
-- `books.logs` — Fetch log entries for a book (with optional `after` cursor)
-- `books.clearLogs` — Delete all log entries for a book
-- `books.retry` — Re-extract book, optionally with new voice/speed
-- `books.processSelected` — Queue normalize/synthesize jobs for selected non-done chapters
-- `books.assemble` — Assemble selected chapters with audio into a single MP3
-- `books.assemblies` — List all assemblies for a book
-- `books.deleteAssembly` — Delete a specific assembly and its file
-- `books.cancel` — Set non-done chapters to suspended (preserves done chapters + audio)
-- `books.delete` — Delete book, chapters, assemblies, and files from disk
-- `chapters.get` — Single chapter detail (includes full text fields)
-- `chapters.queue` — Queue a chapter for processing (creates Graphile job)
-- `chapters.suspend` — Suspend a chapter (prevents processing)
-- `chapters.setSelected` — Toggle a single chapter's selected state
-- `chapters.setSelectedBatch` — Set selected state for multiple chapters at once
-- `chapters.setAllSelected` — Set all chapters in a book to selected/deselected
-- `chapters.updateText` — Save custom text override for a chapter
-- `chapters.resetText` — Clear custom text, reverting to clean/raw text
+**books** (library): `list` ({folders, books} for one folder, profile-scoped, activity/failure/size stats + recursive folder rollups + hasText flag) · `search` (title words across all folders, returns folder paths) · `textAvailability` (which books have chapters or raw text — digest precheck) · `get` · `logs` / `clearLogs` · `rename` · `updateSettings` · `moveToFolder` · `delete` / `deleteMany` · `diskUsage` / `cleanupChunks`
+
+**books** (pipeline): `upload` (legacy tRPC path) · `retry` · `extractChapters` · `processSelected` · `cancel` · `assemble` · `assemblies` / `deleteAssembly` · `structure` / `proposeChapters` / `applyChapterBoundaries` / `redetectChapters` · `chapterList` · `rawTextStats` · `aiPromptRaw` (whole-book Ask AI → note)
+
+**books** (synthetic + exports): `createDigest` / `resumeDigest` · `exportDocument` (pdf | epub | epub-sync, optional `copyToDropDir`) · `exportConfig` (exposes the configured drop dir for the UI checkbox) · `pendingDocumentExports` · `documents` / `deleteDocument`
+
+**chapters**: `get` · `queue` / `suspend` · `setSelected` / `setSelectedBatch` / `setAllSelected` · `rename` · `reorder` · `updateText` / `resetText` · `queueCleanup` / `stopCleanup` / `cleanupSelected` · `aiPrompt` · `textStats` · `selectedAudioSize` / `deleteAudioSelected` · `deleteSelected`
+
+**bookFiles**: `setSelected` / `setSelectedBatch` / `setAllSelected` · `setSkipSynthesis` · `remove` · `reExtract` / `reExtractSelected` · `cancel`
+
+**translations**: `get` / `detail` / `listForBook` / `languages` · `start` / `stop` / `processSelectedTranslations` · `translateMissingTitles` · `queueAudio` / `processSelectedAudio` / `stopAudio` · `selectedAudioSize` / `deleteAudioSelected` · `assemble`
+
+**folders**: `list` / `create` / `rename` / `move` / `path` / `deleteStats` / `delete` — profile-scoped; `move` rejects subtree cycles; `delete` is recursive (books via `deleteBook`)
+
+**profiles**: `list` (marks the default) / `create` / `rename` / `delete` (refuses default and non-empty profiles)
+
+**notes**: `list` (per book, newest first) / `delete`
 
 ## HTTP Endpoints (non-tRPC)
 
-- `POST /upload` — Multipart file upload (PDF + voice + speed fields; `x-profile-id` header assigns the profile). Creates book row and queues extract job.
+- `POST /upload` — Multipart file upload (PDFs + settings fields; `x-profile-id` header assigns the profile). Creates book + book_files rows, queues rawExtract (+ extract when fullExtract).
+- `POST /upload/:bookId` — Append PDFs to an existing book
+- `GET /pdf/:fileId` — Serve a source PDF (inline preview)
 - `GET /download/:bookId` — Serve final assembled MP3
 - `GET /download/assembly/:assemblyId` — Serve a specific assembly MP3
-- `GET /download/document/:documentId` — Serve an exported PDF/EPUB document
+- `GET /download/document/:documentId` — Serve an exported PDF/EPUB/synced-EPUB document
 - `GET /audio/chapter/:chapterId` — Serve individual chapter MP3
+- `GET /audio/translation/:translationId` — Serve translated chapter MP3
+- `GET /audio/assembly/:assemblyId` — Stream an assembly MP3
+- `GET /read/:chapterId` — Print-friendly chapter reader (source blocks HTML)
+- `GET /preview/:voiceId` — Voice preview MP3 (generated on demand, cached in data/previews)
+- `GET /files/*` — Static mount of the whole output dir (chunk WAV previews, direct file access)
+
+## Storyteller Companion (read-along on iPhone)
+
+`storyteller/docker-compose.yml` runs a self-hosted [Storyteller](https://storyteller-platform.dev/) server on port 8001 (secret key + admin credentials + library data in `storyteller/`, all gitignored). Its `/data/import` watch folder auto-imports synced EPUBs within seconds; `READALOUD_DROP_DIR` in `.env` points pdf2audio's epub-sync exports there (behind the "Copy to Storyteller import folder" checkbox, default off). The free Storyteller Reader iOS app connects to the server over the phone-hotspot tether (`http://172.20.10.2:8001` when the Mac tethers via USB), downloads books, and plays them offline with read-along highlighting. The Storyteller iOS app (≤2.11.3) crashes on readalouds whose last spine item has a media overlay — our exporter's trailing colophon page sidesteps this (fix reported upstream, MR !616).
 
 ## Chapter Detection Logic
 

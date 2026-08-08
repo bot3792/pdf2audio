@@ -1,129 +1,73 @@
 # pdf2audio
 
-Converts PDF books into MP3 audiobooks with chapter markers. Upload a PDF, pick a voice and speed, and get back a single MP3 with embedded ID3v2 chapter metadata.
+Turns PDF books into audiobooks — and more. Upload PDFs, pick a voice, and get chapter-marked MP3s, AI digests, translations, PDF/EPUB exports, and read-along synced EPUBs (audio + highlighted text) you can listen to offline on a phone.
 
-Built for local use on Apple Silicon Macs.
+Built for local use on Apple Silicon Macs. Fully offline after the initial model downloads (AI features need a DeepSeek API key).
+
+## What it does
+
+- **PDF → audiobook**: chapter detection (deterministic tiers + optional LLM TOC detection), per-chapter TTS synthesis, single MP3 assembly with ID3v2 chapter markers.
+- **Raw-first uploads**: every upload gets instant `pdftotext` raw text; the slow Marker extraction (OCR-capable) is opt-in and can run later.
+- **Per-chapter control**: edit text, re-synthesize, include/exclude, suspend/queue, AI cleanup of OCR artifacts, manual or LLM-proposed chapter boundaries.
+- **Translations**: first-class per-language chapter variants (DeepSeek) with their own TTS audio and assemblies; the original text is always preserved.
+- **Ask AI + notes**: whole-book or per-chapter prompts; every answer is auto-saved as a note on the book.
+- **Digest books**: select N books → one synthetic book with an AI summary chapter per source, ready to synthesize.
+- **Document export**: selected chapters as PDF/EPUB (Vivliostyle), or as a **synced EPUB** — EPUB 3 with Media Overlays: embedded audio plus sentence-level highlighted text, valid per epubcheck.
+- **Read-along on iPhone**: a self-hosted [Storyteller](https://storyteller-platform.dev/) companion (see `storyteller/`) auto-imports synced EPUBs; the free Storyteller Reader app downloads them for fully offline listening with live text highlighting.
+- **Library organization**: nested folders with drag & drop, cross-folder search, lightweight profiles (workspaces) so different people keep separate libraries.
 
 ## How it works
 
-A PDF goes through a four-stage pipeline, each stage running as a background job:
-
 ```
-PDF Upload → extract → normalize → synthesize → assemble → MP3
+Upload → rawExtract (pdftotext, seconds, always)
+       → extract (Marker, opt-in, OCR-capable) → normalize → synthesize (TTS) → assemble → MP3
+       → translate → synthesizeTranslation → per-language assembly
+       → assembleDocument → PDF / EPUB / synced EPUB
 ```
 
-**extract** parses the PDF with [Marker](https://github.com/VikParuchuri/marker) to get structured text and heading hierarchy. Chapter boundaries are detected in tiers: a deterministic pass first looks for numbered chapter headings (Chapter N / Глава N, excluding ToC listing pages); when the LLM option is enabled, DeepSeek locates the printed table of contents in the first/last pages and selects chapter-start headings from the extracted heading list. If those don't produce a result, a heading-level heuristic takes over (h1, then h2, then splitting every ~5000 words). Creates a `chapters` row per detected chapter.
+Jobs run through [Graphile Worker](https://github.com/graphile/worker) in five pools (TTS, raw text, extraction, assembly, AI/translation) with `maxAttempts: 1` — nothing retries silently; the user reviews failures and decides. Chapter text falls back `customText ?? cleanText ?? rawText` at synthesis time.
 
-**normalize** (runs per chapter, in parallel) cleans up text for TTS input. Strips markdown syntax, reference markers, bare URLs, and rejoins hyphenated line breaks. Kokoro handles numbers and abbreviations natively, so normalization is intentionally minimal.
+TTS engines: [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English + 8 more languages), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal.
 
-**synthesize** (runs per chapter, 2 concurrent) calls [Kokoro TTS](https://huggingface.co/hexgrad/Kokoro-82M) via a Python subprocess to generate speech. Outputs WAV at 24kHz, then FFmpeg converts to MP3. When all chapters finish, queues the assemble job.
-
-**assemble** concatenates chapter MP3s with FFmpeg and writes ID3v2 CHAP/CTOC frames using node-id3 so audio players show chapter markers.
-
-Jobs run through [Graphile Worker](https://github.com/graphile/worker) with a concurrency of 2 (tuned for M4 MacBook running two Kokoro synthesis jobs in parallel).
+During synthesis the server keeps a per-chunk text↔audio timing map (`chNNN.sync.json`) next to each MP3. That map powers the web UI's read-along player and the synced EPUB export — and once it exists, the intermediate chunk WAVs can be deleted to reclaim disk.
 
 ## Project structure
 
-pnpm monorepo with two packages:
+pnpm monorepo: `packages/server` (Fastify + tRPC + Graphile Worker + Drizzle/Postgres, port 3034) and `packages/web` (React 19 + Vite + Tailwind v4 + react-router 7, port 3033). Python TTS/extraction scripts live in `scripts/`; the optional Storyteller companion in `storyteller/`.
 
-```
-packages/server/          Fastify + tRPC API + Graphile Worker + Drizzle ORM
-  src/
-    main.ts               Fastify entrypoint, file upload/download endpoints, tRPC plugin
-    schema.ts             Drizzle table definitions (books, chapters)
-    db.ts                 Drizzle postgres connection
-    router.ts             Root tRPC router
-    trpc.ts               tRPC init
-    routes/
-      books.ts            list, get, upload, retry, cancel, delete
-      chapters.ts         get, retry
-    workers/
-      setup.ts            Graphile Worker runner with task list
-      extract.ts          PDF extraction job
-      normalize.ts        Text normalization job
-      synthesize.ts       TTS synthesis job
-      assemble.ts         Audio assembly job
-    lib/
-      paths.ts            Data directory path helpers
-      marker.ts           Marker subprocess wrapper + chapter detection
-      kokoro.ts           Kokoro subprocess wrapper
-      ffmpeg.ts           WAV→MP3 conversion, MP3 concatenation
-      id3-chapters.ts     MP3 chapter marker writing
-      normalizer.ts       Text cleanup rules for TTS input
-
-packages/web/             React 19 + Vite + Tailwind CSS v4 + react-router v7
-  src/
-    main.tsx              React root, tRPC/QueryClient providers, router
-    trpc.ts               tRPC React client
-    pages/
-      Home.tsx            Upload zone + book list table
-      BookDetail.tsx      Per-book view: chapters, progress, play/download/retry
-    components/
-      UploadZone.tsx      Drag-and-drop PDF upload with voice/speed pickers
-      BookList.tsx        Books table with auto-refresh polling
-      VoicePicker.tsx     Voice selection dropdown grouped by language
-      SpeedSlider.tsx     Speed range slider (0.5x–2.0x)
-      StatusBadge.tsx     Color-coded status badge
-    lib/
-      voices.ts           Kokoro voice list (54 voices across 9 languages)
-
-scripts/
-  setup.sh                Full setup script (checks deps, installs Python/Node packages)
-  synthesize.py           Kokoro TTS Python script (MPS GPU acceleration)
-```
+**The detailed, maintained map of files, tables, routes, and pipeline internals is in [AGENTS.md](AGENTS.md)** — this README stays intentionally high-level.
 
 ## Database
 
-PostgreSQL in Docker. Schema managed by Drizzle ORM.
-
-**books** — id, title, filename, pdfPath, outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed`), voice, speed, error, totalChapters, createdAt, updatedAt
-
-**chapters** — id, bookId (FK, cascade delete), index, title, rawText, cleanText, audioPath, durationMs, status (`pending` | `normalizing` | `synthesizing` | `done` | `failed`), error, createdAt
+PostgreSQL 17 in Docker (host port **5433**), schema via Drizzle ORM: `profiles`, `folders`, `books`, `book_files`, `chapters`, `chapter_translations`, `assemblies`, `documents`, `notes`, `book_logs`. See AGENTS.md for column-level docs. Migrations: `pnpm db:generate` + `pnpm db:migrate`.
 
 ## File storage
 
-All runtime data lives in `./data/` (gitignored):
+All runtime data lives in `./data/` (gitignored, resolved relative to `packages/server`):
 
 ```
-data/uploads/{bookId}/    Uploaded PDFs
-data/tmp/{bookId}/        Marker JSON output, intermediate files
-data/output/{bookId}/     Chapter MP3s and final concatenated MP3
+data/uploads/{bookId}/            Uploaded PDFs
+data/tmp/{bookId}/                Marker JSON output
+data/output/{bookId}/             Chapter MP3s + sync maps, assemblies, exported documents
+data/output/{bookId}/{lang}/      Translation audio
+data/output/{bookId}/chunks/      Chunk WAV previews (disposable once sync maps exist)
+data/previews/                    Voice preview MP3s
 ```
-
-## API
-
-**tRPC routes** (proxied from `:3033/trpc` to `:3034/trpc`):
-
-| Route            | Description                                      |
-| ---------------- | ------------------------------------------------ |
-| `books.list`     | All books with chapter completion count          |
-| `books.get`      | Single book with all chapters                    |
-| `books.retry`    | Re-extract book, optionally with new voice/speed |
-| `books.cancel`   | Mark book + chapters as failed                   |
-| `books.delete`   | Delete book, chapters, and files from disk       |
-| `chapters.get`   | Single chapter detail                            |
-| `chapters.retry` | Re-synthesize a single chapter                   |
-
-**HTTP endpoints** on the server (`:3034`):
-
-| Endpoint                        | Description                                        |
-| ------------------------------- | -------------------------------------------------- |
-| `POST /upload`                  | Multipart file upload (PDF + voice + speed fields) |
-| `GET /download/:bookId`         | Serve final MP3                                    |
-| `GET /audio/chapter/:chapterId` | Serve individual chapter MP3                       |
 
 ## Prerequisites
 
 - Node.js >= 20 and pnpm
 - Python 3.10+ with a conda environment (or global pip)
-- Docker (for Postgres)
+- Docker (for Postgres and optionally Storyteller)
 - FFmpeg — `brew install ffmpeg`
+- poppler (`pdftotext`) — `brew install poppler`
 - espeak-ng — `brew install espeak-ng`
-- Marker — `pip install marker-pdf`
+- Marker — `pip install marker-pdf==1.8.5`
 - Kokoro — `pip install kokoro soundfile`
 - Bulgarian narrator — `pip install mlx numpy huggingface_hub` and `pip install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"`
 - Meta MMS Bulgarian — `pip install transformers torch`
 - KugelAudio narrator — `pip install mlx-audio`, then `pip install "transformers==4.57.6" "regex<2025.0.0"` (mlx-audio pulls transformers 5.x, which breaks marker-pdf)
+- Optional: a [DeepSeek](https://platform.deepseek.com/) API key for translation, cleanup, digests, Ask AI, and LLM chapter detection
 
 ## Setup
 
@@ -131,7 +75,7 @@ data/output/{bookId}/     Chapter MP3s and final concatenated MP3
 # Clone and install everything
 pnpm setup
 
-# Copy env file (defaults work out of the box)
+# Copy env file (defaults work out of the box; add DEEPSEEK_API_KEY for AI features)
 cp .env.example .env
 
 # Start Postgres
@@ -144,6 +88,16 @@ pnpm db:migrate
 pnpm dev
 ```
 
+### Optional: Storyteller companion (read-along on a phone)
+
+```bash
+cd storyteller
+openssl rand -base64 32 > STORYTELLER_SECRET_KEY.txt
+docker compose up -d          # web UI + API on http://localhost:8001
+```
+
+Create the admin account at `http://localhost:8001`, then set `READALOUD_DROP_DIR=<repo>/storyteller/data/import` in `.env` — the "Copy to Storyteller import folder" checkbox on synced-EPUB exports will drop files there and Storyteller auto-imports them. Install the free **Storyteller Reader** iOS/Android app and point it at your Mac's LAN address on port 8001.
+
 ## Development commands
 
 ```bash
@@ -155,20 +109,17 @@ pnpm db:down          # Stop Postgres
 pnpm db:generate      # Generate Drizzle migration from schema changes
 pnpm db:migrate       # Apply migrations
 pnpm setup            # Full setup (system deps check, Python/Node deps, data dirs)
+pnpm jobs             # Show Graphile Worker queue status
+pnpm jobs:clear       # Delete all queued jobs
+cd packages/server && pnpm test   # Server test suite (spins up template DB, runs migrations)
 ```
 
 ## Notes
 
-- The web frontend polls `books.get` every 2 seconds while processing, stops when done or failed.
-- Vite proxies `/trpc`, `/upload`, `/download`, `/audio`, and `/files` to the server on port 3034.
-- Cancel marks jobs as failed in DB — Graphile Worker skips them on next poll.
-- Retry deletes all chapters and re-extracts from the PDF.
 - Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.
-- The Kokoro model (`hexgrad/Kokoro-82M`, 82M params, Apache-2.0) auto-downloads on first run.
-- The Bulgarian-capable narrator options are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, and `KugelAudio (7B, 24 EU languages)`.
-- `raditotev/bg-tts-v5-mlx` and `facebook/mms-tts-bul` should both be cached before offline use.
-- KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm setup` downloads and converts it. Audio length tracks text length, so it avoids the bg-mlx short-chunk mumble; ~1.5x realtime on an M4 Pro.
-- Bulgarian voice speed is fixed in this phase; the UI disables speed control for those voices.
+- The Kokoro model (`hexgrad/Kokoro-82M`, 82M params, Apache-2.0) auto-downloads on first run; `HF_HUB_OFFLINE=1` is set afterwards, so models must be cached before offline use.
+- The Bulgarian-capable narrators are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, and `KugelAudio (7B, 24 EU languages)`; Bulgarian voice speed is fixed (UI disables the slider).
+- KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm setup` downloads and converts it. ~1.5x realtime on an M4 Pro.
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.
-- `PYTORCH_ENABLE_MPS_FALLBACK=1` is set for MPS compatibility.
-- Best voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).
+- Best Kokoro voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).
+- Synced EPUBs deliberately end with a non-narrated colophon page — it works around a crash in the Storyteller iOS app when the last spine item carries a media overlay (reported upstream).
