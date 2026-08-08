@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, resetDb } from "../../test/setup.ts";
-import { books, notes } from "../schema.ts";
+import { books, chapters, notes } from "../schema.ts";
 import { eq } from "drizzle-orm";
 
 vi.mock("../db.ts", async () => {
@@ -50,6 +50,47 @@ describe("notesRouter", () => {
     await caller.delete({ id: note.id });
 
     expect(await db.select().from(notes).where(eq(notes.id, note.id))).toHaveLength(0);
+  });
+
+  it("turns a note into a suspended chapter appended at the end", async () => {
+    const db = getDb();
+    const bookId = await insertBook();
+    await db.insert(chapters).values([
+      { bookId, index: 0, title: "Ch 1", rawText: "one", status: "done" },
+      { bookId, index: 1, title: "Ch 2", rawText: "two", status: "done" },
+    ]);
+    const [note] = await db
+      .insert(notes)
+      .values({ bookId, prompt: "Summarize the ending", model: "flash", result: "The ending...", scope: { kind: "book-raw", files: 1 } })
+      .returning();
+
+    const caller = notesRouter.createCaller({});
+    const { chapterId, index } = await caller.toChapter({ id: note.id });
+
+    expect(index).toBe(2);
+    const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
+    expect(chapter).toMatchObject({
+      title: "Summarize the ending",
+      rawText: "The ending...",
+      status: "suspended",
+      source: { kind: "note", noteId: note.id },
+    });
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(book.totalChapters).toBe(3);
+  });
+
+  it("creates the first chapter of a chapterless book at index 0", async () => {
+    const db = getDb();
+    const bookId = await insertBook();
+    const [note] = await db
+      .insert(notes)
+      .values({ bookId, prompt: "p", model: "flash", result: "r", scope: { kind: "book-raw", files: 1 } })
+      .returning();
+
+    const caller = notesRouter.createCaller({});
+    const { index } = await caller.toChapter({ id: note.id });
+
+    expect(index).toBe(0);
   });
 
   it("cascades when the book is deleted", async () => {

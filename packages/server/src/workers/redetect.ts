@@ -4,7 +4,7 @@ import { eq, asc } from "drizzle-orm";
 import { redetectChaptersFromExistingMarkerOutput } from "../lib/marker.ts";
 import { bookTmpDir, bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
-import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
+import { insertSuspendedChapters, resetChaptersKeepingInserted } from "../lib/insert-chapters.ts";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 
@@ -48,12 +48,15 @@ export async function redetect(payload: RedetectPayload) {
 
     await db.delete(assemblies).where(eq(assemblies.bookId, bookId));
     await db.delete(documents).where(eq(documents.bookId, bookId));
-    await db.delete(chapters).where(eq(chapters.bookId, bookId));
+    const keptCount = await resetChaptersKeepingInserted(bookId);
 
     await log("Re-detecting chapters from existing extraction output");
     await log(
-      `Removed ${allChapters.length} existing chapter${allChapters.length === 1 ? "" : "s"}, ${bookAssemblies.length} assembl${bookAssemblies.length === 1 ? "y" : "ies"}, and ${deletedAudioFiles} chapter audio file${deletedAudioFiles === 1 ? "" : "s"}`
+      `Removed ${allChapters.length - keptCount} existing chapter${allChapters.length - keptCount === 1 ? "" : "s"}, ${bookAssemblies.length} assembl${bookAssemblies.length === 1 ? "y" : "ies"}, and ${deletedAudioFiles} chapter audio file${deletedAudioFiles === 1 ? "" : "s"}`
     );
+    if (keptCount > 0) {
+      await log(`Kept ${keptCount} inserted chapter${keptCount === 1 ? "" : "s"} (moved to the front, audio reset)`);
+    }
 
     const files = await db
       .select()
@@ -72,10 +75,10 @@ export async function redetect(payload: RedetectPayload) {
       });
       totalDetected = detected.length;
       detectionMethod = method;
-      await insertSuspendedChapters(bookId, detected, 0, null);
+      await insertSuspendedChapters(bookId, detected, keptCount, null);
     } else {
       // Multi-file book: re-detect per file
-      let chapterOffset = 0;
+      let chapterOffset = keptCount;
       for (const file of files) {
         const fileTmpDir = path.join(bookTmpDir(bookId), `file_${file.index}`);
         try {
@@ -119,7 +122,7 @@ export async function redetect(payload: RedetectPayload) {
 
     await db
       .update(books)
-      .set({ totalChapters: totalDetected, chapterDetection: detectionMethod, status: "pending", updatedAt: new Date() })
+      .set({ totalChapters: keptCount + totalDetected, chapterDetection: detectionMethod, status: "pending", updatedAt: new Date() })
       .where(eq(books.id, bookId));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

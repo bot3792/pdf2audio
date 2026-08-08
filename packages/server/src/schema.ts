@@ -53,7 +53,8 @@ export type DigestJob = {
 // Snapshot title so the link label survives source deletion
 export type ChapterSource =
   | { kind: "book"; bookId: string; title: string }
-  | { kind: "url"; url: string; title?: string };
+  | { kind: "url"; url: string; title?: string }
+  | { kind: "note"; noteId: string };
 
 // Pre-profiles data is backfilled onto this fixed id; missing x-profile-id headers resolve to it
 export const DEFAULT_PROFILE_ID = "00000000-0000-0000-0000-000000000001";

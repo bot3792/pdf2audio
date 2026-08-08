@@ -15,7 +15,7 @@ import { abortExtract } from "../lib/extract-registry.ts";
 import { measureBookDiskUsage, measureDirs, removeDirs, bookTotalSizeCached } from "../lib/disk-usage.ts";
 import { chapterChunkPreviewDir } from "../lib/chunk-previews.ts";
 import { translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
-import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
+import { insertSuspendedChapters, resetChaptersKeepingInserted } from "../lib/insert-chapters.ts";
 import { getBookRawText } from "../lib/book-raw-text.ts";
 import { countAsciiNonAscii, estimateTokens, MODEL_CONTEXT_TOKENS } from "../lib/token-estimate.ts";
 import { saveNote } from "../lib/notes.ts";
@@ -501,11 +501,14 @@ export const booksRouter = router({
 
       await db.update(books).set(updates).where(eq(books.id, input.id));
       await rm(bookOutputDir(input.id), { recursive: true, force: true }).catch(() => {});
-      await db.delete(chapters).where(eq(chapters.bookId, input.id));
+      const keptCount = await resetChaptersKeepingInserted(input.id);
       await db.delete(assemblies).where(eq(assemblies.bookId, input.id));
       await db.update(bookFiles).set({ status: "pending", error: null }).where(eq(bookFiles.bookId, input.id));
       await db.delete(bookLogs).where(eq(bookLogs.bookId, input.id));
       await appendLog(input.id, "Re-extracting from scratch");
+      if (keptCount > 0) {
+        await appendLog(input.id, `Kept ${keptCount} inserted chapter${keptCount === 1 ? "" : "s"} (moved to the front, audio reset)`);
+      }
 
       await quickAddJob({ connectionString }, "extract", { bookId: input.id }, { maxAttempts: 1 });
 
@@ -862,17 +865,20 @@ export const booksRouter = router({
 
       await rm(bookOutputDir(input.id), { recursive: true, force: true }).catch(() => {});
       await db.delete(assemblies).where(eq(assemblies.bookId, input.id));
-      await db.delete(chapters).where(eq(chapters.bookId, input.id));
+      const keptCount = await resetChaptersKeepingInserted(input.id);
 
       await appendLog(input.id, `Applying ${input.boundaries.length} manual chapter boundaries`);
       if (oldChapters.length > 0) {
         await appendLog(
           input.id,
-          `Removed ${oldChapters.length} existing chapter${oldChapters.length === 1 ? "" : "s"} and ${deletedAudioFiles} chapter audio file${deletedAudioFiles === 1 ? "" : "s"}`
+          `Removed ${oldChapters.length - keptCount} existing chapter${oldChapters.length - keptCount === 1 ? "" : "s"} and ${deletedAudioFiles} chapter audio file${deletedAudioFiles === 1 ? "" : "s"}`
         );
       }
+      if (keptCount > 0) {
+        await appendLog(input.id, `Kept ${keptCount} inserted chapter${keptCount === 1 ? "" : "s"} (moved to the front, audio reset)`);
+      }
 
-      let chapterOffset = 0;
+      let chapterOffset = keptCount;
       for (const { fileIndex, sliced } of perFile) {
         await insertSuspendedChapters(input.id, sliced, chapterOffset, fileIndex);
         chapterOffset += sliced.length;

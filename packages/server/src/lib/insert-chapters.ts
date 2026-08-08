@@ -1,5 +1,6 @@
 import { db } from "../db.ts";
-import { chapters, type ChapterSource } from "../schema.ts";
+import { chapters, chapterTranslations, type ChapterSource } from "../schema.ts";
+import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { appendLog } from "./log.ts";
 
 export async function insertSuspendedChapters(
@@ -29,4 +30,50 @@ export async function insertSuspendedChapters(
         status: "suspended",
       });
   }
+}
+
+// Rebuild flows (re-extract, redetect, structure apply) replace extraction-derived
+// chapters, but inserted ones (source-tagged: notes, urls) don't come from marker
+// output and must survive. They move to the front (index 0..k-1) with audio state
+// reset — their audio files are deleted along with the book output dir. Returns k,
+// which callers use as the offset for newly detected chapters.
+export async function resetChaptersKeepingInserted(bookId: string): Promise<number> {
+  const kept = await db
+    .select({ id: chapters.id })
+    .from(chapters)
+    .where(and(eq(chapters.bookId, bookId), isNotNull(chapters.source)))
+    .orderBy(asc(chapters.index));
+
+  await db.delete(chapters).where(and(eq(chapters.bookId, bookId), isNull(chapters.source)));
+
+  for (let i = 0; i < kept.length; i++) {
+    await db
+      .update(chapters)
+      .set({
+        index: i,
+        status: "suspended",
+        audioPath: null,
+        durationMs: null,
+        progress: null,
+        error: null,
+        synthesizedWith: null,
+      })
+      .where(eq(chapters.id, kept[i].id));
+  }
+
+  if (kept.length > 0) {
+    await db
+      .update(chapterTranslations)
+      .set({
+        audioStatus: null,
+        audioPath: null,
+        audioDurationMs: null,
+        audioProgress: null,
+        audioError: null,
+        synthesizedWith: null,
+      })
+      .where(inArray(chapterTranslations.chapterId, kept.map((c) => c.id)));
+  }
+
+  return kept.length;
 }

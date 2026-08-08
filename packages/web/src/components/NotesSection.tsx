@@ -30,6 +30,13 @@ export function NotesSection({ bookId, noteJob }: { bookId: string; noteJob: Not
     onSuccess: () => utils.notes.list.invalidate({ bookId }),
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [addedNoteId, setAddedNoteId] = useState<string | null>(null);
+  const toChapterMutation = trpc.notes.toChapter.useMutation({
+    onSuccess: (_data, vars) => {
+      setAddedNoteId(vars.id);
+      utils.books.get.invalidate({ id: bookId });
+    },
+  });
 
   const showFailedJob = noteJob?.status === "failed";
   if (notes.length === 0 && !jobActive && !showFailedJob) return null;
@@ -103,6 +110,20 @@ export function NotesSection({ bookId, noteJob }: { bookId: string; noteJob: Not
                 <div className="mt-2 ml-6 space-y-2">
                   <MarkdownBlock testId="note-result">{note.result}</MarkdownBlock>
                   <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => toChapterMutation.mutate({ id: note.id })}
+                      disabled={toChapterMutation.isPending}
+                      title="Append this note as a new suspended chapter at the end of the book — drag it into place in the chapter table, then synthesize"
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-50"
+                      data-testid="note-to-chapter"
+                    >
+                      Add as chapter
+                    </button>
+                    {addedNoteId === note.id && (
+                      <span className="text-xs text-green-600 dark:text-green-400" data-testid="note-chapter-added">
+                        Chapter added ✓
+                      </span>
+                    )}
                     <button
                       onClick={() => navigator.clipboard.writeText(note.result)}
                       className="text-xs text-(--text-muted) hover:text-(--text-secondary) font-medium"
