@@ -10,7 +10,7 @@ Built for local use on Apple Silicon Macs. Fully offline after the initial model
 - **Raw-first uploads**: every upload gets instant `pdftotext` raw text; the slow Marker extraction (OCR-capable) is opt-in and can run later.
 - **Per-chapter control**: edit text, re-synthesize, include/exclude, suspend/queue, AI cleanup of OCR artifacts, manual or LLM-proposed chapter boundaries.
 - **Translations**: first-class per-language chapter variants (DeepSeek) with their own TTS audio and assemblies; the original text is always preserved.
-- **Ask AI + notes**: whole-book or per-chapter prompts; every answer is auto-saved as a note on the book.
+- **Ask AI + notes**: whole-book or per-chapter prompts; every answer is auto-saved as a note on the book, and any note can be appended to the book as a chapter of its own — ready to reorder and synthesize.
 - **Digest books**: select N books → one synthetic book with an AI summary chapter per source, ready to synthesize.
 - **Document export**: selected chapters as PDF/EPUB (Vivliostyle), or as a **synced EPUB** — EPUB 3 with Media Overlays: embedded audio plus sentence-level highlighted text, valid per epubcheck.
 - **Read-along on iPhone**: a self-hosted [Storyteller](https://storyteller-platform.dev/) companion (see `storyteller/`) auto-imports synced EPUBs; the free Storyteller Reader app downloads them for fully offline listening with live text highlighting.

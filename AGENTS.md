@@ -21,7 +21,7 @@ This is a personal power-user tool, not a polished consumer product. The design 
 
 **Visibility into what's happening.** Worker activity logs to both the terminal and the UI. Every subprocess event is captured. The user should never wonder "what is it doing right now?"
 
-**UI layout mirrors the pipeline order.** Every page reads top-to-bottom in the order things are needed: source files (input) → chapter structure & text work (translate, cleanup, edit) → output creation (synthesize/assemble audio, export PDF/EPUB) → produced outputs. Controls live inside the stage they affect — extraction options belong with source files, not in a generic actions area at the bottom; output-producing buttons sit with the outputs they create. When adding UI, place it by asking "at which pipeline stage does the user need this?"
+**UI layout mirrors the pipeline order.** Every page reads top-to-bottom in the order things are needed: source files (input) → chapter structure & text work (translate, cleanup, edit) → output creation (assemble audio, export PDF/EPUB) → produced outputs. Controls live inside the stage they affect — extraction options belong with source files, not in a generic actions area at the bottom. One deliberate exception: Synthesize and Cancel processing sit at the top of the chapter toolbar (voice/speed live in a modal behind the Synthesize button) so a 180-chapter table never buries the primary action; the chapter table itself is height-capped with its own scroll for the same reason. When adding UI, place it by asking "at which pipeline stage does the user need this?"
 
 ### Task Tracking
 
@@ -51,7 +51,9 @@ PDF Upload → rawExtract (seconds, always) [→ bookNote (optional AI answer �
 
 Every upload extracts raw text with `pdftotext` in seconds (stored per file in `book_files.raw_text`); the slow Marker extraction is **opt-in** ("Extract chapters now" checkbox, default off) and can be run later via `books.extractChapters` from the book page. Raw-only files carry `book_files.status = "raw"` and are skipped by the extract worker until flipped to `pending`. Whole-book Ask AI (`books.aiPromptRaw`) and the upload-time AI prompt run against the concatenated raw text; every AI answer is auto-saved to the `notes` table.
 
-**Synthetic books** (`books.kind !== "pdf"`, currently `"digest"`): books with no PDF (`pdfPath`/`filename` null, zero `book_files` rows) whose chapters are AI-generated text. A **digest** is created from the home page (select books → Create digest): one `digest` job sequentially summarizes each source book (chapter text preferred, raw text fallback via `lib/book-source-text.ts`), saves each summary as a note on the source book, and inserts one suspended chapter per source with a `chapters.source` back-link (`{kind:"book",bookId,title}` — snapshot; future feed chapters use `{kind:"url"}`). Provenance in `books.origin`, run state in `books.digest_job` (progress "3/10", idempotent resume — already-summarized sources are skipped). Everything downstream (normalize/synthesize/translate/cleanup/assemble/export) works on synthetic chapters unchanged; every PDF-assuming path (extract, redetect, retry, structure, propose, applyChapterBoundaries, append-upload) is guarded on `kind !== "pdf"` — keep it that way when adding features.
+**Synthetic books** (`books.kind !== "pdf"`, currently `"digest"`): books with no PDF (`pdfPath`/`filename` null, zero `book_files` rows) whose chapters are AI-generated text. A **digest** is created from the home page (select books → Create digest): one `digest` job sequentially summarizes each source book (chapter text preferred, raw text fallback via `lib/book-source-text.ts`), saves each summary as a note on the source book, and inserts one suspended chapter per source with a `chapters.source` back-link (`{kind:"book",bookId,title}` — snapshot; notes appended as chapters use `{kind:"note",noteId}`, future feed chapters use `{kind:"url"}`). Provenance in `books.origin`, run state in `books.digest_job` (progress "3/10", idempotent resume — already-summarized sources are skipped). Everything downstream (normalize/synthesize/translate/cleanup/assemble/export) works on synthetic chapters unchanged; every PDF-assuming path (extract, redetect, retry, structure, propose, applyChapterBoundaries, append-upload) is guarded on `kind !== "pdf"` — keep it that way when adding features.
+
+**Inserted chapters** (any chapter whose `source` jsonb is set — currently notes via `notes.toChapter`, "Add as chapter" on a note) don't derive from extraction output, so the three rebuild flows (retry, redetect, applyChapterBoundaries) must never delete them: they all go through `resetChaptersKeepingInserted` (`lib/insert-chapters.ts`), which keeps source-tagged chapters at the front (index 0..k-1) with audio state reset (their files die with the output dir) while newly detected chapters offset from k. Preserve this invariant in any new flow that bulk-deletes chapters.
 
 ### Job Flow (Graphile Worker)
 
@@ -124,7 +126,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **folders** — id (uuid), name, parentId (self-FK, cascade — nested folders), profileId (FK profiles), createdAt, updatedAt. Books live in at most one folder (null = home/root). Home shows only root-level folder rows + unfiled books; `/folders/:id` shows a folder's contents. Recursive aggregates (bookCount/active/size) are computed in `books.list`; subtree/ancestor walks via CTE helpers in `lib/folders.ts`. `folders.delete` collects all descendant books first and deletes each via `deleteBook` before removing the folder row. `folders.move` reparents a folder (rejects moves into the folder's own subtree).
 
-**chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), pageStart/pageEnd (1-based), sourceBlocks (jsonb — block metadata with type, text, page, included, level?, polygon?), sourceFileIndex, source (jsonb `ChapterSource` — digest back-link), synthesizedWith (jsonb voice/speed snapshot), cleanup (jsonb `ChapterCleanup` run state), createdAt
+**chapters** — id (uuid), bookId (FK, cascade delete), index, title, rawText, cleanText, customText, audioPath, durationMs, progress (text, e.g. "12/48"), status (`pending` | `normalizing` | `synthesizing` | `done` | `failed` | `suspended`), error, selected (boolean, default true), pageStart/pageEnd (1-based), sourceBlocks (jsonb — block metadata with type, text, page, included, level?, polygon?), sourceFileIndex, source (jsonb `ChapterSource` — digest/note back-link; non-null marks an inserted chapter that survives rebuilds), synthesizedWith (jsonb voice/speed snapshot), cleanup (jsonb `ChapterCleanup` run state), createdAt
 
 **book_files** — id (uuid), bookId (FK, cascade delete), index, filename, pdfPath, status (`raw` | `pending` | `extracting` | `done` | `failed`), selected, skipSynthesis, rawText, rawWords, error, createdAt. One row per uploaded PDF; `raw` = pdftotext-only, marker neither queued nor planned.
 
@@ -229,7 +231,7 @@ packages/server/src/
     folders.ts          Folder subtree/ancestor recursive CTEs
     delete-book.ts      The only correct way to delete a book (DB row + disk dirs)
     disk-usage.ts       Per-book disk usage measurement with cache
-    insert-chapters.ts  Insert suspended chapters (digest + boundary apply)
+    insert-chapters.ts  Insert suspended chapters (digest + boundary apply); resetChaptersKeepingInserted (rebuilds keep source-tagged chapters)
     extract-registry.ts In-memory registry of running marker subprocesses (for cancel)
 ```
 
@@ -254,12 +256,13 @@ packages/web/src/
     BookDetail.tsx      Per-book orchestration: staged sections (1 Input → 2 Work → 3 Output → danger zone), language view in ?lang= query param
   components/
     BookFilesSection.tsx    Stage 1 card: source-file table, add files, re-extract, extraction settings
-    AudioOutputsSection.tsx Stage 3 card: synthesize/assemble/cancel actions + assemblies list
+    AudioOutputsSection.tsx Stage 3 card: produced audiobook assemblies (download/delete)
     DocumentOutputsSection.tsx Stage 3 card: PDF/EPUB/synced-EPUB export actions + documents list
-    NotesSection.tsx    Auto-saved AI notes per book (markdown, delete)
+    NotesSection.tsx    Auto-saved AI notes per book (markdown, copy, add as chapter, delete)
     LogDock.tsx         Sticky bottom log bar + full scrollable log modal
     EditableTitle.tsx   Click-to-rename book title
-    ChapterTable.tsx    Chapter table with filters, range selection, floating audio player with read-along chunk highlighting
+    ChapterTable.tsx    Chapter table (height-capped, sticky header) with filters, range selection, floating audio player with read-along chunk highlighting
+    SynthesizeModal.tsx Voice/speed picker + start button behind the toolbar's Synthesize action
     ChapterModal.tsx    Chapter detail modal: view tabs, text editing, per-chapter actions
     ChapterAiModal.tsx  Ask-AI prompt modal per chapter/book (presets, model pick)
     StructureModal.tsx  Heading-outline structure view, manual boundaries, LLM proposals
@@ -307,7 +310,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 
 **profiles**: `list` (marks the default) / `create` / `rename` / `delete` (refuses default and non-empty profiles)
 
-**notes**: `list` (per book, newest first) / `delete`
+**notes**: `list` (per book, newest first) / `delete` / `toChapter` (append the note as a suspended chapter, `source {kind:"note"}`)
 
 ## HTTP Endpoints (non-tRPC)
 
