@@ -114,7 +114,9 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **assemblies** — id (uuid), bookId (FK, cascade delete), outputPath, durationMs, chapterCount, chapterSummary, chapterIds (json array), createdAt
 
-**documents** — id (uuid), bookId (FK, cascade delete), language (null = original), format (`pdf` | `epub`), outputPath, chapterCount, chapterSummary, chapterIds (json array), createdAt. Written by the `assembleDocument` worker (Vivliostyle CLI renders selected chapters to PDF/EPUB; first run downloads a rendering browser into the Vivliostyle cache).
+**documents** — id (uuid), bookId (FK, cascade delete), language (null = original), format (`pdf` | `epub` | `epub-sync`), outputPath, chapterCount, chapterSummary, chapterIds (json array), createdAt. Written by the `assembleDocument` worker: `pdf`/`epub` render text via Vivliostyle CLI (first run downloads a rendering browser into the Vivliostyle cache); `epub-sync` is a read-along EPUB 3 with Media Overlays (audio + SMIL-highlighted text, built by `lib/readaloud-epub.ts` + system `zip`, playable in Storyteller/media-overlay readers). Layout mirrors the IDPF moby-dick sample (flat OEBPS, no `../` in SMIL refs); the spine ALWAYS ends with a non-overlaid `colophon.xhtml` — the Storyteller iOS app crashes (unchecked `readingOrder[index+1]`) if the last spine item has an overlay, so never remove it. If `READALOUD_DROP_DIR` env is set, finished exports are also copied there (pointed at `storyteller/data/import`, a Storyteller watch folder → books auto-import).
+
+**Sync maps** — `ch000.sync.json` next to each chapter/translation MP3: per-chunk `{text, startMs, endMs}` (`lib/sync-map.ts`). Written by the synthesize workers after MP3 encode; backfilled on demand from chunk WAV durations (`ensureSyncMap`) during `epub-sync` export. Once the sync map exists, the chunk WAVs are disposable — the map + MP3 can rebuild read-along exports forever.
 
 **bookLogs** — id (uuid), bookId (FK, cascade delete), message (text), createdAt
 

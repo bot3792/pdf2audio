@@ -17,7 +17,7 @@ import { DiskUsageButton } from "../components/DiskUsageButton.tsx";
 import { ChapterAiModal, type AiScope } from "../components/ChapterAiModal.tsx";
 import { NotesSection } from "../components/NotesSection.tsx";
 import { loadBookSort, sortBooks } from "../lib/book-sort.ts";
-import { formatBytes } from "../lib/format.ts";
+import { formatBytes, documentFormatLabel } from "../lib/format.ts";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -121,6 +121,8 @@ export function BookDetail() {
     },
   });
   const deleteDocumentMutation = trpc.books.deleteDocument.useMutation({ onSuccess: invalidate });
+  const { data: exportConfig } = trpc.books.exportConfig.useQuery();
+  const [copyToImport, setCopyToImport] = useState(true);
 
   // Chapter mutations
   const queueMutation = trpc.chapters.queue.useMutation({ onSuccess: invalidate });
@@ -341,8 +343,12 @@ export function BookDetail() {
   const selectedExportable = activeLanguage
     ? book.chapters.filter((c) => c.selected && translationByChapter.get(c.id)?.status === "done").length
     : selectedCount;
+  // Synced EPUB embeds the narration, so it needs finished audio, not just text
+  const selectedSyncExportable = activeLanguage
+    ? book.chapters.filter((c) => c.selected && translationByChapter.get(c.id)?.audioStatus === "done").length
+    : selectedWithAudio;
   const viewPendingExports = pendingExports.filter((e) => (e.language ?? null) === activeLanguage);
-  const pendingExportFor = (format: "pdf" | "epub") => viewPendingExports.find((e) => e.format === format);
+  const pendingExportFor = (format: "pdf" | "epub" | "epub-sync") => viewPendingExports.find((e) => e.format === format);
   const canExportDocument = selectedExportable > 0 && !isAssembling && !exportDocumentMutation.isPending;
   const exportTooltip = (format: "pdf" | "epub") =>
     pendingExportFor(format) ? `${format.toUpperCase()} export already ${pendingExportFor(format)!.running ? "rendering" : "queued"}`
@@ -350,6 +356,12 @@ export function BookDetail() {
       ? (activeLanguage ? "No selected chapters have a finished translation" : "No chapters selected")
       : isAssembling ? "Wait for the current assembly to finish"
       : `Render the selected chapters as ${format === "pdf" ? "a PDF" : "an EPUB"} book`;
+  const syncExportTooltip =
+    pendingExportFor("epub-sync") ? `Synced EPUB export already ${pendingExportFor("epub-sync")!.running ? "rendering" : "queued"}`
+      : selectedSyncExportable === 0
+      ? `No selected chapters have finished${activeLanguage ? ` ${activeLanguage}` : ""} audio`
+      : isAssembling ? "Wait for the current assembly to finish"
+      : "EPUB with read-along narration — audio plus highlighted text, for Storyteller and other readers that support EPUB media overlays";
 
   const langSuffix = activeLanguage ? ` · ${activeLanguage}` : "";
 
@@ -910,10 +922,40 @@ export function BookDetail() {
                   >
                     Export EPUB ({selectedExportable}){langSuffix}
                   </button>
+                  <button
+                    onClick={() => exportDocumentMutation.mutate({
+                      id: book.id,
+                      language: activeLanguage ?? undefined,
+                      format: "epub-sync",
+                      copyToDropDir: !!exportConfig?.readaloudDropDir && copyToImport,
+                    })}
+                    disabled={selectedSyncExportable === 0 || isAssembling || exportDocumentMutation.isPending || !!pendingExportFor("epub-sync")}
+                    title={syncExportTooltip}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    data-testid="export-epub-sync"
+                  >
+                    Export synced EPUB ({selectedSyncExportable}){langSuffix}
+                  </button>
+                  {exportConfig?.readaloudDropDir && (
+                    <label
+                      className="inline-flex items-center gap-1.5 text-xs text-(--text-secondary) cursor-pointer"
+                      title={`Copies the synced EPUB to ${exportConfig.readaloudDropDir} — the Storyteller import folder (READALOUD_DROP_DIR in .env)`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={copyToImport}
+                        onChange={(e) => setCopyToImport(e.target.checked)}
+                        className="rounded"
+                        data-testid="copy-to-import"
+                      />
+                      Copy to import folder
+                      <span className="text-(--text-faint) max-w-56 truncate" dir="rtl">{exportConfig.readaloudDropDir}</span>
+                    </label>
+                  )}
                   {viewPendingExports.length > 0 && (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400" data-testid="export-pending-inline">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      {viewPendingExports.map((p) => `${p.format.toUpperCase()} ${p.running ? "rendering" : "queued"}`).join(" · ")}...
+                      {viewPendingExports.map((p) => `${documentFormatLabel(p.format)} ${p.running ? "rendering" : "queued"}`).join(" · ")}...
                     </span>
                   )}
                 </div>

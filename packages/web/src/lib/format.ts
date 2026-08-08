@@ -1,3 +1,9 @@
+export type DocumentFormat = "pdf" | "epub" | "epub-sync";
+
+export function documentFormatLabel(format: DocumentFormat): string {
+  return format === "epub-sync" ? "Synced EPUB" : format.toUpperCase();
+}
+
 export function formatOutputDate(date: string | Date): string {
   const d = new Date(date);
   return d.toLocaleDateString("en-US", {

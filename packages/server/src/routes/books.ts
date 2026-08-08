@@ -986,11 +986,17 @@ export const booksRouter = router({
       return updated;
     }),
 
+  // Lets the client show where "copy to import folder" would land; null = not configured
+  exportConfig: publicProcedure.query(() => ({
+    readaloudDropDir: env.READALOUD_DROP_DIR ?? null,
+  })),
+
   exportDocument: publicProcedure
     .input(z.object({
       id: z.string().uuid(),
       language: z.string().min(1).optional(),
-      format: z.enum(["pdf", "epub"]),
+      format: z.enum(["pdf", "epub", "epub-sync"]),
+      copyToDropDir: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
@@ -998,7 +1004,33 @@ export const booksRouter = router({
       if (book.status === "assembling") throw new Error("Assembly already in progress");
 
       let exportable: number;
-      if (input.language) {
+      if (input.format === "epub-sync") {
+        // Needs finished audio, not just text
+        if (input.language) {
+          const rows = await db
+            .select({ id: chapters.id })
+            .from(chapterTranslations)
+            .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+            .where(and(
+              eq(chapters.bookId, input.id),
+              eq(chapters.selected, true),
+              eq(chapterTranslations.language, input.language),
+              eq(chapterTranslations.audioStatus, "done"),
+            ));
+          exportable = rows.length;
+        } else {
+          const rows = await db
+            .select({ id: chapters.id })
+            .from(chapters)
+            .where(and(eq(chapters.bookId, input.id), eq(chapters.selected, true), eq(chapters.status, "done")));
+          exportable = rows.length;
+        }
+        if (exportable === 0) {
+          throw new Error(input.language
+            ? `No selected chapters have finished ${input.language} audio`
+            : "No selected chapters have finished audio");
+        }
+      } else if (input.language) {
         const rows = await db
           .select({ id: chapters.id })
           .from(chapterTranslations)
@@ -1023,12 +1055,13 @@ export const booksRouter = router({
           : "No chapters selected");
       }
 
-      await appendLog(input.id, `Queuing ${input.format.toUpperCase()} export (${exportable} chapter${exportable !== 1 ? "s" : ""})${input.language ? ` · ${input.language}` : ""}`);
+      const formatLabel = input.format === "epub-sync" ? "synced EPUB" : input.format.toUpperCase();
+      await appendLog(input.id, `Queuing ${formatLabel} export (${exportable} chapter${exportable !== 1 ? "s" : ""})${input.language ? ` · ${input.language}` : ""}`);
       // jobKey: repeat clicks replace the queued job instead of stacking duplicates
       await quickAddJob(
         { connectionString },
         "assembleDocument",
-        { bookId: input.id, language: input.language, format: input.format },
+        { bookId: input.id, language: input.language, format: input.format, copyToDropDir: input.copyToDropDir },
         { maxAttempts: 1, jobKey: `assembleDocument:${input.id}:${input.format}:${input.language ?? "original"}`, jobKeyMode: "replace" },
       );
       return { success: true };
@@ -1042,7 +1075,7 @@ export const booksRouter = router({
         FROM graphile_worker._private_jobs j
         JOIN graphile_worker._private_tasks t ON t.id = j.task_id
         WHERE t.identifier = 'assembleDocument' AND j.payload->>'bookId' = ${input.bookId}
-      `)) as unknown as Array<{ format: "pdf" | "epub"; language: string | null; running: boolean }>;
+      `)) as unknown as Array<{ format: "pdf" | "epub" | "epub-sync"; language: string | null; running: boolean }>;
       return rows;
     }),
 

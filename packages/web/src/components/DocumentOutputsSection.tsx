@@ -1,8 +1,8 @@
-import { formatOutputDate } from "../lib/format.ts";
+import { formatOutputDate, documentFormatLabel, type DocumentFormat } from "../lib/format.ts";
 
 export type DocumentRow = {
   id: string;
-  format: "pdf" | "epub";
+  format: DocumentFormat;
   outputPath: string;
   chapterCount: number;
   chapterSummary: string;
@@ -10,7 +10,7 @@ export type DocumentRow = {
 };
 
 export type PendingExport = {
-  format: "pdf" | "epub";
+  format: DocumentFormat;
   language: string | null;
   running: boolean;
 };
@@ -36,7 +36,7 @@ export function DocumentOutputsSection({
         {pending.length > 0 && (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 ml-3" data-testid="export-pending">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            {pending.map((p) => `${p.format.toUpperCase()} ${p.running ? "rendering" : "queued"}`).join(" · ")}...
+            {pending.map((p) => `${documentFormatLabel(p.format)} ${p.running ? "rendering" : "queued"}`).join(" · ")}...
           </span>
         )}
       </h2>
@@ -48,7 +48,7 @@ export function DocumentOutputsSection({
             <li key={doc.id} className="px-3 py-2.5 flex items-center gap-2 hover:bg-(--bg-card-hover)">
               <span className="text-sm text-(--text-secondary)">{formatOutputDate(doc.createdAt)}</span>
               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 uppercase">
-                {doc.format}
+                {documentFormatLabel(doc.format)}
               </span>
               <span className="text-sm text-(--text-tertiary)" title={doc.chapterSummary}>
                 {doc.chapterCount} chapter{doc.chapterCount !== 1 ? "s" : ""}
