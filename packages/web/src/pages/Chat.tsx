@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { DefaultChatTransport } from "ai";
 import { trpc } from "../trpc.ts";
-import { getStoredProfileId, profileHeaders } from "../lib/profile.ts";
+import { profileHeaders } from "../lib/profile.ts";
 import { AI_MODELS, type AiModelKey } from "../lib/ai-presets.ts";
 import { ChatMessage } from "../components/chat/ChatMessage.tsx";
 import { SavedAnswers } from "../components/chat/SavedAnswers.tsx";
@@ -29,20 +29,9 @@ function flattenFolders(folders: { id: string; name: string; parentId: string | 
   return out;
 }
 
-const STORED_MESSAGE_CAP = 60;
-
-function chatStorageKey(): string {
-  return `library-chat.messages.${getStoredProfileId() ?? "default"}`;
-}
-
-function loadStoredMessages(): UIMessage[] {
-  try {
-    const raw = localStorage.getItem(chatStorageKey());
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+// One-time cleanup of transcripts left behind by the retired localStorage persistence
+for (const key of Object.keys(localStorage)) {
+  if (key.startsWith("library-chat.messages.")) localStorage.removeItem(key);
 }
 
 export function Chat() {
@@ -63,29 +52,16 @@ export function Chat() {
     () => new DefaultChatTransport({ api: "/chat", headers: () => profileHeaders() }),
     [],
   );
-  const [initialMessages] = useState(loadStoredMessages);
-  const { messages, sendMessage, setMessages, status, error, stop } = useChat({ transport, messages: initialMessages });
+  const { messages, sendMessage, setMessages, status, error, stop } = useChat({ transport });
   const busy = status === "submitted" || status === "streaming";
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Persist only settled transcripts — a refresh mid-stream drops the partial answer
-  useEffect(() => {
-    if (busy) return;
-    try {
-      if (messages.length === 0) localStorage.removeItem(chatStorageKey());
-      else localStorage.setItem(chatStorageKey(), JSON.stringify(messages.slice(-STORED_MESSAGE_CAP)));
-    } catch {
-      // localStorage full or unavailable — persistence is best-effort
-    }
-  }, [messages, busy]);
-
   const newChat = () => {
     stop();
     setMessages([]);
-    localStorage.removeItem(chatStorageKey());
   };
 
   const send = () => {
