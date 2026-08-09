@@ -9,7 +9,7 @@ Built for local use on Apple Silicon Macs. Fully offline after the initial model
 - **PDF → audiobook**: chapter detection (deterministic tiers + optional LLM TOC detection), per-chapter TTS synthesis, single MP3 assembly with ID3v2 chapter markers.
 - **Raw-first uploads**: every upload gets instant `pdftotext` raw text; the slow Marker extraction (OCR-capable) is opt-in and can run later.
 - **Per-chapter control**: edit text, re-synthesize, include/exclude, suspend/queue, AI cleanup of OCR artifacts, manual or LLM-proposed chapter boundaries.
-- **Translations**: first-class per-language chapter variants (DeepSeek) with their own TTS audio and assemblies; the original text is always preserved.
+- **Translations**: first-class per-language chapter variants (DeepSeek) with their own TTS audio and assemblies; the original text is always preserved. Translation streams live into the side-by-side view — you see the model's thinking, then the translated text token by token.
 - **Ask AI + notes**: whole-book or per-chapter prompts; every answer is auto-saved as a note on the book, and any note can be appended to the book as a chapter of its own — ready to reorder and synthesize.
 - **Digest books**: select N books → one synthetic book with an AI summary chapter per source, ready to synthesize.
 - **Document export**: selected chapters as PDF/EPUB (Vivliostyle), or as a **synced EPUB** — EPUB 3 with Media Overlays: embedded audio plus sentence-level highlighted text, valid per epubcheck.

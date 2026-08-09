@@ -71,7 +71,7 @@ Every upload extracts raw text with `pdftotext` in seconds (stored per file in `
 
 4. **assemble** (`workers/assemble.ts`, user-triggered) — FFmpeg concatenates selected chapter MP3s into one (or copies directly for single-chapter books). node-id3 writes ID3v2 CHAP/CTOC frames for chapter markers. Assembly is an explicit user action, not auto-queued. Each assembly is recorded in the `assemblies` table with metadata (duration, chapter count, summary).
 
-5. **translate / translateTitles** (`workers/translate.ts`, `translate-titles.ts`, translate pool) — Per-chapter DeepSeek translation into `chapter_translations` (chunked via `lib/translate.ts`, `runToken` fencing, `sourceHash` staleness detection); title-only backfill for translated chapter titles.
+5. **translate / translateTitles** (`workers/translate.ts`, `translate-titles.ts`, translate pool) — Per-chapter DeepSeek translation into `chapter_translations` (chunked via `lib/translate.ts`, `runToken` fencing, `sourceHash` staleness detection); title-only backfill for translated chapter titles. Chunks stream token-by-token: the worker publishes deltas (including the model's hidden reasoning as `thinking` events) through the in-process channel in `lib/translate-live.ts`, relayed to the modal by `GET /translations/:id/stream` SSE; the DB row stays the source of truth, written once per completed chunk.
 
 6. **synthesizeTranslation** (`workers/synthesize-translation.ts`, tts pool) — TTS for a finished translation (audio state on the `chapter_translations` row, per-language output dir + chunk previews + sync map). Auto-queues a language assembly when every selected translated chapter has audio.
 
@@ -177,6 +177,7 @@ packages/server/src/
   env.ts                Zod-validated environment variables (dotenv + schema)
   main.ts               Fastify entrypoint: file/audio/document download routes, tRPC plugin, static /files/
   upload-routes.ts      POST /upload and /upload/:bookId (multipart) — always queues rawExtract; extract only when fullExtract
+  translation-stream-routes.ts  GET /translations/:id/stream — SSE relay of live translation deltas
   db.ts                 Drizzle postgres connection
   schema.ts             Drizzle table definitions (source of truth for DB schema)
   trpc.ts               tRPC init (router, publicProcedure, x-profile-id context)
@@ -220,6 +221,7 @@ packages/server/src/
     notes.ts            saveNote() shared by AI prompt paths
     cleanup.ts          DeepSeek chunk prompts for OCR-artifact cleanup
     translate.ts        Chunked translation prompts (splitForTranslation)
+    translate-live.ts   In-process pub/sub for live translation streaming (run-fenced sessions)
     tts.ts              Voice registry + synthesis dispatch (kokoro / bg-mlx / mms / kugel)
     tts-chunks.ts       Bulgarian narrator text chunking (250-320 chars)
     kokoro.ts           Kokoro TTS subprocess wrapper with onProgress callback
@@ -333,6 +335,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 - `GET /read/:chapterId` — Print-friendly chapter reader (source blocks HTML)
 - `GET /preview/:voiceId` — Voice preview MP3 (generated on demand, cached in data/previews)
 - `GET /files/*` — Static mount of the whole output dir (chunk WAV previews, direct file access)
+- `GET /translations/:translationId/stream` — SSE live feed for a running translation (`translation-stream-routes.ts`): snapshot on connect, then `delta`/`thinking`/`status` events from the worker's in-process channel (`lib/translate-live.ts`). The modal's 1s polling stays as fallback.
 - `POST /chat` — Library-chat streaming endpoint (`chat-routes.ts`). Raw Fastify route because tRPC can't stream; AI SDK UI-message stream over `reply.hijack()` + `pipeUIMessageStreamToResponse`. Profile via `x-profile-id`. Scope accepts `folderId` (subtree) or `bookId` (single-book chat).
 - `POST /chat/ask` — Streaming Ask AI (`chat-routes.ts` + `lib/ask-ai.ts`): whole scope (book raw text or selected chapters) stuffed in context, no tools; same 1M token guard and auto-save-note behavior as the retired sync mutations (`books.aiPromptRaw` / `chapters.aiPrompt`); emits a `data-note` part with the saved noteId. Consumed by `ChapterAiModal` via `useChat` (one "Ask AI" button, scope switcher inside the modal).
 

@@ -7,6 +7,7 @@ import { appendLog } from "../lib/log.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { WorkerUtils } from "graphile-worker";
 import { queueIndexBook } from "../lib/search-index.ts";
+import { beginTranslationLive, type TranslationLiveHandle } from "../lib/translate-live.ts";
 
 export type TranslatePayload = {
   translationId: string;
@@ -46,6 +47,7 @@ export async function translate(
     eq(chapterTranslations.runToken, runToken),
   );
 
+  let live: TranslationLiveHandle | undefined;
   try {
     const source = chapter.customText ?? chapter.cleanText ?? chapter.rawText;
     if (!source) throw new Error("Chapter has no text");
@@ -72,14 +74,20 @@ export async function translate(
         : `Translating "${chapter.title}" to ${row.language} (${chunks.length} chunks)`,
     );
 
+    live = beginTranslationLive(translationId, translated);
+
     for (let i = done; i < chunks.length; i++) {
+      if (translated) live.append("\n\n");
       const result = await translateChunk({
         text: chunks[i],
         language: row.language,
         previousTranslation: translated ? translated.slice(-1500) : undefined,
+        onDelta: live.append,
+        onThinking: live.think,
       });
 
       translated = translated ? `${translated}\n\n${result}` : result;
+      live.sync(translated);
 
       const updated = await db
         .update(chapterTranslations)
@@ -89,6 +97,7 @@ export async function translate(
 
       if (updated.length === 0) {
         await chLog(`Translation stopped — kept ${i}/${chunks.length} chunks`);
+        live.end("suspended");
         return;
       }
     }
@@ -106,8 +115,10 @@ export async function translate(
       .returning({ audioStatus: chapterTranslations.audioStatus });
     if (!finished) {
       await chLog(`Translation stopped — kept ${chunks.length}/${chunks.length} chunks`);
+      live.end("suspended");
       return;
     }
+    live.end("done");
     await chLog(`Translation to ${row.language} done`);
     await queueIndexBook(bookId);
 
@@ -118,6 +129,7 @@ export async function translate(
     }
   } catch (err) {
     const message = describeError(err);
+    live?.end("failed", message);
     await chLog(`Translation failed: ${message}`);
     await db
       .update(chapterTranslations)

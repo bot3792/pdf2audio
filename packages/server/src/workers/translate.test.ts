@@ -19,6 +19,7 @@ vi.mock("../db.ts", async () => {
 
 import { translate } from "./translate.ts";
 import { translateChunk, translateTitle, splitForTranslation } from "../lib/translate.ts";
+import { subscribeTranslationLive, type TranslationLiveEvent } from "../lib/translate-live.ts";
 import { createHash } from "node:crypto";
 
 const mockTranslateChunk = vi.mocked(translateChunk);
@@ -251,6 +252,47 @@ describe("translate worker", () => {
     expect(row.text).toBe("BG-1");
     expect(row.runToken).toBe("newer-run");
     expect(mockTranslateChunk).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes live deltas while streaming and a done status at the end", async () => {
+    const db = getDb();
+    const { bookId, translationId } = await insertFixture(db);
+    mockTranslateChunk.mockImplementation(async ({ text, onDelta, onThinking }) => {
+      onThinking?.("pondering names...");
+      onDelta?.("BG(");
+      onDelta?.(text.slice(0, 5));
+      onDelta?.(")");
+      return `BG(${text.slice(0, 5)})`;
+    });
+
+    const events: TranslationLiveEvent[] = [];
+    const unsubscribe = subscribeTranslationLive(translationId, (e) => events.push(e));
+    await translate({ translationId, bookId }, helpers);
+    unsubscribe();
+
+    expect(events[0]).toEqual({ type: "snapshot", text: "" });
+    expect(events.filter((e) => e.type === "delta").length).toBeGreaterThan(0);
+    expect(events.filter((e) => e.type === "thinking").length).toBeGreaterThan(0);
+    expect(events.at(-1)).toEqual({ type: "status", status: "done" });
+
+    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const streamed = events.reduce(
+      (text, e) => (e.type === "snapshot" ? e.text : e.type === "delta" ? text + e.text : text),
+      "",
+    );
+    expect(streamed).toBe(row.text);
+  });
+
+  it("publishes a failed status with the error when the provider throws", async () => {
+    const { bookId, translationId } = await insertFixture(getDb());
+    mockTranslateChunk.mockRejectedValue(new Error("API down"));
+
+    const events: TranslationLiveEvent[] = [];
+    const unsubscribe = subscribeTranslationLive(translationId, (e) => events.push(e));
+    await expect(translate({ translationId, bookId }, helpers)).rejects.toThrow("API down");
+    unsubscribe();
+
+    expect(events.at(-1)).toEqual({ type: "status", status: "failed", error: "API down" });
   });
 
   it("marks the row failed when the provider throws", async () => {

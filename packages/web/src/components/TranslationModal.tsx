@@ -70,11 +70,50 @@ export function TranslationModal({
 
   const running = translation?.status === "pending" || translation?.status === "translating";
 
+  const [live, setLive] = useState<{ id: string; text: string; thinking: string } | null>(null);
+  const translationId = running ? translation?.id : undefined;
+
+  useEffect(() => {
+    if (!translationId) return;
+    setLive(null);
+    const source = new EventSource(`/translations/${translationId}/stream`);
+    source.onmessage = (e) => {
+      const event = JSON.parse(e.data) as
+        | { type: "snapshot"; text: string }
+        | { type: "delta"; text: string }
+        | { type: "thinking"; text: string }
+        | { type: "status"; status: string };
+      if (event.type === "snapshot") {
+        setLive({ id: translationId, text: event.text, thinking: "" });
+      } else if (event.type === "delta") {
+        setLive((prev) =>
+          prev?.id === translationId
+            ? { id: translationId, text: prev.text + event.text, thinking: "" }
+            : prev,
+        );
+      } else if (event.type === "thinking") {
+        setLive((prev) =>
+          prev?.id === translationId
+            ? { id: translationId, text: prev.text, thinking: prev.thinking + event.text }
+            : prev,
+        );
+      } else {
+        source.close();
+        refresh();
+      }
+    };
+    return () => source.close();
+  }, [translationId]);
+
+  const liveState = running && live && live.id === translation?.id ? live : null;
+  const displayText = liveState?.text ?? translation?.text;
+  const thinking = liveState?.thinking ?? "";
+
   useEffect(() => {
     if (running && translatedPane.current) {
       translatedPane.current.scrollTop = translatedPane.current.scrollHeight;
     }
-  }, [translation?.text, running]);
+  }, [displayText, thinking, running]);
 
   const sourceText = chapter ? chapter.customText ?? chapter.cleanText ?? chapter.rawText : "";
   const statusByChapter = new Map(bookList.map((t) => [t.chapterId, t]));
@@ -135,7 +174,7 @@ export function TranslationModal({
 
           {running ? (
             <span className="text-sm text-blue-600" data-testid="translation-progress">
-              Translating{translation?.progress ? ` · ${translation.progress} chunks` : ""}...
+              {thinking ? "Thinking" : "Translating"}{translation?.progress ? ` · ${translation.progress} chunks` : ""}...
             </span>
           ) : translation?.status === "suspended" ? (
             <span className="text-sm text-(--text-muted)">
@@ -211,12 +250,20 @@ export function TranslationModal({
             </h3>
             <div ref={translatedPane} className="flex-1 overflow-y-auto px-4 pb-4">
               <p className="text-sm text-(--text-primary) whitespace-pre-wrap leading-relaxed" data-testid="translation-text">
-                {translation?.text || (
+                {displayText || (thinking ? null : (
                   <span className="text-(--text-muted)">
-                    {running ? "Waiting for the first chunk..." : "No translation yet."}
+                    {running ? "Waiting for the translation to start..." : "No translation yet."}
                   </span>
-                )}
+                ))}
               </p>
+              {thinking ? (
+                <p
+                  className="mt-3 text-xs text-(--text-faint) italic whitespace-pre-wrap leading-relaxed"
+                  data-testid="translation-thinking"
+                >
+                  {thinking}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { deepseekChat } from "./deepseek.ts";
+import { deepseekChat, deepseekChatStream } from "./deepseek.ts";
 
 const MAX_CHUNK_CHARS = 2500;
 
@@ -37,11 +37,13 @@ export type TranslateChunkArgs = {
   text: string;
   language: string;
   previousTranslation?: string;
+  onDelta?: (delta: string) => void;
+  onThinking?: (delta: string) => void;
 };
 
 export type TranslateChunkFn = (args: TranslateChunkArgs) => Promise<string>;
 
-export const translateChunk: TranslateChunkFn = async ({ text, language, previousTranslation }) => {
+export const translateChunk: TranslateChunkFn = async ({ text, language, previousTranslation, onDelta, onThinking }) => {
   const system = [
     `You are a professional literary translator. Translate the user's text from its original language into ${language}.`,
     "Preserve the literary style, tone, and register. Keep dialogue natural and idiomatic, using the dialogue punctuation conventions of the target language.",
@@ -52,7 +54,7 @@ export const translateChunk: TranslateChunkFn = async ({ text, language, previou
     "Output ONLY the translation, nothing else.",
   ].filter(Boolean).join("\n\n");
 
-  return deepseekChat(system, text, { temperature: 1.3 });
+  return deepseekChatStream(system, text, { temperature: 1.3, onDelta, onReasoning: onThinking });
 };
 
 export type TranslateTitleArgs = {
