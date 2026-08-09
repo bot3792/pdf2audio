@@ -258,6 +258,7 @@ packages/web/src/
   pages/
     Home.tsx            Profile switcher, upload zone, search box, book/folder list, breadcrumbs
     BookDetail.tsx      Per-book orchestration: staged sections (1 Input → 2 Work → 3 Output → danger zone), language view in ?lang= query param
+    Chat.tsx            Library chat: useChat + streaming /chat, folder (?folderId=) / book (?bookId=) scoping, source chips, saved answers, localStorage transcript
   components/
     BookFilesSection.tsx    Stage 1 card: source-file table, add files, re-extract, extraction settings
     AudioOutputsSection.tsx Stage 3 card: produced audiobook assemblies (download/delete)
