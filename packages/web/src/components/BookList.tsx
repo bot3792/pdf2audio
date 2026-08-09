@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { formatBytes, formatRelativeTime } from "../lib/format.ts";
-import { loadBookSort, saveBookSort, sortBooks, type BookSortDir, type BookSortKey, type FolderRow } from "../lib/book-sort.ts";
+import { loadBookSort, saveBookSort, sortBooks, sortFolders, type BookSortDir, type BookSortKey, type FolderRow } from "../lib/book-sort.ts";
 import { DigestModal } from "./DigestModal.tsx";
 import { FolderPickerModal } from "./FolderPickerModal.tsx";
 import { setDragItems, getDragItems, hasDragItems, type DragItems } from "../lib/dnd.ts";
@@ -238,6 +238,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
   }
 
   const sorted = sortBooks(books ?? [], sortKey, sortDir);
+  const sortedFolders = sortFolders(folderRows, sortKey, sortDir);
   const isEmpty = sorted.length === 0 && folderRows.length === 0;
 
   // Prune ids of rows deleted/moved elsewhere so counts never lie
@@ -420,7 +421,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
           </tr>
         </thead>
         <tbody className="bg-(--bg-card) divide-y divide-(--divide)">
-          {folderRows.map((folder) => (
+          {sortedFolders.map((folder) => (
             <FolderTableRow
               key={folder.id}
               folder={folder}
@@ -484,6 +485,33 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
                   {book.skipSynthesis && book.kind === "pdf" && (
                     <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-(--bg-subtle) text-(--text-muted) align-middle" title="Reader mode — extraction only, audio on demand">
                       reader
+                    </span>
+                  )}
+                  {book.searchIndex && ["queued", "chunking", "embedding"].includes(book.searchIndex.status) && (
+                    <span
+                      className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-(--bg-subtle) text-(--text-muted) align-middle animate-pulse"
+                      title={`Search indexing: ${book.searchIndex.status}${book.searchIndex.progress ? ` — ${book.searchIndex.progress}` : ""}`}
+                      data-testid="index-badge"
+                    >
+                      indexing…
+                    </span>
+                  )}
+                  {book.searchIndex?.status === "done" && (
+                    <span
+                      className="ml-2 text-[10px] text-(--text-faint) align-middle"
+                      title="Fully indexed — findable in library chat (keyword + semantic search)"
+                      data-testid="index-badge-done"
+                    >
+                      ✓
+                    </span>
+                  )}
+                  {book.searchIndex?.status === "failed" && (
+                    <span
+                      className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 align-middle"
+                      title={`Search indexing failed: ${book.searchIndex.error ?? "unknown error"}`}
+                      data-testid="index-badge-failed"
+                    >
+                      index failed
                     </span>
                   )}
                 </td>

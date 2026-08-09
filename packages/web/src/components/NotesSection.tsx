@@ -69,7 +69,9 @@ export function NotesSection({ bookId, noteJob }: { bookId: string; noteJob: Not
           const scopeLabel =
             note.scope.kind === "book-raw"
               ? "Whole book (raw text)"
-              : `${note.scope.chapters.length} chapter${note.scope.chapters.length === 1 ? "" : "s"}`;
+              : note.scope.kind === "library"
+                ? "Library chat"
+                : `${note.scope.chapters.length} chapter${note.scope.chapters.length === 1 ? "" : "s"}`;
           const scopeTitle = note.scope.kind === "chapters" ? note.scope.chapters.map((c) => c.title).join("\n") : undefined;
           return (
             <div key={note.id} className="py-2" data-testid="note-row">

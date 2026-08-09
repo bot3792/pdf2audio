@@ -6,6 +6,7 @@ import { cleanupChunk } from "../lib/cleanup.ts";
 import { describeError } from "../lib/deepseek.ts";
 import { appendLog } from "../lib/log.ts";
 import { randomUUID } from "node:crypto";
+import { queueIndexBook } from "../lib/search-index.ts";
 
 export type CleanupPayload = {
   chapterId: string;
@@ -86,6 +87,7 @@ export async function cleanup(payload: CleanupPayload) {
       return;
     }
     await chLog(`Cleanup done (${source.length} → ${result.length} chars)`);
+    await queueIndexBook(bookId);
   } catch (err) {
     const message = describeError(err);
     await chLog(`Cleanup failed: ${message}`);

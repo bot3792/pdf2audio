@@ -81,7 +81,9 @@ Every upload extracts raw text with `pdftotext` in seconds (stored per file in `
 
 9. **sweep** (`workers/sweep.ts`, startup) — Requeues/fails stranded jobs after a server restart (stuck extracting/assembling books, stale cleanup runs).
 
-Workers run in five pools (`workers/setup.ts`): `tts` (concurrency 2 — MLX contends for the GPU), `raw` (2 — rawExtract, so raw text never queues behind a 30-minute marker run), `extraction` (1 — extract/normalize/redetect/propose), `assembly` (1 — assemble/assembleDocument, separate so exports never queue behind a long extraction), `translate` (3 — translate/translateTitles/cleanup/bookNote). All jobs use `maxAttempts: 1` — no silent retries. Document exports are deduplicated via graphile `jobKey`, and queued/running exports are surfaced by `books.pendingDocumentExports`.
+10. **indexBook / embedChunks** (`workers/index-book.ts`, `embed-chunks.ts`, index pool) — Search-index maintenance: `indexBook` chunks every text unit (book_files raw text with `\f` page mapping, chapter effective text, done translations) into `book_chunks`, skipping units whose sha256 `sourceHash` is unchanged; then chains `embedChunks`, which batch-embeds `embedding IS NULL` rows through the BGE-M3 singleton (`lib/embeddings.ts`). State in `books.search_index` jsonb (queued/chunking/embedding/done/failed). FTS works as soon as chunking completes; embeddings are a second pass. Queued via `lib/search-index.ts` `queueIndexBook()` (jobKey-deduped) from every text-mutating completion: rawExtract, extract, redetect, cleanup done, translate done, customText save/reset, digest, notes.toChapter.
+
+Workers run in six pools (`workers/setup.ts`): `tts` (concurrency 2 — MLX contends for the GPU), `raw` (2 — rawExtract, so raw text never queues behind a 30-minute marker run), `extraction` (1 — extract/normalize/redetect/propose), `assembly` (1 — assemble/assembleDocument, separate so exports never queue behind a long extraction), `translate` (3 — translate/translateTitles/cleanup/bookNote), `index` (1 — indexBook/embedChunks; BGE-M3 contends for the GPU with TTS). All jobs use `maxAttempts: 1` — no silent retries. Document exports are deduplicated via graphile `jobKey`, and queued/running exports are surfaced by `books.pendingDocumentExports`.
 
 ### Book Status
 
@@ -142,7 +144,9 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **profiles** — id (uuid), name, createdAt. Lightweight workspaces (no auth): folders and books carry a profileId; list/create/move routes are scoped to the caller's profile via the `x-profile-id` request header, resolved in `trpc.ts` `createContext` (missing/invalid header → fixed `DEFAULT_PROFILE_ID`, which migration 0025 seeds as "Default" and backfills all pre-profile data onto). Book-level routes (`books.get`, chapters, translations, notes, file downloads) stay unscoped by design — profiles are an organizational boundary, not a security one. The default profile cannot be deleted; other profiles only when empty.
 
-**notes** — id (uuid), bookId (FK, cascade delete), prompt, model (`flash` | `pro`), result (markdown), scope (jsonb `NoteScope` — chapter id+title snapshot or `book-raw`; no FK to chapters so notes survive chapter re-detection), createdAt. Auto-inserted by `chapters.aiPrompt`, `books.aiPromptRaw`, and the `bookNote` worker via `lib/notes.ts` `saveNote()`.
+**notes** — id (uuid), bookId (FK, cascade delete, **nullable** — null marks a library-chat answer), profileId (FK profiles), prompt, model (`flash` | `pro`), result (markdown), scope (jsonb `NoteScope` — chapter id+title snapshot, `book-raw`, or `library {folderId?, question}`; no FK to chapters so notes survive chapter re-detection), createdAt. Auto-inserted by `chapters.aiPrompt`, `books.aiPromptRaw`, the `bookNote` worker, and `notes.saveLibraryAnswer` via `lib/notes.ts` `saveNote()`. `notes.toChapter` refuses library notes (no book to attach to).
+
+**book_chunks** — id (uuid), bookId (FK, cascade), profileId + folderId (denormalized from books for index-friendly scoping, refreshed on reindex), source (`raw` | `chapter` | `translation`), bookFileId/chapterId/translationId (FKs, cascade — exactly the one matching `source` is set, translations also carry chapterId), language (translation language), seq, text, charStart/charEnd (true offsets into the source-unit text), pageStart/pageEnd (from `\f` form feeds for raw, chapter page range otherwise), sourceHash (sha256 of the unit's full text — unchanged hash skips reindex), tsv (generated `to_tsvector('simple', text)`, GIN-indexed), embedding (`vector(1024)`, BGE-M3, HNSW cosine index, null until the embed pass), createdAt. Requires the pgvector image (`pgvector/pgvector:pg17`); extensions `vector` + `pg_trgm` are created in migration 0026.
 
 When modifying the schema, change `schema.ts` and run `pnpm db:generate` to produce a migration, then `pnpm db:migrate`. Never write migrations manually.
 
@@ -296,11 +300,11 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 
 **books** (library): `list` ({folders, books} for one folder, profile-scoped, activity/failure/size stats + recursive folder rollups + hasText flag) · `search` (title words across all folders, returns folder paths) · `textAvailability` (which books have chapters or raw text — digest precheck) · `get` · `logs` / `clearLogs` · `rename` · `updateSettings` · `moveToFolder` · `delete` / `deleteMany` · `diskUsage` / `cleanupChunks`
 
-**books** (pipeline): `upload` (legacy tRPC path) · `retry` · `extractChapters` · `processSelected` · `cancel` · `assemble` · `assemblies` / `deleteAssembly` · `structure` / `proposeChapters` / `applyChapterBoundaries` / `redetectChapters` · `chapterList` · `rawTextStats` · `aiPromptRaw` (whole-book Ask AI → note)
+**books** (pipeline): `upload` (legacy tRPC path) · `retry` · `extractChapters` · `processSelected` · `cancel` · `assemble` · `assemblies` / `deleteAssembly` · `structure` / `proposeChapters` / `applyChapterBoundaries` / `redetectChapters` · `chapterList` · `rawTextStats` (Ask AI itself moved to the streaming `POST /chat/ask` route)
 
 **books** (synthetic + exports): `createDigest` / `resumeDigest` · `exportDocument` (pdf | epub | epub-sync, optional `copyToDropDir`) · `exportConfig` (exposes the configured drop dir for the UI checkbox) · `pendingDocumentExports` · `documents` / `deleteDocument`
 
-**chapters**: `get` · `queue` / `suspend` · `setSelected` / `setSelectedBatch` / `setAllSelected` · `rename` · `reorder` · `updateText` / `resetText` · `queueCleanup` / `stopCleanup` / `cleanupSelected` · `aiPrompt` · `textStats` · `selectedAudioSize` / `deleteAudioSelected` · `deleteSelected`
+**chapters**: `get` · `queue` / `suspend` · `setSelected` / `setSelectedBatch` / `setAllSelected` · `rename` · `reorder` · `updateText` / `resetText` · `queueCleanup` / `stopCleanup` / `cleanupSelected` · `textStats` · `selectedAudioSize` / `deleteAudioSelected` · `deleteSelected`
 
 **bookFiles**: `setSelected` / `setSelectedBatch` / `setAllSelected` · `setSkipSynthesis` · `remove` · `reExtract` / `reExtractSelected` · `cancel`
 
@@ -310,7 +314,9 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 
 **profiles**: `list` (marks the default) / `create` / `rename` / `delete` (refuses default and non-empty profiles)
 
-**notes**: `list` (per book, newest first) / `delete` / `toChapter` (append the note as a suspended chapter, `source {kind:"note"}`)
+**notes**: `list` (per book, newest first) / `delete` / `toChapter` (append the note as a suspended chapter, `source {kind:"note"}`; refuses library notes) / `saveLibraryAnswer` (persist a library-chat answer as a book-less note, profile-scoped)
+
+**search**: `library` (hybrid FTS + vector search over `book_chunks`, profile-scoped, optional folder subtree scope, RRF fusion + cross-language grouping — see Library Chat below) / `indexStatus` (per-profile index coverage counts for the chat UI hint)
 
 ## HTTP Endpoints (non-tRPC)
 
@@ -326,10 +332,28 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 - `GET /read/:chapterId` — Print-friendly chapter reader (source blocks HTML)
 - `GET /preview/:voiceId` — Voice preview MP3 (generated on demand, cached in data/previews)
 - `GET /files/*` — Static mount of the whole output dir (chunk WAV previews, direct file access)
+- `POST /chat` — Library-chat streaming endpoint (`chat-routes.ts`). Raw Fastify route because tRPC can't stream; AI SDK UI-message stream over `reply.hijack()` + `pipeUIMessageStreamToResponse`. Profile via `x-profile-id`. Scope accepts `folderId` (subtree) or `bookId` (single-book chat).
+- `POST /chat/ask` — Streaming Ask AI (`chat-routes.ts` + `lib/ask-ai.ts`): whole scope (book raw text or selected chapters) stuffed in context, no tools; same 1M token guard and auto-save-note behavior as the retired sync mutations (`books.aiPromptRaw` / `chapters.aiPrompt`); emits a `data-note` part with the saved noteId. Consumed by `ChapterAiModal` via `useChat` (one "Ask AI" button, scope switcher inside the modal).
 
 ## Storyteller Companion (read-along on iPhone)
 
 `storyteller/docker-compose.yml` runs a self-hosted [Storyteller](https://storyteller-platform.dev/) server on port 8001 (secret key + admin credentials + library data in `storyteller/`, all gitignored). Its `/data/import` watch folder auto-imports synced EPUBs within seconds; `READALOUD_DROP_DIR` in `.env` points pdf2audio's epub-sync exports there (behind the "Copy to Storyteller import folder" checkbox, default off). The free Storyteller Reader iOS app connects to the server over the phone-hotspot tether (`http://172.20.10.2:8001` when the Mac tethers via USB), downloads books, and plays them offline with read-along highlighting. The Storyteller iOS app (≤2.11.3) crashes on readalouds whose last spine item has a media overlay — our exporter's trailing colophon page sidesteps this (fix reported upstream, MR !616).
+
+## Library Chat & Search Index
+
+**Full deep-dive: [docs/library-search.md](docs/library-search.md)** — chunking, FTS config rationale, embeddings runner, RRF/grouping, citation verification, indexing lifecycle + invalidation table, crash recovery, operations/troubleshooting. The section below is the summary.
+
+Agentic RAG over the whole library (`/chat` page): DeepSeek iteratively calls search tools over an indexed copy of every book's text, streams a cited answer, and each citation opens the source (PDF page / chapter / translation view). Scope: whole profile, a folder subtree, or a single book ("💬 Chat" on BookDetail → `/chat?bookId=…`). Transcript persists in localStorage per profile ("New chat" clears); saved answers (`notes.saveLibraryAnswer`, `bookId NULL`) are listed in the page's "Saved answers" section via `notes.listLibrary`. This is distinct from **Ask AI** (`POST /chat/ask`) which stuffs the full scope text into context with no retrieval — better for whole-book analysis, no citations.
+
+**Retrieval** (`lib/search.ts`): one SQL statement fuses a Postgres FTS leg (`websearch_to_tsquery('simple', …)`, `ts_rank_cd`) and a pgvector leg (`embedding <=> query`, HNSW, `SET LOCAL hnsw.iterative_scan = 'relaxed_order'`) with reciprocal rank fusion (k=60, top 50 per leg). `groupHits()` then collapses near-duplicates in JS: max 2 passages per source unit, prefers the query's script (Cyrillic heuristic) among close-scoring language twins, drops raw-text hits whose pages duplicate an extracted chapter hit, caps 3 hits per book. Falls back to FTS-only when the embedder is down (`embedQuery` returns null). `expandPassage()` merges adjacent chunks via true char offsets (overlap deduped) for the `read_passage` tool.
+
+**Embeddings** (`lib/embeddings.ts` + `scripts/embed_bge_m3.py`): BGE-M3 (multilingual, 1024-dim normalized dense vectors) as a lazy singleton child process in the conda env — JSON-lines `{id, texts[]} → {id, vectors[][]}` over stdin/stdout, kokoro-style spawn env (`HF_HUB_OFFLINE=1`), restart on crash, idle-kill after 5 min. Batch timeout 5 min, query timeout 20s (chat degrades to keyword search, never blocks).
+
+**Chat loop** (`chat-routes.ts` + `lib/chat-tools.ts` + `lib/citations.ts`): Vercel AI SDK `streamText` with the OpenAI-compatible provider pointed at DeepSeek, `stopWhen: stepCountIs(8)`, 3-min abort signal, 4096 max output tokens. Tools: `search_library` (hybrid search, registers hits in a per-request `CitationCatalog` as `c_1…` ids), `read_passage` (neighbor expansion by citation id), `list_books` (titles only). The model must cite `[c_N]` inline; after streaming, `verifySources()` keeps only catalog-known ids (toc-detect discipline — hallucinated ids are dropped) and emits one `data-sources` part the UI renders as chips. The catalog is re-seeded from prior messages' `data-sources` parts so follow-up turns can cite earlier ids. No server-side chat persistence — the transcript lives in `useChat` state; answers are saved via `notes.saveLibraryAnswer`.
+
+**Frontend** (`pages/Chat.tsx`, `components/chat/`): `useChat` + `DefaultChatTransport` against `/chat` (scope + model sent per message in the request body), folder-scope dropdown, model toggle, tool calls rendered as collapsed "Searched: …" lines, `[c_N]` markers rewritten to `[n]` numbering matching the source chips. Chip targets: raw → `PdfPreviewModal` (`/pdf/:fileId#page=N`), chapter with resolvable file+page → same, otherwise `/books/:bookId`; translation → `/books/:bookId?lang=xx`.
+
+**Indexing lifecycle**: see Job Flow #10. Backfill all existing books with `pnpm backfill:index` (skips `search_index.status === "done"` unless `--force`). Page numbers for raw text rely on `pdftotext` form feeds surviving in `book_files.raw_text` — do not strip `\f` in `lib/pdf-raw-text.ts`.
 
 ## Chapter Detection Logic
 
@@ -411,6 +435,7 @@ pnpm db:migrate       # Apply migrations
 pnpm setup            # Full setup (system deps check, Python/Node deps, data dirs)
 pnpm jobs             # Show Graphile Worker queue status (pending/running/failed)
 pnpm jobs:clear       # Delete all jobs from the Graphile Worker queue
+pnpm backfill:index   # Queue search indexing for all books (skips done; --force redoes)
 ```
 
 ## Gotchas

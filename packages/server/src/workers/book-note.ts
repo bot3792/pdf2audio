@@ -6,6 +6,7 @@ import { deepseekChat, describeError, DEEPSEEK_MODELS } from "../lib/deepseek.ts
 import { getBookRawText } from "../lib/book-raw-text.ts";
 import { estimateTokens, MODEL_CONTEXT_TOKENS } from "../lib/token-estimate.ts";
 import { saveNote } from "../lib/notes.ts";
+import { BOOK_RAW_SYSTEM } from "../lib/ask-ai.ts";
 import { appendLog } from "../lib/log.ts";
 
 export type BookNotePayload = {
@@ -52,10 +53,7 @@ export async function bookNote(payload: BookNotePayload) {
     );
   }
 
-  const system =
-    "You are a careful reading assistant. You are given the full raw text of a book, extracted directly from its PDF (it may contain page headers, footers, and OCR artifacts). " +
-    "Answer the user's request about this book using only the given text — do not invent facts that are not in it. " +
-    "Respond in the language of the request unless asked otherwise. Format your answer in Markdown where it helps readability (lists, bold, short headings).";
+  const system = BOOK_RAW_SYSTEM;
   const user = `${prompt}\n\n---\n${raw.text}`;
 
   let result: string;

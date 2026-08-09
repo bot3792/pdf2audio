@@ -16,6 +16,7 @@ echo ""
 echo "Installing Python dependencies..."
 pip3 install marker-pdf kokoro soundfile mlx mlx-audio numpy huggingface_hub torch
 pip3 install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"
+pip3 install FlagEmbedding
 # mlx-audio pulls transformers 5.x, which breaks marker-pdf (surya needs transformers.onnx)
 pip3 install "transformers==4.57.6" "regex<2025.0.0"
 
@@ -38,6 +39,10 @@ python3 -c "from transformers import AutoTokenizer, VitsModel; print('  mms runt
 echo ""
 echo "Caching Meta MMS Bulgarian model..."
 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/mms-tts-bul'); print('  mms-tts-bul: OK')" 2>/dev/null || echo "  mms-tts-bul: download manually with: python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('facebook/mms-tts-bul')\""
+
+echo ""
+echo "Caching BGE-M3 embedding model (~2.2 GB, powers library search)..."
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-m3'); print('  bge-m3: OK')" 2>/dev/null || echo "  bge-m3: download manually with: python3 -c \"from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-m3')\""
 
 echo ""
 echo "Preparing KugelAudio narrator (downloads ~17 GB once, quantizes to ~5 GB, then deletes the download)..."

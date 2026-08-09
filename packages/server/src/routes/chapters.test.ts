@@ -157,29 +157,3 @@ describe("chapters router cleanup", () => {
     await expect(caller.cleanupSelected({ bookId })).rejects.toThrow("No selected chapters need cleanup");
   });
 });
-
-describe("aiPrompt note auto-save", () => {
-  beforeEach(async () => {
-    await resetDb(getDb());
-    mockDeepseekChat.mockReset();
-    mockDeepseekChat.mockResolvedValue("AI answer");
-  });
-
-  it("saves a note with a chapter id+title snapshot and returns its id", async () => {
-    const db = getDb();
-    const { bookId, chapterId } = await insertFixture(db);
-
-    const res = await caller.aiPrompt({ chapterIds: [chapterId], prompt: "Summarize", model: "flash" });
-
-    expect(res.result).toBe("AI answer");
-    const { notes } = await import("../schema.ts");
-    const [note] = await db.select().from(notes).where(eq(notes.id, res.noteId));
-    expect(note).toMatchObject({
-      bookId,
-      prompt: "Summarize",
-      model: "flash",
-      result: "AI answer",
-      scope: { kind: "chapters", chapters: [{ id: chapterId, title: "Ch" }] },
-    });
-  });
-});

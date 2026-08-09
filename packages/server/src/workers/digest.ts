@@ -8,6 +8,7 @@ import { estimateTokens, MODEL_CONTEXT_TOKENS } from "../lib/token-estimate.ts";
 import { saveNote } from "../lib/notes.ts";
 import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
 import { appendLog } from "../lib/log.ts";
+import { queueIndexBook } from "../lib/search-index.ts";
 
 export type DigestPayload = {
   bookId: string;
@@ -134,6 +135,7 @@ export async function digest(payload: DigestPayload) {
     .update(books)
     .set({ totalChapters: chapterCount, status: "pending", error: null, updatedAt: new Date() })
     .where(eq(books.id, bookId));
+  await queueIndexBook(bookId);
 
   if (failures > 0) {
     await setJob({ status: "failed", progress: `${total - failures}/${total}`, error: `${failures} of ${total} source book(s) failed — see the log` });

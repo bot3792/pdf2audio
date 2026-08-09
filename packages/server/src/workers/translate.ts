@@ -6,6 +6,7 @@ import { describeError } from "../lib/deepseek.ts";
 import { appendLog } from "../lib/log.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { WorkerUtils } from "graphile-worker";
+import { queueIndexBook } from "../lib/search-index.ts";
 
 export type TranslatePayload = {
   translationId: string;
@@ -108,6 +109,7 @@ export async function translate(
       return;
     }
     await chLog(`Translation to ${row.language} done`);
+    await queueIndexBook(bookId);
 
     // Synthesis queued while this translation was still running waits as audioStatus=pending
     if (finished.audioStatus === "pending") {

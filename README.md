@@ -15,6 +15,7 @@ Built for local use on Apple Silicon Macs. Fully offline after the initial model
 - **Document export**: selected chapters as PDF/EPUB (Vivliostyle), or as a **synced EPUB** — EPUB 3 with Media Overlays: embedded audio plus sentence-level highlighted text, valid per epubcheck.
 - **Read-along on iPhone**: a self-hosted [Storyteller](https://storyteller-platform.dev/) companion (see `storyteller/`) auto-imports synced EPUBs; the free Storyteller Reader app downloads them for fully offline listening with live text highlighting.
 - **Library organization**: nested folders with drag & drop, cross-folder search, lightweight profiles (workspaces) so different people keep separate libraries.
+- **Library chat**: an agentic assistant (`/chat`) that searches the *content* of every book — hybrid full-text + semantic search (local BGE-M3 embeddings, cross-language: ask in English, find the Bulgarian passage and vice versa) — and streams answers with verified citations. Click a source chip to open the PDF at that page, the chapter, or the translation view. Answers can be saved as notes.
 
 ## How it works
 
@@ -25,7 +26,7 @@ Upload → rawExtract (pdftotext, seconds, always)
        → assembleDocument → PDF / EPUB / synced EPUB
 ```
 
-Jobs run through [Graphile Worker](https://github.com/graphile/worker) in five pools (TTS, raw text, extraction, assembly, AI/translation) with `maxAttempts: 1` — nothing retries silently; the user reviews failures and decides. Chapter text falls back `customText ?? cleanText ?? rawText` at synthesis time.
+Jobs run through [Graphile Worker](https://github.com/graphile/worker) in six pools (TTS, raw text, extraction, assembly, AI/translation, search indexing) with `maxAttempts: 1` — nothing retries silently; the user reviews failures and decides. Chapter text falls back `customText ?? cleanText ?? rawText` at synthesis time.
 
 TTS engines: [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English + 8 more languages), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal.
 
@@ -39,7 +40,25 @@ pnpm monorepo: `packages/server` (Fastify + tRPC + Graphile Worker + Drizzle/Pos
 
 ## Database
 
-PostgreSQL 17 in Docker (host port **5433**), schema via Drizzle ORM: `profiles`, `folders`, `books`, `book_files`, `chapters`, `chapter_translations`, `assemblies`, `documents`, `notes`, `book_logs`. See AGENTS.md for column-level docs. Migrations: `pnpm db:generate` + `pnpm db:migrate`.
+PostgreSQL 17 with pgvector in Docker (`pgvector/pgvector:pg17`, host port **5433**), schema via Drizzle ORM: `profiles`, `folders`, `books`, `book_files`, `chapters`, `chapter_translations`, `assemblies`, `documents`, `notes`, `book_logs`, `book_chunks` (search index: FTS + embeddings). See AGENTS.md for column-level docs. Migrations: `pnpm db:generate` + `pnpm db:migrate`.
+
+### One-time migration from the old `postgres:17-alpine` image (2026-08)
+
+The compose file switched from `postgres:17-alpine` to `pgvector/pgvector:pg17` (needed for the `vector` extension). The images use different C libraries (musl vs glibc), so the data volume is **not** reused — the compose volume was renamed `pgdata` → `pgdata17` and data moves via dump/restore:
+
+```bash
+# 1. While still on the old container:
+docker compose exec postgres pg_dump -U pdf2audio --no-owner pdf2audio > pgbackup.sql
+# 2. Pull up the new image + fresh volume (compose file already updated):
+docker compose up -d
+# 3. Restore:
+docker compose exec -T postgres psql -U pdf2audio -d pdf2audio < pgbackup.sql
+# 4. Verify the app, then eventually: docker volume rm pdf2audio_pgdata
+```
+
+The old `pdf2audio_pgdata` volume stays untouched as a rollback until you delete it.
+
+After the restore, index the library for search: `pnpm db:migrate && pnpm backfill:index` (FTS is available within minutes; BGE-M3 embeddings fill in as a background pass).
 
 ## File storage
 

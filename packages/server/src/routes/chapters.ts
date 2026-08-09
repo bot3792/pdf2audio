@@ -11,8 +11,7 @@ import { dirSize } from "../lib/disk-usage.ts";
 import { stat } from "node:fs/promises";
 import type { SourceBlock } from "../lib/marker.ts";
 import { removeChapterArtifacts } from "../lib/chapter-artifacts.ts";
-import { deepseekChat, DEEPSEEK_MODELS } from "../lib/deepseek.ts";
-import { saveNote } from "../lib/notes.ts";
+import { queueIndexBook } from "../lib/search-index.ts";
 
 const connectionString = env.DATABASE_URL;
 
@@ -191,6 +190,7 @@ export const chaptersRouter = router({
         .set({ customText: input.customText })
         .where(eq(chapters.id, input.id));
 
+      await queueIndexBook(chapter.bookId);
       return { success: true };
     }),
 
@@ -205,6 +205,7 @@ export const chaptersRouter = router({
         .set({ customText: null })
         .where(eq(chapters.id, input.id));
 
+      await queueIndexBook(chapter.bookId);
       return { success: true };
     }),
 
@@ -270,47 +271,6 @@ export const chaptersRouter = router({
           .where(and(eq(chapters.id, input.chapterIds[i]), eq(chapters.bookId, input.bookId)));
       }
       return { success: true };
-    }),
-
-  aiPrompt: publicProcedure
-    .input(z.object({
-      chapterIds: z.array(z.string().uuid()).min(1).max(500),
-      prompt: z.string().min(1).max(4000),
-      model: z.enum(["flash", "pro"]).default("flash"),
-    }))
-    .mutation(async ({ input }) => {
-      const rows = await db
-        .select()
-        .from(chapters)
-        .where(inArray(chapters.id, input.chapterIds))
-        .orderBy(chapters.index);
-      if (rows.length === 0) throw new Error("Chapters not found");
-
-      const single = rows.length === 1;
-      const system =
-        `You are a careful reading assistant. You are given the full text of ${single ? "one book chapter" : `${rows.length} book chapters`}. ` +
-        `Answer the user's request about ${single ? "this chapter" : "these chapters"} using only the given text — do not invent facts that are not in it. ` +
-        "Respond in the language of the request unless asked otherwise. Format your answer in Markdown where it helps readability (lists, bold, short headings).";
-      const body = rows
-        .map((ch) => `Chapter ${ch.index + 1}: "${ch.title}"\n\n${ch.customText ?? ch.cleanText ?? ch.rawText}`)
-        .join("\n\n---\n\n");
-      const user = `${input.prompt}\n\n---\n${body}`;
-
-      const result = await deepseekChat(system, user, {
-        model: DEEPSEEK_MODELS[input.model],
-        temperature: 0.7,
-        timeoutMs: 600_000,
-      });
-
-      const noteId = await saveNote({
-        bookId: rows[0].bookId,
-        prompt: input.prompt,
-        model: input.model,
-        result,
-        scope: { kind: "chapters", chapters: rows.map((ch) => ({ id: ch.id, title: ch.title })) },
-      });
-
-      return { result, noteId };
     }),
 
   textStats: publicProcedure

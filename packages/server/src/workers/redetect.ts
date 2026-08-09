@@ -7,6 +7,7 @@ import { appendLog } from "../lib/log.ts";
 import { insertSuspendedChapters, resetChaptersKeepingInserted } from "../lib/insert-chapters.ts";
 import { rm } from "node:fs/promises";
 import path from "node:path";
+import { queueIndexBook } from "../lib/search-index.ts";
 
 export type RedetectPayload = {
   bookId: string;
@@ -124,6 +125,7 @@ export async function redetect(payload: RedetectPayload) {
       .update(books)
       .set({ totalChapters: keptCount + totalDetected, chapterDetection: detectionMethod, status: "pending", updatedAt: new Date() })
       .where(eq(books.id, bookId));
+    await queueIndexBook(bookId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await log(`Chapter re-detection failed: ${message}`);

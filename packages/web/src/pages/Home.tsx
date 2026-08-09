@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams } from "react-router";
+import { Link, useParams } from "react-router";
 import { trpc } from "../trpc.ts";
 import { UploadZone } from "../components/UploadZone.tsx";
 import { BookList } from "../components/BookList.tsx";
@@ -40,6 +40,13 @@ export function Home() {
         <div className="flex items-center mb-2">
           <h1 className="text-2xl font-bold text-(--text-primary)">pdf2audio</h1>
           <ProfileSwitcher />
+          <Link
+            to={folderId ? `/chat?folderId=${folderId}` : "/chat"}
+            className="ml-auto text-sm px-3 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-(--text-secondary) hover:text-(--text-primary) hover:bg-(--bg-hover)"
+            data-testid="library-chat-link"
+          >
+            💬 Chat with library
+          </Link>
         </div>
         {folderId && (
           <div className="mb-4">

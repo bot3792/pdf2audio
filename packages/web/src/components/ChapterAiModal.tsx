@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport, type UIMessage } from "ai";
 import { trpc } from "../trpc.ts";
+import { profileHeaders } from "../lib/profile.ts";
 import { MarkdownBlock } from "./MarkdownBlock.tsx";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import {
@@ -13,37 +16,76 @@ import {
 
 export type AiScope =
   | { kind: "chapters"; bookId: string; chapters: { id: string; title: string }[] }
-  | { kind: "book-raw"; bookId: string; bookTitle: string };
+  | { kind: "book-raw"; bookId: string; bookTitle: string; chapters?: { id: string; title: string }[] };
+
+function lastAssistant(messages: UIMessage[]): UIMessage | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") return messages[i];
+  }
+  return null;
+}
+
+function textOf(message: UIMessage | null): string {
+  return (message?.parts ?? [])
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join("");
+}
+
+function noteIdOf(message: UIMessage | null): string | null {
+  for (const part of message?.parts ?? []) {
+    if (part.type === "data-note") {
+      const data = (part as { data?: { noteId?: string } }).data;
+      if (data?.noteId) return data.noteId;
+    }
+  }
+  return null;
+}
 
 export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: () => void }) {
   useBodyScrollLock();
   const utils = trpc.useUtils();
-  const subject = scope.kind === "book-raw" ? "book" : scope.chapters.length === 1 ? "chapter" : "chapters";
+  const chapterSelection = scope.chapters ?? [];
+  const [kind, setKind] = useState<"book-raw" | "chapters">(
+    scope.kind === "chapters" && chapterSelection.length > 0 ? "chapters" : "book-raw",
+  );
+
+  // Cached by BookDetail's own query — no extra request in practice
+  const { data: book } = trpc.books.get.useQuery({ id: scope.bookId });
+  const bookTitle = scope.kind === "book-raw" ? scope.bookTitle : (book?.title ?? "this book");
+  const hasRawText = (book?.rawTextTotalWords ?? 0) > 0;
+
+  const subject = kind === "book-raw" ? "book" : chapterSelection.length === 1 ? "chapter" : "chapters";
   const [activePreset, setActivePreset] = useState<string>("summarize");
   const [prompt, setPrompt] = useState<string>(AI_PRESETS[0].prompt(subject));
   const [model, setModel] = useState<AiModelKey>("flash");
-  const [result, setResult] = useState<string | null>(null);
-  const [savedNoteId, setSavedNoteId] = useState<string | null>(null);
 
-  const onAskSuccess = (data: { result: string; noteId?: string }) => {
-    setResult(data.result);
-    setSavedNoteId(data.noteId ?? null);
-    if (data.noteId) utils.notes.list.invalidate({ bookId: scope.bookId });
-  };
-  const chapterMutation = trpc.chapters.aiPrompt.useMutation({ onSuccess: onAskSuccess });
-  const rawMutation = trpc.books.aiPromptRaw.useMutation({ onSuccess: onAskSuccess });
-  const aiMutation = scope.kind === "book-raw" ? rawMutation : chapterMutation;
+  const transport = useMemo(
+    () => new DefaultChatTransport({ api: "/chat/ask", headers: () => profileHeaders() }),
+    [],
+  );
+  const { messages, sendMessage, setMessages, status, error, stop } = useChat({ transport });
+  const pending = status === "submitted" || status === "streaming";
 
-  const chapterIds = scope.kind === "chapters" ? scope.chapters.map((c) => c.id) : [];
+  const answer = lastAssistant(messages);
+  const result = textOf(answer);
+  const savedNoteId = noteIdOf(answer);
+  const [invalidatedFor, setInvalidatedFor] = useState<string | null>(null);
+  if (savedNoteId && invalidatedFor !== savedNoteId) {
+    setInvalidatedFor(savedNoteId);
+    utils.notes.list.invalidate({ bookId: scope.bookId });
+  }
+
+  const chapterIds = chapterSelection.map((c) => c.id);
   const { data: chapterStats } = trpc.chapters.textStats.useQuery(
     { chapterIds },
-    { enabled: scope.kind === "chapters" },
+    { enabled: kind === "chapters" && chapterIds.length > 0 },
   );
   const { data: rawStats } = trpc.books.rawTextStats.useQuery(
     { bookId: scope.bookId },
-    { enabled: scope.kind === "book-raw" },
+    { enabled: kind === "book-raw" },
   );
-  const textStats = scope.kind === "book-raw" ? rawStats : chapterStats;
+  const textStats = kind === "book-raw" ? rawStats : chapterStats;
 
   const activeModel = AI_MODELS.find((m) => m.key === model)!;
   const contentTokens = textStats
@@ -52,13 +94,27 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
   const contextPct = contentTokens ? (contentTokens / activeModel.contextTokens) * 100 : null;
   const overContext = contextPct !== null && contextPct > 100;
 
-  const headerLabel =
-    scope.kind === "book-raw"
-      ? `"${scope.bookTitle}" (whole book, raw text)`
-      : scope.chapters.length === 1
-        ? `"${scope.chapters[0].title}"`
-        : `${scope.chapters.length} selected chapters`;
-  const headerTitle = scope.kind === "chapters" ? scope.chapters.map((c) => c.title).join("\n") : undefined;
+  const scopeOptions = [
+    {
+      key: "book-raw" as const,
+      label: "Whole book (raw)",
+      disabled: !hasRawText,
+      title: hasRawText ? `The full raw text of "${bookTitle}"` : "No raw text available for this book",
+    },
+    {
+      key: "chapters" as const,
+      label: chapterSelection.length === 1 ? `Chapter: ${chapterSelection[0].title}` : `Selected chapters (${chapterSelection.length})`,
+      disabled: chapterSelection.length === 0,
+      title: chapterSelection.length === 0 ? "No chapters selected — select chapters in the table first" : chapterSelection.map((c) => c.title).join("\n"),
+    },
+  ];
+
+  function switchKind(next: "book-raw" | "chapters") {
+    setKind(next);
+    const preset = AI_PRESETS.find((p) => p.key === activePreset);
+    const nextSubject = next === "book-raw" ? "book" : chapterSelection.length === 1 ? "chapter" : "chapters";
+    if (preset && prompt === preset.prompt(subject)) setPrompt(preset.prompt(nextSubject));
+  }
 
   function selectPreset(key: string) {
     const preset = AI_PRESETS.find((p) => p.key === key)!;
@@ -67,12 +123,14 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
   }
 
   function run() {
-    if (!prompt.trim() || aiMutation.isPending || overContext) return;
-    if (scope.kind === "book-raw") {
-      rawMutation.mutate({ bookId: scope.bookId, prompt: prompt.trim(), model });
-    } else {
-      chapterMutation.mutate({ chapterIds, prompt: prompt.trim(), model });
-    }
+    if (!prompt.trim() || pending || overContext) return;
+    setMessages([]);
+    setInvalidatedFor(null);
+    const serverScope =
+      kind === "book-raw"
+        ? { kind: "book-raw" as const, bookId: scope.bookId }
+        : { kind: "chapters" as const, chapterIds };
+    void sendMessage({ text: prompt.trim() }, { body: { scope: serverScope, model } });
   }
 
   return (
@@ -83,9 +141,28 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
         data-testid="chapter-ai-modal"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-(--border) shrink-0">
-          <span className="text-sm font-medium text-(--text-primary)" title={headerTitle}>
-            Ask about <span className="text-(--text-muted)">{headerLabel}</span>
-          </span>
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-sm font-medium text-(--text-primary) shrink-0">Ask about</span>
+            <div className="inline-flex rounded-md border border-(--border) p-0.5 gap-0.5" data-testid="ai-scope-toggle">
+              {scopeOptions.map((option) => (
+                <button
+                  key={option.key}
+                  onClick={() => !option.disabled && switchKind(option.key)}
+                  disabled={option.disabled}
+                  title={option.title}
+                  className={`px-2.5 py-1 rounded text-xs font-medium truncate max-w-64 ${
+                    kind === option.key
+                      ? "bg-(--bg-subtle) text-(--text-primary)"
+                      : option.disabled
+                        ? "text-(--text-faint) cursor-not-allowed"
+                        : "text-(--text-muted) hover:text-(--text-secondary)"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <button onClick={onClose} className="text-(--text-faint) hover:text-(--text-tertiary) p-1" title="Close">
             <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
               <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
@@ -126,8 +203,8 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
                 <div className="flex items-baseline justify-between text-xs text-(--text-faint) mb-1">
                   <span>
                     Sends up to ≈ {formatTokens(contentTokens)} tokens
-                    {scope.kind === "chapters" && scope.chapters.length > 1 ? ` (${scope.chapters.length} chapters)` : ""}
-                    {scope.kind === "book-raw" && rawStats && rawStats.missingFiles > 0 ? ` (${rawStats.missingFiles} file(s) without raw text excluded)` : ""}
+                    {kind === "chapters" && chapterSelection.length > 1 ? ` (${chapterSelection.length} chapters)` : ""}
+                    {kind === "book-raw" && rawStats && rawStats.missingFiles > 0 ? ` (${rawStats.missingFiles} file(s) without raw text excluded)` : ""}
                   </span>
                   <span className={overContext ? "text-red-500 font-medium" : ""}>
                     {contextPct < 0.1 ? "<0.1" : contextPct.toFixed(1)}% of {activeModel.label}'s {formatTokens(activeModel.contextTokens)} context
@@ -160,26 +237,27 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
               </div>
               <button
                 onClick={run}
-                disabled={!prompt.trim() || aiMutation.isPending || overContext}
+                disabled={!prompt.trim() || pending || overContext}
                 title={overContext ? `The ${subject === "book" ? "book's raw text" : "selected chapters"} exceed this model's context window` : "Cmd+Enter"}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="ai-run"
               >
-                {aiMutation.isPending ? "Thinking..." : "Ask"}
+                {pending ? "Answering..." : "Ask"}
               </button>
             </div>
           </div>
 
-          {/* Right: result */}
+          {/* Right: result (streams in) */}
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="flex-1 overflow-y-auto overscroll-contain p-4">
-              {aiMutation.isPending ? (
+              {pending && !result ? (
                 <div className="flex items-center gap-2 text-sm text-(--text-muted)">
                   <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
                   DeepSeek is reading the {subject === "book" ? "book" : "chapter"}...
+                  <button onClick={() => stop()} className="text-xs underline text-(--text-faint) hover:text-(--text-secondary)">Stop</button>
                 </div>
-              ) : aiMutation.isError ? (
-                <p className="text-sm text-red-600 whitespace-pre-wrap">{aiMutation.error.message}</p>
+              ) : error && !result ? (
+                <p className="text-sm text-red-600 whitespace-pre-wrap">{error.message}</p>
               ) : result ? (
                 <MarkdownBlock testId="ai-result">{result}</MarkdownBlock>
               ) : (
@@ -188,14 +266,20 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
                 </p>
               )}
             </div>
-            {result && !aiMutation.isPending && (
+            {result && (
               <div className="border-t border-(--border) px-4 py-2 shrink-0 flex items-center gap-3">
-                <button
-                  onClick={() => navigator.clipboard.writeText(result)}
-                  className="text-xs text-(--text-muted) hover:text-(--text-secondary) font-medium"
-                >
-                  Copy result
-                </button>
+                {pending ? (
+                  <button onClick={() => stop()} className="text-xs text-(--text-muted) hover:text-(--text-secondary) font-medium">
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => navigator.clipboard.writeText(result)}
+                    className="text-xs text-(--text-muted) hover:text-(--text-secondary) font-medium"
+                  >
+                    Copy result
+                  </button>
+                )}
                 {savedNoteId && (
                   <span className="text-xs text-green-600 dark:text-green-400" data-testid="ai-saved-note">
                     Saved to notes

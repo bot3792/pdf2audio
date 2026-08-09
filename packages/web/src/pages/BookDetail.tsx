@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router";
+import { Link, useParams, useNavigate, useSearchParams } from "react-router";
 import { trpc } from "../trpc.ts";
 import { ChapterTable } from "../components/ChapterTable.tsx";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
@@ -412,7 +412,15 @@ export function BookDetail() {
                <p className="text-sm text-(--text-muted) mt-1">Reader mode</p>
              )}
            </div>
-          <div className="shrink-0 pt-1">
+          <div className="shrink-0 pt-1 flex items-center gap-2">
+            <Link
+              to={`/chat?bookId=${book.id}`}
+              title="Chat about this book — searches its text and translations, cites pages"
+              className="text-sm px-3 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-(--text-secondary) hover:text-(--text-primary) hover:bg-(--bg-hover)"
+              data-testid="book-chat-link"
+            >
+              💬 Chat
+            </Link>
             <DiskUsageButton bookId={book.id} />
           </div>
         </div>
@@ -640,36 +648,24 @@ export function BookDetail() {
                 Cleanup selected ({selectedCleanable})
               </button>
               <button
-                onClick={() =>
-                  setAskScope({
-                    kind: "chapters",
-                    bookId: book.id,
-                    chapters: book.chapters.filter((c) => c.selected).map((c) => ({ id: c.id, title: c.title })),
-                  })
-                }
-                disabled={!!activeLanguage || selectedCount === 0}
+                onClick={() => {
+                  const selected = book.chapters.filter((c) => c.selected).map((c) => ({ id: c.id, title: c.title }));
+                  setAskScope(
+                    selected.length > 0 && !activeLanguage
+                      ? { kind: "chapters", bookId: book.id, chapters: selected }
+                      : { kind: "book-raw", bookId: book.id, bookTitle: book.title, chapters: selected },
+                  );
+                }}
+                disabled={book.rawTextTotalWords === 0 && (selectedCount === 0 || !!activeLanguage)}
                 title={
-                  activeLanguage ? "Switch to the Original view — Ask AI reads the original text" :
-                  selectedCount === 0 ? "No chapters selected" :
-                  "Summarize, question, or run any prompt against the selected chapters' text"
+                  book.rawTextTotalWords === 0 && selectedCount === 0
+                    ? "No raw text or chapters to ask about"
+                    : "Summarize, question, or run any prompt — switch between selected chapters and the whole book inside"
                 }
                 className="px-4 py-2 bg-sky-600 text-white rounded-md text-sm font-medium hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="ask-ai-selected"
               >
-                Ask AI ({selectedCount})
-              </button>
-              <button
-                onClick={() => setAskScope({ kind: "book-raw", bookId: book.id, bookTitle: book.title })}
-                disabled={book.rawTextTotalWords === 0}
-                title={
-                  book.rawTextTotalWords === 0
-                    ? "No raw text available for this book"
-                    : "Summarize, question, or run any prompt against the whole book's raw text — same as the upload-time AI prompt"
-                }
-                className="px-4 py-2 rounded-md text-sm font-medium border border-sky-600 text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950 disabled:opacity-50 disabled:cursor-not-allowed"
-                data-testid="ask-ai-book"
-              >
-                Ask AI (whole book)
+                Ask AI
               </button>
               <button
                 onClick={() => {

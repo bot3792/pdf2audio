@@ -1,13 +1,23 @@
+import { eq } from "drizzle-orm";
 import { db } from "../db.ts";
-import { notes, type NoteScope } from "../schema.ts";
+import { books, notes, DEFAULT_PROFILE_ID, type NoteScope } from "../schema.ts";
 
 export async function saveNote(input: {
-  bookId: string;
+  bookId: string | null;
+  profileId?: string;
   prompt: string;
   model: "flash" | "pro";
   result: string;
   scope: NoteScope;
 }): Promise<string> {
-  const [note] = await db.insert(notes).values(input).returning({ id: notes.id });
+  let profileId = input.profileId;
+  if (!profileId && input.bookId) {
+    const [book] = await db.select({ profileId: books.profileId }).from(books).where(eq(books.id, input.bookId));
+    profileId = book?.profileId;
+  }
+  const [note] = await db
+    .insert(notes)
+    .values({ ...input, profileId: profileId ?? DEFAULT_PROFILE_ID })
+    .returning({ id: notes.id });
   return note.id;
 }

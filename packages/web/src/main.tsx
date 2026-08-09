@@ -8,6 +8,7 @@ import { trpc } from "./trpc.ts";
 import { profileHeaders } from "./lib/profile.ts";
 import { Home } from "./pages/Home.tsx";
 import { BookDetail } from "./pages/BookDetail.tsx";
+import { Chat } from "./pages/Chat.tsx";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +36,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/" element={<Home />} />
             <Route path="/folders/:folderId" element={<Home />} />
             <Route path="/books/:id" element={<BookDetail />} />
+            <Route path="/chat" element={<Chat />} />
           </Routes>
         </BrowserRouter>
       </QueryClientProvider>

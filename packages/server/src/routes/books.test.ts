@@ -404,63 +404,6 @@ describe("booksRouter.get derived status", () => {
   });
 });
 
-describe("booksRouter.aiPromptRaw", () => {
-  beforeEach(async () => {
-    await resetDb(getDb());
-    mockDeepseekChat.mockReset();
-    mockDeepseekChat.mockResolvedValue("AI answer");
-  });
-
-  async function insertRawTextBook() {
-    const db = getDb();
-    const bookId = crypto.randomUUID();
-    await db.insert(books).values({
-      id: bookId,
-      title: "Raw Book",
-      filename: "raw.pdf",
-      pdfPath: "/tmp/raw.pdf",
-    });
-    await db.insert(bookFiles).values([
-      { bookId, index: 0, filename: "vol1.pdf", pdfPath: "/tmp/a.pdf", status: "raw", rawText: "First volume text.", rawWords: 3 },
-      { bookId, index: 1, filename: "vol2.pdf", pdfPath: "/tmp/b.pdf", status: "raw", rawText: "Second volume text.", rawWords: 3 },
-    ]);
-    return bookId;
-  }
-
-  it("sends concatenated file texts in index order and saves a note", async () => {
-    const bookId = await insertRawTextBook();
-
-    const caller = booksRouter.createCaller({});
-    const res = await caller.aiPromptRaw({ bookId, prompt: "Summarize the book", model: "flash" });
-
-    expect(res.result).toBe("AI answer");
-    const userMessage = mockDeepseekChat.mock.calls[0][1] as string;
-    expect(userMessage.indexOf("First volume text.")).toBeGreaterThan(-1);
-    expect(userMessage.indexOf("First volume text.")).toBeLessThan(userMessage.indexOf("Second volume text."));
-
-    const db = getDb();
-    const [note] = await db.select().from(notes).where(eq(notes.id, res.noteId));
-    expect(note).toMatchObject({
-      bookId,
-      prompt: "Summarize the book",
-      model: "flash",
-      result: "AI answer",
-      scope: { kind: "book-raw", files: 2 },
-    });
-  });
-
-  it("rejects when the book has no raw text", async () => {
-    const db = getDb();
-    const bookId = crypto.randomUUID();
-    await db.insert(books).values({ id: bookId, title: "Empty", filename: "e.pdf", pdfPath: "/tmp/e.pdf" });
-    await db.insert(bookFiles).values({ bookId, index: 0, filename: "e.pdf", pdfPath: "/tmp/e.pdf", status: "raw" });
-
-    const caller = booksRouter.createCaller({});
-    await expect(caller.aiPromptRaw({ bookId, prompt: "Summarize", model: "flash" })).rejects.toThrow(/no raw text/i);
-    expect(mockDeepseekChat).not.toHaveBeenCalled();
-  });
-});
-
 describe("booksRouter.rawTextStats", () => {
   beforeEach(async () => {
     await resetDb(getDb());

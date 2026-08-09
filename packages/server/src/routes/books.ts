@@ -16,10 +16,7 @@ import { measureBookDiskUsage, measureDirs, removeDirs, bookTotalSizeCached } fr
 import { chapterChunkPreviewDir } from "../lib/chunk-previews.ts";
 import { translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
 import { insertSuspendedChapters, resetChaptersKeepingInserted } from "../lib/insert-chapters.ts";
-import { getBookRawText } from "../lib/book-raw-text.ts";
-import { countAsciiNonAscii, estimateTokens, MODEL_CONTEXT_TOKENS } from "../lib/token-estimate.ts";
-import { saveNote } from "../lib/notes.ts";
-import { deepseekChat, DEEPSEEK_MODELS } from "../lib/deepseek.ts";
+import { countAsciiNonAscii } from "../lib/token-estimate.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, unlink, rm } from "node:fs/promises";
@@ -231,6 +228,7 @@ export const booksRouter = router({
           createdAt: book.createdAt,
           skipSynthesis: book.skipSynthesis,
           error: book.status === "failed" ? book.error : null,
+          searchIndex: book.searchIndex,
           ...deriveBookStats(book),
           sizeBytes: await bookTotalSizeCached(book.id),
         })),
@@ -601,46 +599,6 @@ export const booksRouter = router({
 
       const [updated] = await db.select().from(books).where(eq(books.id, input.id));
       return updated;
-    }),
-
-  aiPromptRaw: publicProcedure
-    .input(z.object({
-      bookId: z.string().uuid(),
-      prompt: z.string().min(1).max(4000),
-      model: z.enum(["flash", "pro"]).default("flash"),
-    }))
-    .mutation(async ({ input }) => {
-      const raw = await getBookRawText(input.bookId);
-      if (!raw) throw new Error("No raw text available for this book — the PDF may be scanned or encrypted");
-
-      const tokens = estimateTokens(raw.text) + estimateTokens(input.prompt);
-      if (tokens > MODEL_CONTEXT_TOKENS) {
-        throw new Error(
-          `Raw text (~${Math.round(tokens / 1000)}k tokens) exceeds the model's context — extract chapters and ask per-chapter instead`
-        );
-      }
-
-      const system =
-        "You are a careful reading assistant. You are given the full raw text of a book, extracted directly from its PDF (it may contain page headers, footers, and OCR artifacts). " +
-        "Answer the user's request about this book using only the given text — do not invent facts that are not in it. " +
-        "Respond in the language of the request unless asked otherwise. Format your answer in Markdown where it helps readability (lists, bold, short headings).";
-      const user = `${input.prompt}\n\n---\n${raw.text}`;
-
-      const result = await deepseekChat(system, user, {
-        model: DEEPSEEK_MODELS[input.model],
-        temperature: 0.7,
-        timeoutMs: 600_000,
-      });
-
-      const noteId = await saveNote({
-        bookId: input.bookId,
-        prompt: input.prompt,
-        model: input.model,
-        result,
-        scope: { kind: "book-raw", files: raw.fileCount },
-      });
-
-      return { result, noteId };
     }),
 
   rawTextStats: publicProcedure

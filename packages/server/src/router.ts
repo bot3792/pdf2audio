@@ -7,6 +7,7 @@ import { translationsRouter } from "./routes/translations.ts";
 import { notesRouter } from "./routes/notes.ts";
 import { foldersRouter } from "./routes/folders.ts";
 import { profilesRouter } from "./routes/profiles.ts";
+import { searchRouter } from "./routes/search.ts";
 
 export const appRouter = router({
   books: booksRouter,
@@ -16,6 +17,7 @@ export const appRouter = router({
   bookFiles: bookFilesRouter,
   translations: translationsRouter,
   notes: notesRouter,
+  search: searchRouter,
 });
 
 export type AppRouter = typeof appRouter;

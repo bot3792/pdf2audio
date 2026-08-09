@@ -7,6 +7,11 @@ export default defineConfig({
     port: 3033,
     proxy: {
       "/trpc": "http://localhost:3034",
+      // /chat is both the SPA page (GET, browser refresh) and the streaming API (POST)
+      "/chat": {
+        target: "http://localhost:3034",
+        bypass: (req) => (req.method === "POST" ? undefined : "/index.html"),
+      },
       "/pdf": "http://localhost:3034",
       "/upload": "http://localhost:3034",
       "/download": "http://localhost:3034",

@@ -7,6 +7,7 @@ import { registerExtractAbort, clearExtractAbort } from "../lib/extract-registry
 import { bookTmpDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import path from "node:path";
+import { queueIndexBook } from "../lib/search-index.ts";
 
 export type ExtractPayload = {
   bookId: string;
@@ -64,6 +65,7 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
         ? "Extraction complete in reader mode — chapters are suspended. Queue selected chapters when ready."
         : "Extraction complete, queuing normalization"
     );
+    await queueIndexBook(bookId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await log(`Extraction failed: ${message}`);

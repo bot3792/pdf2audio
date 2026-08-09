@@ -1,4 +1,7 @@
-import { pgTable, uuid, text, real, integer, timestamp, boolean, jsonb, unique, index, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, uuid, text, real, integer, timestamp, boolean, jsonb, unique, index, vector, customType, type AnyPgColumn } from "drizzle-orm/pg-core";
+
+const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
 
 export type ChapterProposalBoundary = {
   fileIndex: number | null;
@@ -38,7 +41,15 @@ export type NoteJob = {
 
 export type NoteScope =
   | { kind: "chapters"; chapters: { id: string; title: string }[] }
-  | { kind: "book-raw"; files: number; digestBookId?: string };
+  | { kind: "book-raw"; files: number; digestBookId?: string }
+  | { kind: "library"; folderId?: string; question: string };
+
+export type SearchIndexJob = {
+  status: "queued" | "chunking" | "embedding" | "done" | "failed";
+  progress?: string;
+  error?: string;
+  updatedAt: string;
+};
 
 export type BookOrigin = { type: "digest"; sourceBookIds: string[]; prompt: string; model: "flash" | "pro" };
 
@@ -98,6 +109,7 @@ export const books = pgTable("books", {
   noteJob: jsonb("note_job").$type<NoteJob>(),
   origin: jsonb("origin").$type<BookOrigin>(),
   digestJob: jsonb("digest_job").$type<DigestJob>(),
+  searchIndex: jsonb("search_index").$type<SearchIndexJob>(),
   // "set null", never cascade: book deletion must go through deleteBook (disk cleanup)
   folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
   profileId: uuid("profile_id").notNull().default(DEFAULT_PROFILE_ID).references(() => profiles.id),
@@ -209,13 +221,46 @@ export const documents = pgTable("documents", {
 
 export const notes = pgTable("notes", {
   id: uuid("id").primaryKey().defaultRandom(),
-  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  // null = library-wide answer (scope.kind === "library")
+  bookId: uuid("book_id").references(() => books.id, { onDelete: "cascade" }),
+  profileId: uuid("profile_id").notNull().default(DEFAULT_PROFILE_ID).references(() => profiles.id),
   prompt: text("prompt").notNull(),
   model: text("model", { enum: ["flash", "pro"] }).notNull(),
   result: text("result").notNull(),
   scope: jsonb("scope").$type<NoteScope>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const bookChunks = pgTable("book_chunks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+  // Denormalized from books for index-friendly scoping; refreshed on reindex
+  profileId: uuid("profile_id").notNull(),
+  folderId: uuid("folder_id"),
+  source: text("source", { enum: ["raw", "chapter", "translation"] }).notNull(),
+  bookFileId: uuid("book_file_id").references(() => bookFiles.id, { onDelete: "cascade" }),
+  chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "cascade" }),
+  translationId: uuid("translation_id").references(() => chapterTranslations.id, { onDelete: "cascade" }),
+  language: text("language"),
+  seq: integer("seq").notNull(),
+  text: text("text").notNull(),
+  charStart: integer("char_start").notNull(),
+  charEnd: integer("char_end").notNull(),
+  pageStart: integer("page_start"),
+  pageEnd: integer("page_end"),
+  // sha256 of the full source-unit text at chunking time; unchanged hash = skip reindex
+  sourceHash: text("source_hash").notNull(),
+  tsv: tsvector("tsv").generatedAlwaysAs((): ReturnType<typeof sql> => sql`to_tsvector('simple', "text")`),
+  embedding: vector("embedding", { dimensions: 1024 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("book_chunks_book_id_idx").on(t.bookId),
+  index("book_chunks_profile_id_idx").on(t.profileId),
+  index("book_chunks_file_seq_idx").on(t.bookFileId, t.seq),
+  index("book_chunks_chapter_seq_idx").on(t.chapterId, t.seq),
+  index("book_chunks_tsv_idx").using("gin", t.tsv),
+  index("book_chunks_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+]);
 
 export type Book = typeof books.$inferSelect;
 export type NewBook = typeof books.$inferInsert;
@@ -228,5 +273,7 @@ export type Assembly = typeof assemblies.$inferSelect;
 export type BookDocument = typeof documents.$inferSelect;
 export type ChapterTranslation = typeof chapterTranslations.$inferSelect;
 export type Note = typeof notes.$inferSelect;
+export type BookChunk = typeof bookChunks.$inferSelect;
+export type NewBookChunk = typeof bookChunks.$inferInsert;
 export type Folder = typeof folders.$inferSelect;
 export type Profile = typeof profiles.$inferSelect;

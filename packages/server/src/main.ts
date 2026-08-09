@@ -9,6 +9,7 @@ import { createContext } from "./trpc.ts";
 import { startWorker, stopWorker } from "./workers/setup.ts";
 import { registerChapterReaderRoute, type ChapterReaderLookupResult } from "./lib/chapter-reader-route.ts";
 import { registerUploadRoutes } from "./upload-routes.ts";
+import { registerChatRoutes } from "./chat-routes.ts";
 import { ensureDataDirs, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
 import { books, bookFiles, assemblies, documents, chapters, chapterTranslations } from "./schema.ts";
@@ -38,6 +39,7 @@ async function main() {
   });
 
   registerUploadRoutes(fastify);
+  registerChatRoutes(fastify);
 
   fastify.get("/pdf/:fileId", async (request, reply) => {
     const { fileId } = request.params as { fileId: string };

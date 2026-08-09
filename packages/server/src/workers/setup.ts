@@ -13,6 +13,8 @@ import { rawExtract } from "./raw-extract.ts";
 import { bookNote } from "./book-note.ts";
 import { digest } from "./digest.ts";
 import { synthesizeTranslation } from "./synthesize-translation.ts";
+import { indexBook } from "./index-book.ts";
+import { embedChunks } from "./embed-chunks.ts";
 import { sweepStrandedWork } from "./sweep.ts";
 import { env } from "../env.ts";
 
@@ -89,6 +91,14 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
     },
   },
   {
+    name: "index", // BGE-M3 contends for the GPU with TTS; serial embedding keeps both usable
+    concurrency: 1,
+    taskList: {
+      indexBook: wrapTask("indexBook", indexBook),
+      embedChunks: wrapTask("embedChunks", (payload) => embedChunks(payload as any)),
+    },
+  },
+  {
     name: "translate",
     concurrency: 3,
     taskList: {
@@ -117,6 +127,9 @@ export async function startWorker(): Promise<Runner[]> {
         concurrency: pool.concurrency,
         noHandleSignals: false,
         taskList: pool.taskList,
+        // We don't use graphile cron; an empty crontab stops the per-pool
+        // "Failed to read crontab file" INFO line at startup
+        crontab: "",
       }),
     ),
   );

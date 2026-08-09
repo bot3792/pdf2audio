@@ -32,6 +32,10 @@ export async function rawExtract(payload: RawExtractPayload, { addJob }: { addJo
     }
   }
 
+  if (extracted > 0) {
+    await addJob("indexBook", { bookId }, { maxAttempts: 1, jobKey: `index:${bookId}`, jobKeyMode: "replace" });
+  }
+
   if (!note) return;
 
   const withText = await db

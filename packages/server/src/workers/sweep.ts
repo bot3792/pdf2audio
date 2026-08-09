@@ -22,7 +22,7 @@ export async function sweepStrandedWork() {
     DELETE FROM graphile_worker._private_jobs j
     USING graphile_worker._private_tasks t
     WHERE t.id = j.task_id
-      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup', 'extract')
+      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup', 'extract', 'indexBook', 'embedChunks')
       AND (j.locked_at IS NOT NULL OR j.attempts >= j.max_attempts)
     RETURNING t.identifier, j.payload
   `)) as unknown as Array<{ identifier: string; payload: Record<string, unknown> }>;
@@ -35,6 +35,18 @@ export async function sweepStrandedWork() {
       replayedAssembleBooks.push(job.payload.bookId);
       bump(job.payload.bookId);
     }
+  }
+
+  // Index jobs are hash-skipping (chunking) and embedding-IS-NULL-resumable, so a dead
+  // one restarts from where it stopped; replay as indexBook either way (it chains embed).
+  for (const job of deadJobs.filter((j) => j.identifier === "indexBook" || j.identifier === "embedChunks")) {
+    const bookId = job.payload.bookId;
+    if (typeof bookId !== "string") continue;
+    await quickAddJob({ connectionString }, "indexBook", { bookId }, {
+      maxAttempts: 1,
+      jobKey: `index:${bookId}`,
+      jobKeyMode: "replace",
+    });
   }
 
   await db.execute(sql`
