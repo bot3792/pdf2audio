@@ -12,7 +12,9 @@ function todayIso(): string {
 export function HnDigestModal({ onClose }: { onClose: () => void }) {
   useBodyScrollLock();
   const utils = trpc.useUtils();
-  const [date, setDate] = useState(todayIso());
+  const [from, setFrom] = useState(todayIso());
+  const [to, setTo] = useState(todayIso());
+  const [perDay, setPerDay] = useState(false);
   const [count, setCount] = useState(10);
   const [folder, setFolder] = useState("hackernews-summaries");
   const [synthesize, setSynthesize] = useState(true);
@@ -33,8 +35,10 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
     setBookId(null);
     setState("running");
     const params = new URLSearchParams({
-      date,
+      from,
+      to,
       count: String(count),
+      perDay: perDay ? "1" : "0",
       synthesize: synthesize ? "1" : "0",
       ...(folder.trim() ? { folder: folder.trim() } : {}),
       ...(getStoredProfileId() ? { profile: getStoredProfileId()! } : {}),
@@ -80,20 +84,37 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
 
         <div className="p-4 space-y-3 overflow-y-auto">
           <p className="text-xs text-(--text-muted)">
-            Builds a podcast-style book from that day's top stories on hckrnews.com — one chapter per story,
-            with the community's take capped at the end. Past days work too.
+            Builds a podcast-style book from the top stories on hckrnews.com — one chapter per story,
+            with the community's take capped at the end. Pick a single day or a range to catch up:
+            a range takes the overall top stories across it, or the top of each day.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-xs text-(--text-secondary)">
-              Day
+              From
               <input
                 type="date"
-                value={date}
+                value={from}
                 max={todayIso()}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={(e) => {
+                  setFrom(e.target.value);
+                  if (e.target.value > to) setTo(e.target.value);
+                }}
                 disabled={state === "running"}
                 className="mt-1 block px-2 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-sm text-(--text-primary)"
-                data-testid="hn-digest-date"
+                data-testid="hn-digest-from"
+              />
+            </label>
+            <label className="text-xs text-(--text-secondary)">
+              To
+              <input
+                type="date"
+                value={to}
+                min={from}
+                max={todayIso()}
+                onChange={(e) => setTo(e.target.value)}
+                disabled={state === "running"}
+                className="mt-1 block px-2 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-sm text-(--text-primary)"
+                data-testid="hn-digest-to"
               />
             </label>
             <label className="text-xs text-(--text-secondary)">
@@ -130,6 +151,24 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
               Synthesize audio right away
             </label>
           </div>
+          {from !== to && (
+            <label className="flex items-center gap-2 text-xs text-(--text-secondary)">
+              <input
+                type="checkbox"
+                checked={perDay}
+                onChange={(e) => setPerDay(e.target.checked)}
+                disabled={state === "running"}
+                className="rounded"
+                data-testid="hn-digest-per-day"
+              />
+              Top {count} of <em>each</em> day instead of the range overall
+              {perDay && (
+                <span className="text-(--text-faint)">
+                  (~{count * (Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000) + 1)} chapters)
+                </span>
+              )}
+            </label>
+          )}
 
           {lines.length > 0 && (
             <div

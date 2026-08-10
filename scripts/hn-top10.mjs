@@ -3,10 +3,13 @@
 // external API (docs/synthetic-books-api.md). Stories come from hckrnews.com's
 // per-day archives, so any past day works, not just what's on the HN front page.
 //
-// Usage: node scripts/hn-top10.mjs [--date 2026-08-09] [--count 10] [--synthesize]
+// Usage: node scripts/hn-top10.mjs [--date 2026-08-09 | --from 2026-08-04 --to 2026-08-08]
+//                                  [--count 10] [--per-day] [--concurrency 5] [--synthesize]
 //                                  [--folder "hackernews-summaries"] [--profile <uuid>] [--list]
 //                                  [--api http://localhost:3034] [--model deepseek-v4-flash]
-// --list prints the day's top stories and exits (no AI calls, no book).
+// A range picks the overall top --count across all its days (catch-up mode);
+// --per-day instead takes the top --count of each day, in day order.
+// --list prints the selected stories and exits (no AI calls, no book).
 // --folder files the book into that folder by name, creating it if needed.
 // Also runnable from the web UI ("HN digest" on the home page), which streams this
 // script's output via GET /scripts/hn-top10/stream.
@@ -37,12 +40,25 @@ const COMMENTS_CAP = 6_000;
 
 const toYmdUtc = (d) =>
   `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+const ymdToUtcMs = (ymd) => Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8)));
+
+const PER_DAY = flag("--per-day");
+const CONCURRENCY = Math.max(1, Number(opt("--concurrency", "5")) || 5);
 const dateArg = opt("--date", null);
-const targetYmd = dateArg ? dateArg.replaceAll("-", "") : toYmdUtc(new Date());
-if (!/^\d{8}$/.test(targetYmd)) {
-  console.error(`Invalid --date "${dateArg}" — use YYYY-MM-DD`);
+const fromYmd = (opt("--from", null) ?? dateArg ?? toYmdUtc(new Date())).replaceAll("-", "");
+const toYmd = (opt("--to", null) ?? dateArg ?? fromYmd).replaceAll("-", "");
+if (!/^\d{8}$/.test(fromYmd) || !/^\d{8}$/.test(toYmd) || ymdToUtcMs(fromYmd) > ymdToUtcMs(toYmd)) {
+  console.error(`Invalid date range ${fromYmd}..${toYmd} — use YYYY-MM-DD, from <= to`);
   process.exit(1);
 }
+const days = [];
+for (let t = ymdToUtcMs(fromYmd); t <= ymdToUtcMs(toYmd); t += 86_400_000) days.push(toYmdUtc(new Date(t)));
+if (days.length > 90) {
+  console.error(`Range spans ${days.length} days — 90 is the maximum`);
+  process.exit(1);
+}
+const dayLabel = (ymd) =>
+  new Date(ymdToUtcMs(ymd)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 function deepseekKey() {
   if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY;
@@ -182,6 +198,7 @@ async function summarize(key, story, article, comments) {
   const user = [
     `Story title: ${story.title}`,
     story.url ? `Link domain: ${new URL(story.url).hostname}` : "",
+    story.day ? `Story day: ${story.day} (mention the timing only if it matters)` : "",
     `Points: ${story.points ?? "?"}, comments: ${story.numComments ?? "?"}`,
     article ? `ARTICLE TEXT:\n${article}` : "ARTICLE TEXT: (could not be fetched — work from the title and discussion, and say so naturally if needed)",
     comments ? `HACKER NEWS DISCUSSION:\n${comments}` : "HACKER NEWS DISCUSSION: (none)",
@@ -222,18 +239,38 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-console.log(`Fetching hckrnews stories for ${targetYmd}...`);
-const dayStories = await fetchDayStories(targetYmd);
-if (dayStories.length === 0) {
-  console.error(`No stories found for ${targetYmd}`);
+console.log(`Fetching hckrnews stories for ${days.length === 1 ? days[0] : `${days[0]}..${days.at(-1)}`}...`);
+const byDay = [];
+for (const ymd of days) {
+  try {
+    const stories = await fetchDayStories(ymd);
+    byDay.push({ ymd, stories });
+    if (days.length > 1) console.log(`  ${ymd}: ${stories.length} stories`);
+  } catch (err) {
+    console.log(`  ${ymd}: skipped (${err instanceof Error ? err.message : err})`);
+  }
+}
+const all = byDay.flatMap(({ ymd, stories }) => stories.map((s) => ({ ...s, ymd })));
+if (all.length === 0) {
+  console.error("No stories found in the range");
   process.exit(1);
 }
-const top = dayStories.slice(0, COUNT);
-console.log(`${dayStories.length} stories that day; taking top ${top.length} by points`);
+
+const picked = PER_DAY
+  ? byDay.flatMap(({ ymd, stories }) => stories.slice(0, COUNT).map((s) => ({ ...s, ymd })))
+  : [...all].sort((a, b) => (b.points ?? 0) - (a.points ?? 0)).slice(0, COUNT);
+const seen = new Set();
+const top = picked.filter((e) => !seen.has(String(e.id)) && seen.add(String(e.id)));
+console.log(
+  `${all.length} stories in ${days.length} day${days.length === 1 ? "" : "s"}; taking ${top.length} (${
+    PER_DAY ? `top ${COUNT} per day` : `overall top ${COUNT}`
+  })`,
+);
 
 if (flag("--list")) {
   for (const [i, e] of top.entries()) {
-    console.log(`${String(i + 1).padStart(2)}. ${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`);
+    const day = days.length > 1 ? `${dayLabel(e.ymd).padEnd(7)} ` : "";
+    console.log(`${String(i + 1).padStart(2)}. ${day}${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`);
   }
   process.exit(0);
 }
@@ -261,28 +298,45 @@ if (folderName) {
   console.log(`Filing into folder "${folderName}" (${folderId})`);
 }
 
-const chapters = await mapLimit(top, 3, async (entry, i) => {
-  const story = await getJson(`https://hn.algolia.com/api/v1/items/${entry.id}`);
-  const title = story.title ?? decodeEntities(entry.link_text ?? "Untitled");
-  console.log(`[${i + 1}/${top.length}] (${entry.points} pts) ${title}`);
-  const article = story.url ? await fetchArticle(story.url) : stripHtml(story.text ?? "") || null;
-  const comments = collectComments(story);
-  const text = await summarize(key, { title, url: story.url, points: entry.points, numComments: entry.comments }, article, comments);
-  console.log(`[${i + 1}/${top.length}] summarized (${text.split(/\s+/).length} words${article ? "" : ", article unavailable"})`);
-  return {
-    title,
-    text,
-    url: story.url ?? `https://news.ycombinator.com/item?id=${entry.id}`,
-  };
-});
+const chapters = (await mapLimit(top, CONCURRENCY, async (entry, i) => {
+  const tag = `[${i + 1}/${top.length}]`;
+  try {
+    const story = await getJson(`https://hn.algolia.com/api/v1/items/${entry.id}`);
+    const title = story.title ?? decodeEntities(entry.link_text ?? "Untitled");
+    console.log(`${tag} (${entry.points} pts) ${title}`);
+    const article = story.url ? await fetchArticle(story.url) : stripHtml(story.text ?? "") || null;
+    const comments = collectComments(story);
+    const text = await summarize(
+      key,
+      { title, url: story.url, day: days.length > 1 ? dayLabel(entry.ymd) : undefined, points: entry.points, numComments: entry.comments },
+      article,
+      comments,
+    );
+    console.log(`${tag} summarized (${text.split(/\s+/).length} words${article ? "" : ", article unavailable"})`);
+    return {
+      title: days.length > 1 ? `${dayLabel(entry.ymd)}: ${title}` : title,
+      text,
+      url: story.url ?? `https://news.ycombinator.com/item?id=${entry.id}`,
+    };
+  } catch (err) {
+    console.log(`${tag} FAILED (${err instanceof Error ? err.message : err}) — skipping "${decodeEntities(entry.link_text ?? "")}"`);
+    return null;
+  }
+})).filter(Boolean);
+if (chapters.length === 0) {
+  console.error("Every story failed — no book created");
+  process.exit(1);
+}
+if (chapters.length < top.length) console.log(`${top.length - chapters.length} of ${top.length} stories failed and were skipped`);
 
-const day = new Date(Number(targetYmd.slice(0, 4)), Number(targetYmd.slice(4, 6)) - 1, Number(targetYmd.slice(6, 8)));
-const date = day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+const rangeLabel = days.length === 1
+  ? new Date(ymdToUtcMs(days[0])).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+  : `${dayLabel(days[0])} – ${dayLabel(days.at(-1))}, ${days.at(-1).slice(0, 4)}`;
 const res = await fetch(`${API}/api/books`, {
   method: "POST",
   headers: apiHeaders,
   body: JSON.stringify({
-    title: `Hacker News Top ${chapters.length} — ${date}`,
+    title: `Hacker News Top ${PER_DAY && days.length > 1 ? `${COUNT}/day` : chapters.length} — ${rangeLabel}`,
     client: "hn-top10",
     ...(folderId ? { folderId } : {}),
     chapters,

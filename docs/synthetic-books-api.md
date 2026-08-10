@@ -57,9 +57,13 @@ Status poll for scripts:
 Builds a podcast-style book from a day's top Hacker News stories — one chapter per story, curiosity-hook opening, community reaction explicitly signposted and capped at ~20% of the chapter:
 
 ```sh
-node scripts/hn-top10.mjs                        # today's top 10, chapters suspended for review
-node scripts/hn-top10.mjs --date 2026-08-09      # any past day (hckrnews archives)
-node scripts/hn-top10.mjs --synthesize --count 5 # queue TTS immediately
+node scripts/hn-top10.mjs                                  # today's top 10, chapters suspended for review
+node scripts/hn-top10.mjs --date 2026-08-09                # any past day (hckrnews archives)
+node scripts/hn-top10.mjs --from 2026-08-04 --to 2026-08-08  # overall top 10 across the range (catch-up)
+node scripts/hn-top10.mjs --from 2026-08-04 --to 2026-08-08 --count 5 --per-day  # top 5 of each day
+node scripts/hn-top10.mjs --synthesize --count 5           # queue TTS immediately
 ```
+
+Chapters in a range book are titled "Aug 8: Story title" so the day survives into the audio. Stories that fail to summarize are skipped with a log line instead of failing the whole run; `--concurrency` (default 5) controls parallel summaries.
 
 Needs `DEEPSEEK_API_KEY` (env or root `.env`) since the summarization runs in the script, not the server, plus the workspace-root deps (`pnpm install`). Story lists come from [hckrnews.com](https://hckrnews.com/) and replicate its "top 10" tab exactly: the site groups stories into UTC days (archived at `/data/YYYYMMDD.js` — one file is one day group) and shows each group's top N by points. For days not yet archived the group is reconstructed from `latest.js` plus the server-rendered homepage, cut by UTC date. Any historical day works even after stories drop off the HN front page (`--list` prints a day's top stories without creating anything, verified 1:1 against the site's top-10 view); comments come from the Algolia HN API. Article text is extracted with [Defuddle](https://github.com/kepano/defuddle) + linkedom (falls back to title + discussion when a site blocks fetching).

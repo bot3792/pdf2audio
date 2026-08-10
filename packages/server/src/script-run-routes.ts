@@ -5,13 +5,22 @@ import path from "node:path";
 import { z } from "zod";
 import { env } from "./env.ts";
 
+const ymdSchema = z.string().regex(/^\d{4}-?\d{2}-?\d{2}$/);
 const paramsSchema = z.object({
-  date: z.string().regex(/^\d{4}-?\d{2}-?\d{2}$/).optional(),
+  date: ymdSchema.optional(),
+  from: ymdSchema.optional(),
+  to: ymdSchema.optional(),
   count: z.coerce.number().int().min(1).max(30).default(10),
+  perDay: z.enum(["0", "1"]).default("0"),
   synthesize: z.enum(["0", "1"]).default("0"),
   folder: z.string().regex(/^[\w. -]{1,100}$/).optional(),
   profile: z.string().uuid().optional(),
 });
+
+function ymdToMs(ymd: string): number {
+  const s = ymd.replaceAll("-", "");
+  return Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
+}
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
@@ -27,6 +36,14 @@ export function registerScriptRunRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: "Invalid parameters", issues: parsed.error.issues });
     }
     const params = parsed.data;
+    const from = params.from ?? params.date;
+    const to = params.to ?? params.from ?? params.date;
+    if (from && to) {
+      const span = (ymdToMs(to) - ymdToMs(from)) / 86_400_000 + 1;
+      if (span < 1 || span > 90) {
+        return reply.code(400).send({ error: "Date range must run forward and span at most 90 days" });
+      }
+    }
 
     reply.hijack();
     const res = reply.raw;
@@ -49,7 +66,9 @@ export function registerScriptRunRoutes(fastify: FastifyInstance) {
       path.join(repoRoot, "scripts", "hn-top10.mjs"),
       "--api", `http://localhost:${env.PORT}`,
       "--count", String(params.count),
-      ...(params.date ? ["--date", params.date] : []),
+      ...(from ? ["--from", from] : []),
+      ...(to ? ["--to", to] : []),
+      ...(params.perDay === "1" ? ["--per-day"] : []),
       ...(params.synthesize === "1" ? ["--synthesize"] : []),
       ...(params.folder ? ["--folder", params.folder] : []),
       ...(params.profile ? ["--profile", params.profile] : []),
