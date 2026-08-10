@@ -246,16 +246,16 @@ async function mapLimit(items, limit, fn) {
 }
 
 progress(`Fetching hckrnews stories for ${days.length === 1 ? days[0] : `${days[0]}..${days.at(-1)}`}...`);
-const byDay = [];
-for (const ymd of days) {
+const byDay = (await mapLimit(days, 8, async (ymd) => {
   try {
     const stories = await fetchDayStories(ymd);
-    byDay.push({ ymd, stories });
     if (days.length > 1) progress(`  ${ymd}: ${stories.length} stories`);
+    return { ymd, stories };
   } catch (err) {
     progress(`  ${ymd}: skipped (${err instanceof Error ? err.message : err})`);
+    return null;
   }
-}
+})).filter(Boolean);
 const all = byDay.flatMap(({ ymd, stories }) => stories.map((s) => ({ ...s, ymd })));
 if (all.length === 0) {
   console.error("No stories found in the range");
@@ -274,21 +274,21 @@ progress(
 );
 
 if (flag("--list")) {
-  if (JSON_OUT) {
-    console.log(JSON.stringify(top.map((e) => ({
-      id: String(e.id),
-      ymd: e.ymd,
-      points: e.points ?? 0,
-      comments: e.comments ?? 0,
-      title: decodeEntities(e.link_text ?? "Untitled"),
-      url: e.link || `https://news.ycombinator.com/item?id=${e.id}`,
-    }))));
-  } else {
-    for (const [i, e] of top.entries()) {
-      const day = days.length > 1 ? `${dayLabel(e.ymd).padEnd(7)} ` : "";
-      console.log(`${String(i + 1).padStart(2)}. ${day}${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`);
-    }
-  }
+  const output = JSON_OUT
+    ? JSON.stringify(top.map((e) => ({
+        id: String(e.id),
+        ymd: e.ymd,
+        points: e.points ?? 0,
+        comments: e.comments ?? 0,
+        title: decodeEntities(e.link_text ?? "Untitled"),
+        url: e.link || `https://news.ycombinator.com/item?id=${e.id}`,
+      })))
+    : top.map((e, i) => {
+        const day = days.length > 1 ? `${dayLabel(e.ymd).padEnd(7)} ` : "";
+        return `${String(i + 1).padStart(2)}. ${day}${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`;
+      }).join("\n");
+  // process.exit truncates pending async pipe writes at 64KB — flush first
+  await new Promise((resolve) => process.stdout.write(output + "\n", resolve));
   process.exit(0);
 }
 

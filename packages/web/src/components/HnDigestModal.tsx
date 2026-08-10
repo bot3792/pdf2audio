@@ -217,11 +217,17 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
                 data-testid="hn-digest-per-day"
               />
               Top {count} of <em>each</em> day, in day order
-              {from !== to && (
-                <span className="text-(--text-faint)">
-                  (~{count * (Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000) + 1)} chapters)
-                </span>
-              )}
+              {from !== to && (() => {
+                const estimate = count * (Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000) + 1);
+                return (
+                  <span
+                    className={estimate > 60 ? "text-amber-600 font-medium" : "text-(--text-faint)"}
+                    title={estimate > 60 ? "Each chapter is one AI summary plus TTS — a build this size runs for hours" : undefined}
+                  >
+                    (~{estimate} chapters{estimate > 60 ? " — hours of build time" : ""})
+                  </span>
+                );
+              })()}
             </label>
             {from === to && <span className="text-(--text-faint) self-center">— pick a range to unlock modes</span>}
           </fieldset>
