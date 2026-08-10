@@ -264,7 +264,7 @@ export function ChapterModal({
           &gt;
         </a>
       ) : null}
-      <div className="relative bg-(--bg-card) rounded-xl shadow-2xl w-[90vw] max-w-4xl max-h-[85vh] flex flex-col">
+      <div className="relative bg-(--bg-card) rounded-xl shadow-2xl w-[92vw] max-w-6xl h-[92vh] flex flex-col">
         <div className="flex items-start justify-between p-5 border-b border-(--border)">
           <div className="min-w-0">
             <div className="flex items-center gap-3 mb-1">
@@ -561,7 +561,7 @@ export function ChapterModal({
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                className="flex-1 min-h-0 rounded bg-(--bg-card) border border-amber-300 p-4 font-mono text-xs text-(--text-secondary) whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+                className="flex-1 min-h-0 w-full max-w-4xl mx-auto rounded bg-(--bg-card) border border-amber-300 px-6 py-5 text-[15px] text-(--text-primary) whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
             ) : viewMode === "blocks" && fullChapter.sourceBlocks ? (
               <BlocksPreview
@@ -898,7 +898,8 @@ function TextPreview({
     requestAnimationFrame(() => { syncing.current = false; });
   }
 
-  const textClass = "flex-1 min-h-0 overflow-y-auto rounded bg-(--bg-subtle) border border-(--border) p-4 font-mono text-xs text-(--text-secondary) whitespace-pre-wrap leading-relaxed";
+  const textClass = "flex-1 min-h-0 overflow-y-auto rounded bg-(--bg-subtle) border border-(--border) px-6 py-5 text-[15px] text-(--text-primary) whitespace-pre-wrap leading-relaxed";
+  const readingColumn = " w-full max-w-4xl mx-auto";
 
   if (viewMode === "split" && cleanText) {
     return (
@@ -936,7 +937,7 @@ function TextPreview({
         onSelectChunk={onSelectChunk}
         hoveredChunkUrl={hoveredChunkUrl}
         onHoverChunk={onHoverChunk}
-        className={textClass + " border-(--border-custom-text) bg-(--bg-custom-text)"}
+        className={textClass + readingColumn + " border-(--border-custom-text) bg-(--bg-custom-text)"}
       />
     );
   }
@@ -951,7 +952,7 @@ function TextPreview({
       onSelectChunk={onSelectChunk}
       hoveredChunkUrl={hoveredChunkUrl}
       onHoverChunk={onHoverChunk}
-      className={textClass}
+      className={textClass + readingColumn}
     />
   );
 }
