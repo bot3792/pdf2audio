@@ -4,7 +4,8 @@
 // per-day archives, so any past day works, not just what's on the HN front page.
 //
 // Usage: node scripts/hn-top10.mjs [--date 2026-08-09] [--count 10] [--synthesize]
-//                                  [--api http://localhost:3034] [--model deepseek-v4-flash]
+//                                  [--list] [--api http://localhost:3034] [--model deepseek-v4-flash]
+// --list prints the day's top stories and exits (no AI calls, no book).
 // Needs DEEPSEEK_API_KEY (env or root .env) and `pnpm install` (defuddle + linkedom).
 
 import { readFileSync } from "node:fs";
@@ -54,22 +55,48 @@ async function getJson(url, timeoutMs = 30_000) {
   return res.json();
 }
 
-// hckrnews day files are `var entries = [...]` JS, keyed by UTC-ish day. A local
-// calendar day can span two files, so merge the day, the day after, and latest,
-// then cut by local date — this matches the day sections the site renders.
+// hckrnews archive files (/data/YYYYMMDD.js, `var entries = [...]` JS) are keyed
+// by the UTC day of their crawl timestamp (`date`), but the site groups entries
+// into LOCAL calendar days — so one local day spans two archive files. Recent
+// days aren't archived yet: latest.js is a rolling window that drops older
+// entries, and the server-rendered homepage carries the rest (with data-date).
+// Merge all of them, then cut by local date, to match the day sections the site
+// renders.
 async function fetchDayStories(ymd) {
-  const nextDay = new Date(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8)) + 1);
-  const sources = [`${ymd}.js`, `${toYmd(nextDay)}.js`, "latest.js"];
+  const dayAt = (offset) =>
+    new Date(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8)) + offset);
+  const files = [`${toYmd(dayAt(-1))}.js`, `${ymd}.js`, `${toYmd(dayAt(1))}.js`, "latest.js"];
 
   const byId = new Map();
   let anyLoaded = false;
-  for (const file of sources) {
+  for (const file of files) {
     const res = await fetch(`https://hckrnews.com/data/${file}`, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) continue;
     anyLoaded = true;
     const body = await res.text();
     const entries = JSON.parse(body.replace(/^\s*var\s+entries\s*=\s*/, "").replace(/;\s*$/, ""));
-    for (const entry of entries) byId.set(entry.id, entry);
+    for (const entry of entries) byId.set(String(entry.id), entry);
+  }
+
+  const home = await fetch("https://hckrnews.com/", { signal: AbortSignal.timeout(30_000) });
+  if (home.ok) {
+    anyLoaded = true;
+    const { document } = parseHTML(await home.text());
+    for (const li of document.querySelectorAll("li.entry")) {
+      const hn = li.querySelector("a.hn");
+      const link = li.querySelector("a.link");
+      if (!li.id || !hn?.classList.contains("story")) continue;
+      byId.set(String(li.id), {
+        id: li.id,
+        type: "story",
+        dead: false,
+        date: Number(hn.getAttribute("data-date")),
+        points: Number(li.querySelector(".points")?.textContent) || 0,
+        comments: Number(li.querySelector(".comments")?.textContent) || 0,
+        link: link?.getAttribute("href"),
+        link_text: link?.childNodes[0]?.textContent?.trim() ?? "",
+      });
+    }
   }
   if (!anyLoaded) throw new Error(`hckrnews has no data for ${ymd}`);
 
@@ -189,8 +216,6 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-const key = deepseekKey();
-
 console.log(`Fetching hckrnews stories for ${targetYmd}...`);
 const dayStories = await fetchDayStories(targetYmd);
 if (dayStories.length === 0) {
@@ -199,6 +224,15 @@ if (dayStories.length === 0) {
 }
 const top = dayStories.slice(0, COUNT);
 console.log(`${dayStories.length} stories that day; taking top ${top.length} by points`);
+
+if (flag("--list")) {
+  for (const [i, e] of top.entries()) {
+    console.log(`${String(i + 1).padStart(2)}. ${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`);
+  }
+  process.exit(0);
+}
+
+const key = deepseekKey();
 
 const chapters = await mapLimit(top, 3, async (entry, i) => {
   const story = await getJson(`https://hn.algolia.com/api/v1/items/${entry.id}`);
