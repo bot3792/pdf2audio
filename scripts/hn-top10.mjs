@@ -1,13 +1,17 @@
 #!/usr/bin/env node
-// Builds a podcast-style audiobook from today's top Hacker News stories via the
-// external API (docs/synthetic-books-api.md). Zero dependencies.
+// Builds a podcast-style audiobook from a day's top Hacker News stories via the
+// external API (docs/synthetic-books-api.md). Stories come from hckrnews.com's
+// per-day archives, so any past day works, not just what's on the HN front page.
 //
-// Usage: node scripts/hn-top10.mjs [--count 10] [--synthesize] [--api http://localhost:3034] [--model deepseek-v4-flash]
-// Needs DEEPSEEK_API_KEY (env or root .env).
+// Usage: node scripts/hn-top10.mjs [--date 2026-08-09] [--count 10] [--synthesize]
+//                                  [--api http://localhost:3034] [--model deepseek-v4-flash]
+// Needs DEEPSEEK_API_KEY (env or root .env) and `pnpm install` (defuddle + linkedom).
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { parseHTML } from "linkedom";
+import { Defuddle } from "defuddle/node";
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -23,6 +27,15 @@ const SYNTHESIZE = flag("--synthesize");
 
 const ARTICLE_CAP = 12_000;
 const COMMENTS_CAP = 6_000;
+
+const toYmd = (d) =>
+  `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+const dateArg = opt("--date", null);
+const targetYmd = dateArg ? dateArg.replaceAll("-", "") : toYmd(new Date());
+if (!/^\d{8}$/.test(targetYmd)) {
+  console.error(`Invalid --date "${dateArg}" — use YYYY-MM-DD`);
+  process.exit(1);
+}
 
 function deepseekKey() {
   if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY;
@@ -41,14 +54,43 @@ async function getJson(url, timeoutMs = 30_000) {
   return res.json();
 }
 
+// hckrnews day files are `var entries = [...]` JS, keyed by UTC-ish day. A local
+// calendar day can span two files, so merge the day, the day after, and latest,
+// then cut by local date — this matches the day sections the site renders.
+async function fetchDayStories(ymd) {
+  const nextDay = new Date(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8)) + 1);
+  const sources = [`${ymd}.js`, `${toYmd(nextDay)}.js`, "latest.js"];
+
+  const byId = new Map();
+  let anyLoaded = false;
+  for (const file of sources) {
+    const res = await fetch(`https://hckrnews.com/data/${file}`, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) continue;
+    anyLoaded = true;
+    const body = await res.text();
+    const entries = JSON.parse(body.replace(/^\s*var\s+entries\s*=\s*/, "").replace(/;\s*$/, ""));
+    for (const entry of entries) byId.set(entry.id, entry);
+  }
+  if (!anyLoaded) throw new Error(`hckrnews has no data for ${ymd}`);
+
+  return [...byId.values()]
+    .filter((e) => e.type === "story" && !e.dead && e.id)
+    .filter((e) => toYmd(new Date(1000 * Number(e.date ?? e.time))) === ymd)
+    .sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
+}
+
+function decodeEntities(text) {
+  return text
+    .replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
+}
+
 function stripHtml(html) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<(p|div|br|li|h[1-6]|tr)[^>]*>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ")
+  return decodeEntities(
+    html
+      .replace(/<(p|div|br|li|h[1-6]|tr)[^>]*>/gi, "\n")
+      .replace(/<[^>]+>/g, " "),
+  )
     .replace(/[ \t]+/g, " ")
     .replace(/\n\s*\n\s*/g, "\n\n")
     .trim();
@@ -63,10 +105,11 @@ async function fetchArticle(url) {
     });
     if (!res.ok) return null;
     const type = res.headers.get("content-type") ?? "";
-    if (!type.includes("html") && !type.includes("text/plain")) return null;
-    const body = await res.text();
-    const main = body.match(/<article[\s\S]*?<\/article>/i)?.[0] ?? body.match(/<main[\s\S]*?<\/main>/i)?.[0] ?? body;
-    const text = stripHtml(main);
+    if (type && !type.includes("html") && !type.includes("text/plain")) return null;
+    const html = await res.text();
+    const { document } = parseHTML(html);
+    const result = await Defuddle(document, url, { markdown: true });
+    const text = (result?.content ?? "").trim();
     return text.length > 200 ? text.slice(0, ARTICLE_CAP) : null;
   } catch {
     return null;
@@ -106,7 +149,7 @@ async function summarize(key, story, article, comments) {
   const user = [
     `Story title: ${story.title}`,
     story.url ? `Link domain: ${new URL(story.url).hostname}` : "",
-    `Points: ${story.points ?? "?"}, comments: ${story.num_comments ?? "?"}`,
+    `Points: ${story.points ?? "?"}, comments: ${story.numComments ?? "?"}`,
     article ? `ARTICLE TEXT:\n${article}` : "ARTICLE TEXT: (could not be fetched — work from the title and discussion, and say so naturally if needed)",
     comments ? `HACKER NEWS DISCUSSION:\n${comments}` : "HACKER NEWS DISCUSSION: (none)",
   ].filter(Boolean).join("\n\n");
@@ -148,29 +191,37 @@ async function mapLimit(items, limit, fn) {
 
 const key = deepseekKey();
 
-console.log(`Fetching top ${COUNT} Hacker News stories...`);
-const ids = (await getJson("https://hacker-news.firebaseio.com/v0/topstories.json")).slice(0, COUNT);
+console.log(`Fetching hckrnews stories for ${targetYmd}...`);
+const dayStories = await fetchDayStories(targetYmd);
+if (dayStories.length === 0) {
+  console.error(`No stories found for ${targetYmd}`);
+  process.exit(1);
+}
+const top = dayStories.slice(0, COUNT);
+console.log(`${dayStories.length} stories that day; taking top ${top.length} by points`);
 
-const chapters = await mapLimit(ids, 3, async (id, i) => {
-  const story = await getJson(`https://hn.algolia.com/api/v1/items/${id}`);
-  console.log(`[${i + 1}/${ids.length}] ${story.title}`);
+const chapters = await mapLimit(top, 3, async (entry, i) => {
+  const story = await getJson(`https://hn.algolia.com/api/v1/items/${entry.id}`);
+  const title = story.title ?? decodeEntities(entry.link_text ?? "Untitled");
+  console.log(`[${i + 1}/${top.length}] (${entry.points} pts) ${title}`);
   const article = story.url ? await fetchArticle(story.url) : stripHtml(story.text ?? "") || null;
   const comments = collectComments(story);
-  const text = await summarize(key, story, article, comments);
-  console.log(`[${i + 1}/${ids.length}] summarized (${text.split(/\s+/).length} words${article ? "" : ", article unavailable"})`);
+  const text = await summarize(key, { title, url: story.url, points: entry.points, numComments: entry.comments }, article, comments);
+  console.log(`[${i + 1}/${top.length}] summarized (${text.split(/\s+/).length} words${article ? "" : ", article unavailable"})`);
   return {
-    title: story.title,
+    title,
     text,
-    url: story.url ?? `https://news.ycombinator.com/item?id=${id}`,
+    url: story.url ?? `https://news.ycombinator.com/item?id=${entry.id}`,
   };
 });
 
-const date = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+const day = new Date(Number(targetYmd.slice(0, 4)), Number(targetYmd.slice(4, 6)) - 1, Number(targetYmd.slice(6, 8)));
+const date = day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 const res = await fetch(`${API}/api/books`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    title: `Hacker News Top ${ids.length} — ${date}`,
+    title: `Hacker News Top ${chapters.length} — ${date}`,
     client: "hn-top10",
     chapters,
     synthesize: SYNTHESIZE,

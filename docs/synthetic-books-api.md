@@ -54,12 +54,12 @@ Status poll for scripts:
 
 ## Example consumer: scripts/hn-top10.mjs
 
-Builds a podcast-style book from today's top Hacker News stories — one chapter per story, curiosity-hook opening, community reaction explicitly signposted and capped at ~20% of the chapter:
+Builds a podcast-style book from a day's top Hacker News stories — one chapter per story, curiosity-hook opening, community reaction explicitly signposted and capped at ~20% of the chapter:
 
 ```sh
-node scripts/hn-top10.mjs                  # 10 stories, chapters suspended for review
-node scripts/hn-top10.mjs --synthesize     # queue TTS immediately
-node scripts/hn-top10.mjs --count 5 --api http://localhost:3034
+node scripts/hn-top10.mjs                        # today's top 10, chapters suspended for review
+node scripts/hn-top10.mjs --date 2026-08-09      # any past day (hckrnews archives)
+node scripts/hn-top10.mjs --synthesize --count 5 # queue TTS immediately
 ```
 
-Zero dependencies; needs `DEEPSEEK_API_KEY` (env or root `.env`) since the summarization runs in the script, not the server. Stories come from the official HN Firebase/Algolia APIs; article text is fetched and tag-stripped (falls back to title + discussion when a site blocks fetching).
+Needs `DEEPSEEK_API_KEY` (env or root `.env`) since the summarization runs in the script, not the server, plus the workspace-root deps (`pnpm install`). Story lists come from [hckrnews.com](https://hckrnews.com/) per-day archives (`/data/YYYYMMDD.js`, `latest.js` for recent days — a local day can span two files, so both get merged and cut by local date), so any historical day works even after stories drop off the HN front page; comments come from the Algolia HN API. Article text is extracted with [Defuddle](https://github.com/kepano/defuddle) + linkedom (falls back to title + discussion when a site blocks fetching).

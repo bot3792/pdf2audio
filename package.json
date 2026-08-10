@@ -21,5 +21,9 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "defuddle": "^0.19.2",
+    "linkedom": "^0.18.13"
   }
 }
