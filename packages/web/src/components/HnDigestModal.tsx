@@ -9,6 +9,13 @@ function todayIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+type PreviewStory = { id: string; ymd: string; points: number; comments: number; title: string; url: string };
+
+function storyDayLabel(ymd: string): string {
+  return new Date(Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8))))
+    .toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
 export function HnDigestModal({ onClose }: { onClose: () => void }) {
   useBodyScrollLock();
   const utils = trpc.useUtils();
@@ -21,10 +28,20 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
   const [lines, setLines] = useState<string[]>([]);
   const [state, setState] = useState<"idle" | "running" | "done" | "failed">("idle");
   const [bookId, setBookId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewStory[] | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const sourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => () => sourceRef.current?.close(), []);
+  // A stale preview would misrepresent what Build creates
+  useEffect(() => {
+    setPreview(null);
+    setPreviewError(null);
+    setExcluded(new Set());
+  }, [from, to, count, perDay]);
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [lines]);
@@ -40,6 +57,7 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
       count: String(count),
       perDay: perDay ? "1" : "0",
       synthesize: synthesize ? "1" : "0",
+      ...(excluded.size > 0 ? { exclude: [...excluded].join(",") } : {}),
       ...(folder.trim() ? { folder: folder.trim() } : {}),
       ...(getStoredProfileId() ? { profile: getStoredProfileId()! } : {}),
     });
@@ -67,6 +85,29 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
       setState((s) => (s === "running" ? "failed" : s));
     };
   }
+
+  async function previewStories() {
+    if (previewLoading || state === "running") return;
+    setPreviewLoading(true);
+    setPreview(null);
+    setPreviewError(null);
+    setExcluded(new Set());
+    try {
+      const params = new URLSearchParams({ from, to, count: String(count), perDay: perDay ? "1" : "0" });
+      const res = await fetch(`/scripts/hn-top10/preview?${params}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
+      setPreview((await res.json()) as PreviewStory[]);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "Preview failed");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  const includedCount = preview ? preview.length - excluded.size : null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={onClose}>
@@ -185,6 +226,57 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
             {from === to && <span className="text-(--text-faint) self-center">— pick a range to unlock modes</span>}
           </fieldset>
 
+          {previewError && <p className="text-xs text-red-600">{previewError}</p>}
+          {preview && (
+            <div className="rounded-md border border-(--border) divide-y divide-(--border) max-h-72 overflow-y-auto" data-testid="hn-digest-preview">
+              {preview.map((story) => (
+                <div key={story.id} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={!excluded.has(story.id)}
+                    onChange={() =>
+                      setExcluded((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(story.id)) next.delete(story.id);
+                        else next.add(story.id);
+                        return next;
+                      })
+                    }
+                    disabled={state === "running"}
+                    className="rounded shrink-0"
+                    title="Uncheck to leave this story out of the book"
+                  />
+                  {from !== to && (
+                    <span className="w-11 shrink-0 text-(--text-faint)">{storyDayLabel(story.ymd)}</span>
+                  )}
+                  <span className="w-10 shrink-0 text-right tabular-nums text-(--text-muted)" title={`${story.comments} comments`}>
+                    {story.points}
+                  </span>
+                  <a
+                    href={story.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex-1 truncate hover:underline ${excluded.has(story.id) ? "text-(--text-faint) line-through" : "text-blue-600"}`}
+                    title={story.url}
+                  >
+                    {story.title}
+                  </a>
+                  <a
+                    href={`https://news.ycombinator.com/item?id=${story.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-(--text-faint) hover:text-(--text-secondary)"
+                    title={`${story.comments} comments on Hacker News`}
+                  >
+                    💬 {story.comments}
+                  </a>
+                </div>
+              ))}
+              {preview.length === 0 && (
+                <p className="px-2.5 py-2 text-xs text-(--text-muted)">No stories found for this range.</p>
+              )}
+            </div>
+          )}
           {lines.length > 0 && (
             <div
               ref={logRef}
@@ -198,12 +290,23 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
 
         <div className="flex items-center gap-3 px-4 py-3 border-t border-(--border) shrink-0">
           <button
+            onClick={previewStories}
+            disabled={previewLoading || state === "running"}
+            className="px-3 py-1.5 rounded-md text-xs font-medium border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) disabled:opacity-50 disabled:cursor-not-allowed"
+            data-testid="hn-digest-preview-btn"
+          >
+            {previewLoading ? "Fetching stories…" : preview ? "Refresh preview" : "Preview stories"}
+          </button>
+          <button
             onClick={run}
-            disabled={state === "running"}
+            disabled={state === "running" || includedCount === 0}
+            title={includedCount === 0 ? "Every story is unchecked" : undefined}
             className="px-3 py-1.5 bg-orange-600 text-white rounded-md text-xs font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="hn-digest-run"
           >
-            {state === "running" ? "Building…" : state === "done" || state === "failed" ? "Run again" : "Build book"}
+            {state === "running"
+              ? "Building…"
+              : `Build book${includedCount !== null ? ` (${includedCount} chapter${includedCount === 1 ? "" : "s"})` : ""}`}
           </button>
           {state === "running" && (
             <span className="text-xs text-(--text-muted)">

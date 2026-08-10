@@ -15,7 +15,27 @@ const paramsSchema = z.object({
   synthesize: z.enum(["0", "1"]).default("0"),
   folder: z.string().regex(/^[\w. -]{1,100}$/).optional(),
   profile: z.string().uuid().optional(),
+  exclude: z.string().regex(/^\d+(,\d+)*$/).max(2000).optional(),
 });
+
+function rangeError(params: z.infer<typeof paramsSchema>): string | null {
+  const from = params.from ?? params.date;
+  const to = params.to ?? params.from ?? params.date;
+  if (!from || !to) return null;
+  const span = (ymdToMs(to) - ymdToMs(from)) / 86_400_000 + 1;
+  return span < 1 || span > 90 ? "Date range must run forward and span at most 90 days" : null;
+}
+
+function selectionArgs(params: z.infer<typeof paramsSchema>): string[] {
+  const from = params.from ?? params.date;
+  const to = params.to ?? params.from ?? params.date;
+  return [
+    "--count", String(params.count),
+    ...(from ? ["--from", from] : []),
+    ...(to ? ["--to", to] : []),
+    ...(params.perDay === "1" ? ["--per-day"] : []),
+  ];
+}
 
 function ymdToMs(ymd: string): number {
   const s = ymd.replaceAll("-", "");
@@ -36,14 +56,8 @@ export function registerScriptRunRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: "Invalid parameters", issues: parsed.error.issues });
     }
     const params = parsed.data;
-    const from = params.from ?? params.date;
-    const to = params.to ?? params.from ?? params.date;
-    if (from && to) {
-      const span = (ymdToMs(to) - ymdToMs(from)) / 86_400_000 + 1;
-      if (span < 1 || span > 90) {
-        return reply.code(400).send({ error: "Date range must run forward and span at most 90 days" });
-      }
-    }
+    const spanError = rangeError(params);
+    if (spanError) return reply.code(400).send({ error: spanError });
 
     reply.hijack();
     const res = reply.raw;
@@ -65,10 +79,8 @@ export function registerScriptRunRoutes(fastify: FastifyInstance) {
     const args = [
       path.join(repoRoot, "scripts", "hn-top10.mjs"),
       "--api", `http://localhost:${env.PORT}`,
-      "--count", String(params.count),
-      ...(from ? ["--from", from] : []),
-      ...(to ? ["--to", to] : []),
-      ...(params.perDay === "1" ? ["--per-day"] : []),
+      ...selectionArgs(params),
+      ...(params.exclude ? ["--exclude", params.exclude] : []),
       ...(params.synthesize === "1" ? ["--synthesize"] : []),
       ...(params.folder ? ["--folder", params.folder] : []),
       ...(params.profile ? ["--profile", params.profile] : []),
@@ -99,5 +111,39 @@ export function registerScriptRunRoutes(fastify: FastifyInstance) {
     request.raw.on("close", () => {
       closed = true;
     });
+  });
+
+  // Dry-run selection for the modal's preview list — runs the script in
+  // --list --json mode so the picking logic stays single-sourced.
+  fastify.get("/scripts/hn-top10/preview", async (request, reply) => {
+    const parsed = paramsSchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid parameters", issues: parsed.error.issues });
+    }
+    const spanError = rangeError(parsed.data);
+    if (spanError) return reply.code(400).send({ error: spanError });
+
+    const args = [
+      path.join(repoRoot, "scripts", "hn-top10.mjs"),
+      "--list", "--json",
+      ...selectionArgs(parsed.data),
+    ];
+    const child = spawn(process.execPath, args, { cwd: repoRoot, env: process.env });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (chunk: Buffer) => { out += chunk.toString(); });
+    child.stderr.on("data", (chunk: Buffer) => { err = (err + chunk.toString()).slice(-2000); });
+    const timer = setTimeout(() => child.kill(), 120_000);
+    const code = await new Promise<number>((resolve) => child.on("close", (c) => resolve(c ?? -1)));
+    clearTimeout(timer);
+
+    if (code !== 0) {
+      return reply.code(502).send({ error: `Preview failed: ${err.trim().split("\n").at(-1) ?? `exit ${code}`}` });
+    }
+    try {
+      return reply.send(JSON.parse(out));
+    } catch {
+      return reply.code(502).send({ error: "Preview returned unparseable output" });
+    }
   });
 }

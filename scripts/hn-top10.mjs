@@ -9,7 +9,9 @@
 //                                  [--api http://localhost:3034] [--model deepseek-v4-flash]
 // A range picks the overall top --count across all its days (catch-up mode);
 // --per-day instead takes the top --count of each day, in day order.
-// --list prints the selected stories and exits (no AI calls, no book).
+// --list prints the selected stories and exits (no AI calls, no book); with
+// --json it prints them as a JSON array (progress goes to stderr) — this backs
+// the web UI's preview. --exclude id1,id2 drops deselected stories at build.
 // --folder files the book into that folder by name, creating it if needed.
 // Also runnable from the web UI ("HN digest" on the home page), which streams this
 // script's output via GET /scripts/hn-top10/stream.
@@ -44,6 +46,10 @@ const ymdToUtcMs = (ymd) => Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(4
 
 const PER_DAY = flag("--per-day");
 const CONCURRENCY = Math.max(1, Number(opt("--concurrency", "5")) || 5);
+const JSON_OUT = flag("--json");
+const EXCLUDE = new Set((opt("--exclude", "") ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+// In --json mode stdout must stay pure JSON for machine consumers
+const progress = (...args) => (JSON_OUT ? console.error : console.log)(...args);
 const dateArg = opt("--date", null);
 const fromYmd = (opt("--from", null) ?? dateArg ?? toYmdUtc(new Date())).replaceAll("-", "");
 const toYmd = (opt("--to", null) ?? dateArg ?? fromYmd).replaceAll("-", "");
@@ -239,15 +245,15 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-console.log(`Fetching hckrnews stories for ${days.length === 1 ? days[0] : `${days[0]}..${days.at(-1)}`}...`);
+progress(`Fetching hckrnews stories for ${days.length === 1 ? days[0] : `${days[0]}..${days.at(-1)}`}...`);
 const byDay = [];
 for (const ymd of days) {
   try {
     const stories = await fetchDayStories(ymd);
     byDay.push({ ymd, stories });
-    if (days.length > 1) console.log(`  ${ymd}: ${stories.length} stories`);
+    if (days.length > 1) progress(`  ${ymd}: ${stories.length} stories`);
   } catch (err) {
-    console.log(`  ${ymd}: skipped (${err instanceof Error ? err.message : err})`);
+    progress(`  ${ymd}: skipped (${err instanceof Error ? err.message : err})`);
   }
 }
 const all = byDay.flatMap(({ ymd, stories }) => stories.map((s) => ({ ...s, ymd })));
@@ -261,19 +267,37 @@ const picked = PER_DAY
   : [...all].sort((a, b) => (b.points ?? 0) - (a.points ?? 0)).slice(0, COUNT);
 const seen = new Set();
 const top = picked.filter((e) => !seen.has(String(e.id)) && seen.add(String(e.id)));
-console.log(
+progress(
   `${all.length} stories in ${days.length} day${days.length === 1 ? "" : "s"}; taking ${top.length} (${
     PER_DAY ? `top ${COUNT} per day` : `overall top ${COUNT}`
   })`,
 );
 
 if (flag("--list")) {
-  for (const [i, e] of top.entries()) {
-    const day = days.length > 1 ? `${dayLabel(e.ymd).padEnd(7)} ` : "";
-    console.log(`${String(i + 1).padStart(2)}. ${day}${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`);
+  if (JSON_OUT) {
+    console.log(JSON.stringify(top.map((e) => ({
+      id: String(e.id),
+      ymd: e.ymd,
+      points: e.points ?? 0,
+      comments: e.comments ?? 0,
+      title: decodeEntities(e.link_text ?? "Untitled"),
+      url: e.link || `https://news.ycombinator.com/item?id=${e.id}`,
+    }))));
+  } else {
+    for (const [i, e] of top.entries()) {
+      const day = days.length > 1 ? `${dayLabel(e.ymd).padEnd(7)} ` : "";
+      console.log(`${String(i + 1).padStart(2)}. ${day}${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`);
+    }
   }
   process.exit(0);
 }
+
+const included = top.filter((e) => !EXCLUDE.has(String(e.id)));
+if (included.length === 0) {
+  console.error("Every selected story was excluded — nothing to build");
+  process.exit(1);
+}
+if (included.length < top.length) console.log(`Excluding ${top.length - included.length} deselected stor${top.length - included.length === 1 ? "y" : "ies"}`);
 
 const key = deepseekKey();
 
@@ -298,8 +322,8 @@ if (folderName) {
   console.log(`Filing into folder "${folderName}" (${folderId})`);
 }
 
-const chapters = (await mapLimit(top, CONCURRENCY, async (entry, i) => {
-  const tag = `[${i + 1}/${top.length}]`;
+const chapters = (await mapLimit(included, CONCURRENCY, async (entry, i) => {
+  const tag = `[${i + 1}/${included.length}]`;
   try {
     const story = await getJson(`https://hn.algolia.com/api/v1/items/${entry.id}`);
     const title = story.title ?? decodeEntities(entry.link_text ?? "Untitled");
@@ -327,7 +351,7 @@ if (chapters.length === 0) {
   console.error("Every story failed — no book created");
   process.exit(1);
 }
-if (chapters.length < top.length) console.log(`${top.length - chapters.length} of ${top.length} stories failed and were skipped`);
+if (chapters.length < included.length) console.log(`${included.length - chapters.length} of ${included.length} stories failed and were skipped`);
 
 const rangeLabel = days.length === 1
   ? new Date(ymdToUtcMs(days[0])).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
