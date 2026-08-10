@@ -4,6 +4,7 @@ import { trpc } from "../trpc.ts";
 import { formatBytes, formatRelativeTime } from "../lib/format.ts";
 import { loadBookSort, saveBookSort, sortBooks, sortFolders, type BookSortDir, type BookSortKey, type FolderRow } from "../lib/book-sort.ts";
 import { DigestModal } from "./DigestModal.tsx";
+import { HnDigestModal } from "./HnDigestModal.tsx";
 import { FolderPickerModal } from "./FolderPickerModal.tsx";
 import { setDragItems, getDragItems, hasDragItems, type DragItems } from "../lib/dnd.ts";
 
@@ -204,6 +205,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [showDigest, setShowDigest] = useState(false);
+  const [showHnDigest, setShowHnDigest] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
@@ -337,6 +339,14 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
           data-testid="create-digest"
         >
           Create digest ({selectedCount})
+        </button>
+        <button
+          onClick={() => setShowHnDigest(true)}
+          title="Build a podcast-style book from a day's top Hacker News stories"
+          className="px-3 py-1.5 bg-orange-600 text-white rounded-md text-xs font-medium hover:bg-orange-700"
+          data-testid="hn-digest"
+        >
+          HN digest
         </button>
         <button
           onClick={() => setShowMove(true)}
@@ -615,6 +625,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
           onClose={() => setShowDigest(false)}
         />
       )}
+      {showHnDigest && <HnDigestModal onClose={() => setShowHnDigest(false)} />}
       {showMove && (
         <FolderPickerModal
           bookIds={selectedBooks.map((b) => b.id)}

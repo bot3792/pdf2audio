@@ -12,6 +12,7 @@ import { registerUploadRoutes } from "./upload-routes.ts";
 import { registerChatRoutes } from "./chat-routes.ts";
 import { registerTranslationStreamRoutes } from "./translation-stream-routes.ts";
 import { registerApiRoutes } from "./api-routes.ts";
+import { registerScriptRunRoutes } from "./script-run-routes.ts";
 import { ensureDataDirs, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
 import { books, bookFiles, assemblies, documents, chapters, chapterTranslations } from "./schema.ts";
@@ -44,6 +45,7 @@ async function main() {
   registerChatRoutes(fastify);
   registerTranslationStreamRoutes(fastify);
   registerApiRoutes(fastify);
+  registerScriptRunRoutes(fastify);
 
   fastify.get("/pdf/:fileId", async (request, reply) => {
     const { fileId } = request.params as { fileId: string };

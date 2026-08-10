@@ -179,6 +179,7 @@ packages/server/src/
   upload-routes.ts      POST /upload and /upload/:bookId (multipart) — always queues rawExtract; extract only when fullExtract
   translation-stream-routes.ts  GET /translations/:id/stream — SSE relay of live translation deltas
   api-routes.ts         External JSON API (/api/books…) for scripts creating synthetic books/chapters
+  script-run-routes.ts  GET /scripts/hn-top10/stream — spawns the HN script, streams output as SSE
   db.ts                 Drizzle postgres connection
   schema.ts             Drizzle table definitions (source of truth for DB schema)
   trpc.ts               tRPC init (router, publicProcedure, x-profile-id context)
@@ -338,6 +339,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 - `GET /preview/:voiceId` — Voice preview MP3 (generated on demand, cached in data/previews)
 - `GET /files/*` — Static mount of the whole output dir (chunk WAV previews, direct file access)
 - `POST /api/books` / `POST /api/books/:bookId/chapters` / `GET /api/books/:bookId` — External JSON API for scripts and other projects (`api-routes.ts` + `lib/api-books.ts`, full reference in `docs/synthetic-books-api.md`): create synthetic `kind:"api"` books, append source-tagged chapters to any book (rebuild-safe), poll synthesis status. Optional `synthesize: true` queues normalize→TTS per chapter; optional `x-profile-id` scopes like the web app.
+- `GET /scripts/hn-top10/stream` — Runs `scripts/hn-top10.mjs` as a subprocess and streams its output as SSE (`script-run-routes.ts`); backs the "HN digest" button/modal on the home page. Validated query params (date/count/synthesize/folder/profile), single-flight lock, child survives client disconnect.
 - `GET /translations/:translationId/stream` — SSE live feed for a running translation (`translation-stream-routes.ts`): snapshot on connect, then `delta`/`thinking`/`status` events from the worker's in-process channel (`lib/translate-live.ts`). The modal's 1s polling stays as fallback.
 - `POST /chat` — Library-chat streaming endpoint (`chat-routes.ts`). Raw Fastify route because tRPC can't stream; AI SDK UI-message stream over `reply.hijack()` + `pipeUIMessageStreamToResponse`. Profile via `x-profile-id`. Scope accepts `folderId` (subtree) or `bookId` (single-book chat).
 - `POST /chat/ask` — Streaming Ask AI (`chat-routes.ts` + `lib/ask-ai.ts`): whole scope (book raw text or selected chapters) stuffed in context, no tools; same 1M token guard and auto-save-note behavior as the retired sync mutations (`books.aiPromptRaw` / `chapters.aiPrompt`); emits a `data-note` part with the saved noteId. Consumed by `ChapterAiModal` via `useChat` (one "Ask AI" button, scope switcher inside the modal).

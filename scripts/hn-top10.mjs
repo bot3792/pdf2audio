@@ -4,8 +4,12 @@
 // per-day archives, so any past day works, not just what's on the HN front page.
 //
 // Usage: node scripts/hn-top10.mjs [--date 2026-08-09] [--count 10] [--synthesize]
-//                                  [--list] [--api http://localhost:3034] [--model deepseek-v4-flash]
+//                                  [--folder "hackernews-summaries"] [--profile <uuid>] [--list]
+//                                  [--api http://localhost:3034] [--model deepseek-v4-flash]
 // --list prints the day's top stories and exits (no AI calls, no book).
+// --folder files the book into that folder by name, creating it if needed.
+// Also runnable from the web UI ("HN digest" on the home page), which streams this
+// script's output via GET /scripts/hn-top10/stream.
 // Needs DEEPSEEK_API_KEY (env or root .env) and `pnpm install` (defuddle + linkedom).
 
 import { readFileSync } from "node:fs";
@@ -25,6 +29,8 @@ const COUNT = Number(opt("--count", "10"));
 const API = opt("--api", "http://localhost:3034").replace(/\/$/, "");
 const MODEL = opt("--model", "deepseek-v4-flash");
 const SYNTHESIZE = flag("--synthesize");
+const PROFILE = opt("--profile", null);
+const apiHeaders = { "Content-Type": "application/json", ...(PROFILE ? { "x-profile-id": PROFILE } : {}) };
 
 const ARTICLE_CAP = 12_000;
 const COMMENTS_CAP = 6_000;
@@ -234,6 +240,27 @@ if (flag("--list")) {
 
 const key = deepseekKey();
 
+const folderName = opt("--folder", null);
+let folderId;
+if (folderName) {
+  const listedRes = await fetch(`${API}/trpc/folders.list`, { headers: apiHeaders, signal: AbortSignal.timeout(30_000) });
+  if (!listedRes.ok) throw new Error(`folders.list -> HTTP ${listedRes.status}`);
+  const listed = await listedRes.json();
+  const existing = (listed.result?.data ?? []).find((f) => f.name === folderName && !f.parentId);
+  if (existing) {
+    folderId = existing.id;
+  } else {
+    const created = await fetch(`${API}/trpc/folders.create`, {
+      method: "POST",
+      headers: apiHeaders,
+      body: JSON.stringify({ name: folderName }),
+    });
+    if (!created.ok) throw new Error(`Failed to create folder "${folderName}": HTTP ${created.status}`);
+    folderId = (await created.json()).result?.data?.id;
+  }
+  console.log(`Filing into folder "${folderName}" (${folderId})`);
+}
+
 const chapters = await mapLimit(top, 3, async (entry, i) => {
   const story = await getJson(`https://hn.algolia.com/api/v1/items/${entry.id}`);
   const title = story.title ?? decodeEntities(entry.link_text ?? "Untitled");
@@ -253,10 +280,11 @@ const day = new Date(Number(targetYmd.slice(0, 4)), Number(targetYmd.slice(4, 6)
 const date = day.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 const res = await fetch(`${API}/api/books`, {
   method: "POST",
-  headers: { "Content-Type": "application/json" },
+  headers: apiHeaders,
   body: JSON.stringify({
     title: `Hacker News Top ${chapters.length} — ${date}`,
     client: "hn-top10",
+    ...(folderId ? { folderId } : {}),
     chapters,
     synthesize: SYNTHESIZE,
   }),

@@ -13,6 +13,7 @@ export default defineConfig({
         bypass: (req) => (req.method === "POST" ? undefined : "/index.html"),
       },
       "/translations": "http://localhost:3034",
+      "/scripts": "http://localhost:3034",
       "/pdf": "http://localhost:3034",
       "/upload": "http://localhost:3034",
       "/download": "http://localhost:3034",
