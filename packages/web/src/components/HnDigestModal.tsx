@@ -98,6 +98,7 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => {
                   setFrom(e.target.value);
                   if (e.target.value > to) setTo(e.target.value);
+                  if (e.target.value === to) setPerDay(false);
                 }}
                 disabled={state === "running"}
                 className="mt-1 block px-2 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-sm text-(--text-primary)"
@@ -111,7 +112,10 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
                 value={to}
                 min={from}
                 max={todayIso()}
-                onChange={(e) => setTo(e.target.value)}
+                onChange={(e) => {
+                  setTo(e.target.value);
+                  if (e.target.value === from) setPerDay(false);
+                }}
                 disabled={state === "running"}
                 className="mt-1 block px-2 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-sm text-(--text-primary)"
                 data-testid="hn-digest-to"
@@ -151,24 +155,35 @@ export function HnDigestModal({ onClose }: { onClose: () => void }) {
               Synthesize audio right away
             </label>
           </div>
-          {from !== to && (
-            <label className="flex items-center gap-2 text-xs text-(--text-secondary)">
+          <fieldset className="flex flex-wrap gap-4 text-xs text-(--text-secondary)" data-testid="hn-digest-mode">
+            <label className={`flex items-center gap-1.5 ${from === to ? "opacity-50" : ""}`}>
               <input
-                type="checkbox"
+                type="radio"
+                name="hn-digest-mode"
+                checked={!perDay}
+                onChange={() => setPerDay(false)}
+                disabled={state === "running" || from === to}
+              />
+              Overall top {count} across the range ({count} chapters)
+            </label>
+            <label className={`flex items-center gap-1.5 ${from === to ? "opacity-50" : ""}`}>
+              <input
+                type="radio"
+                name="hn-digest-mode"
                 checked={perDay}
-                onChange={(e) => setPerDay(e.target.checked)}
-                disabled={state === "running"}
-                className="rounded"
+                onChange={() => setPerDay(true)}
+                disabled={state === "running" || from === to}
                 data-testid="hn-digest-per-day"
               />
-              Top {count} of <em>each</em> day instead of the range overall
-              {perDay && (
+              Top {count} of <em>each</em> day, in day order
+              {from !== to && (
                 <span className="text-(--text-faint)">
                   (~{count * (Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000) + 1)} chapters)
                 </span>
               )}
             </label>
-          )}
+            {from === to && <span className="text-(--text-faint) self-center">— pick a range to unlock modes</span>}
+          </fieldset>
 
           {lines.length > 0 && (
             <div
