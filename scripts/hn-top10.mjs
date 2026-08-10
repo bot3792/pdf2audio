@@ -35,10 +35,10 @@ const apiHeaders = { "Content-Type": "application/json", ...(PROFILE ? { "x-prof
 const ARTICLE_CAP = 12_000;
 const COMMENTS_CAP = 6_000;
 
-const toYmd = (d) =>
-  `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+const toYmdUtc = (d) =>
+  `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
 const dateArg = opt("--date", null);
-const targetYmd = dateArg ? dateArg.replaceAll("-", "") : toYmd(new Date());
+const targetYmd = dateArg ? dateArg.replaceAll("-", "") : toYmdUtc(new Date());
 if (!/^\d{8}$/.test(targetYmd)) {
   console.error(`Invalid --date "${dateArg}" — use YYYY-MM-DD`);
   process.exit(1);
@@ -61,54 +61,54 @@ async function getJson(url, timeoutMs = 30_000) {
   return res.json();
 }
 
-// hckrnews archive files (/data/YYYYMMDD.js, `var entries = [...]` JS) are keyed
-// by the UTC day of their crawl timestamp (`date`), but the site groups entries
-// into LOCAL calendar days — so one local day spans two archive files. Recent
-// days aren't archived yet: latest.js is a rolling window that drops older
-// entries, and the server-rendered homepage carries the rest (with data-date).
-// Merge all of them, then cut by local date, to match the day sections the site
-// renders.
+// hckrnews groups stories into UTC days of its crawl timestamp (`date`), and its
+// "top 10" tab shows each group's top 10 by points. Archived days live at
+// /data/YYYYMMDD.js (`var entries = [...]` JS) — one file IS one day group.
+// Recent days aren't archived yet, so their group is reconstructed from
+// latest.js (a rolling window) plus the server-rendered homepage (which still
+// carries older entries with points and data-date), cut by UTC date.
 async function fetchDayStories(ymd) {
-  const dayAt = (offset) =>
-    new Date(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8)) + offset);
-  const files = [`${toYmd(dayAt(-1))}.js`, `${ymd}.js`, `${toYmd(dayAt(1))}.js`, "latest.js"];
-
   const byId = new Map();
-  let anyLoaded = false;
-  for (const file of files) {
-    const res = await fetch(`https://hckrnews.com/data/${file}`, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) continue;
-    anyLoaded = true;
-    const body = await res.text();
+
+  const archive = await fetch(`https://hckrnews.com/data/${ymd}.js`, { signal: AbortSignal.timeout(30_000) });
+  if (archive.ok) {
+    const body = await archive.text();
     const entries = JSON.parse(body.replace(/^\s*var\s+entries\s*=\s*/, "").replace(/;\s*$/, ""));
     for (const entry of entries) byId.set(String(entry.id), entry);
-  }
-
-  const home = await fetch("https://hckrnews.com/", { signal: AbortSignal.timeout(30_000) });
-  if (home.ok) {
-    anyLoaded = true;
-    const { document } = parseHTML(await home.text());
-    for (const li of document.querySelectorAll("li.entry")) {
-      const hn = li.querySelector("a.hn");
-      const link = li.querySelector("a.link");
-      if (!li.id || !hn?.classList.contains("story")) continue;
-      byId.set(String(li.id), {
-        id: li.id,
-        type: "story",
-        dead: false,
-        date: Number(hn.getAttribute("data-date")),
-        points: Number(li.querySelector(".points")?.textContent) || 0,
-        comments: Number(li.querySelector(".comments")?.textContent) || 0,
-        link: link?.getAttribute("href"),
-        link_text: link?.childNodes[0]?.textContent?.trim() ?? "",
-      });
+  } else {
+    const latest = await fetch("https://hckrnews.com/data/latest.js", { signal: AbortSignal.timeout(30_000) });
+    if (latest.ok) {
+      const body = await latest.text();
+      const entries = JSON.parse(body.replace(/^\s*var\s+entries\s*=\s*/, "").replace(/;\s*$/, ""));
+      for (const entry of entries) byId.set(String(entry.id), entry);
+    }
+    const home = await fetch("https://hckrnews.com/", { signal: AbortSignal.timeout(30_000) });
+    if (home.ok) {
+      const { document } = parseHTML(await home.text());
+      for (const li of document.querySelectorAll("li.entry")) {
+        const hn = li.querySelector("a.hn");
+        const link = li.querySelector("a.link");
+        if (!li.id || !hn?.classList.contains("story")) continue;
+        byId.set(String(li.id), {
+          id: li.id,
+          type: "story",
+          dead: false,
+          date: Number(hn.getAttribute("data-date")),
+          points: Number(li.querySelector(".points")?.textContent) || 0,
+          comments: Number(li.querySelector(".comments")?.textContent) || 0,
+          link: link?.getAttribute("href"),
+          link_text: link?.childNodes[0]?.textContent?.trim() ?? "",
+        });
+      }
+    }
+    if (byId.size === 0) throw new Error(`hckrnews has no data for ${ymd}`);
+    for (const [id, entry] of byId) {
+      if (toYmdUtc(new Date(1000 * Number(entry.date ?? entry.time))) !== ymd) byId.delete(id);
     }
   }
-  if (!anyLoaded) throw new Error(`hckrnews has no data for ${ymd}`);
 
   return [...byId.values()]
     .filter((e) => e.type === "story" && !e.dead && e.id)
-    .filter((e) => toYmd(new Date(1000 * Number(e.date ?? e.time))) === ymd)
     .sort((a, b) => (b.points ?? 0) - (a.points ?? 0));
 }
 
