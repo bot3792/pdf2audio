@@ -51,7 +51,9 @@ export type SearchIndexJob = {
   updatedAt: string;
 };
 
-export type BookOrigin = { type: "digest"; sourceBookIds: string[]; prompt: string; model: "flash" | "pro" };
+export type BookOrigin =
+  | { type: "digest"; sourceBookIds: string[]; prompt: string; model: "flash" | "pro" }
+  | { type: "api"; client?: string };
 
 export type DigestJob = {
   status: "running" | "done" | "failed";
@@ -65,7 +67,8 @@ export type DigestJob = {
 export type ChapterSource =
   | { kind: "book"; bookId: string; title: string }
   | { kind: "url"; url: string; title?: string }
-  | { kind: "note"; noteId: string };
+  | { kind: "note"; noteId: string }
+  | { kind: "api"; client?: string };
 
 // Pre-profiles data is backfilled onto this fixed id; missing x-profile-id headers resolve to it
 export const DEFAULT_PROFILE_ID = "00000000-0000-0000-0000-000000000001";
@@ -89,7 +92,7 @@ export const books = pgTable("books", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
   // "pdf" books have filename/pdfPath; synthetic kinds (digest, ...) have neither
-  kind: text("kind").$type<"pdf" | "digest">().notNull().default("pdf"),
+  kind: text("kind").$type<"pdf" | "digest" | "api">().notNull().default("pdf"),
   filename: text("filename"),
   pdfPath: text("pdf_path"),
   outputPath: text("output_path"),

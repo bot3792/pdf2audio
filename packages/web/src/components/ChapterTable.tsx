@@ -22,7 +22,7 @@ export type ChapterRow = {
   pageStart: number | null;
   pageEnd: number | null;
   sourceFileIndex: number | null;
-  source?: { kind: "book"; bookId: string; title: string } | { kind: "url"; url: string; title?: string } | { kind: "note"; noteId: string } | null;
+  source?: { kind: "book"; bookId: string; title: string } | { kind: "url"; url: string; title?: string } | { kind: "note"; noteId: string } | { kind: "api"; client?: string } | null;
   synthesizedWith: { voice?: string; speed?: number | null } | null;
   // Translation view: rows without a finished translation can't be synthesized (but can be selected for bulk translation)
   synthesizable?: boolean;

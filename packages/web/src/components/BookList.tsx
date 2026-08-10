@@ -482,6 +482,11 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
                       digest
                     </span>
                   )}
+                  {book.kind === "api" && (
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300 align-middle" title="Created through the external API by a script or another project">
+                      api
+                    </span>
+                  )}
                   {book.skipSynthesis && book.kind === "pdf" && (
                     <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-(--bg-subtle) text-(--text-muted) align-middle" title="Reader mode — extraction only, audio on demand">
                       reader
