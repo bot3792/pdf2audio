@@ -22,10 +22,10 @@ export async function sweepStrandedWork() {
     DELETE FROM graphile_worker._private_jobs j
     USING graphile_worker._private_tasks t
     WHERE t.id = j.task_id
-      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup', 'extract', 'indexBook', 'embedChunks')
+      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup', 'extract', 'indexBook', 'embedChunks', 'digest')
       AND (j.locked_at IS NOT NULL OR j.attempts >= j.max_attempts)
-    RETURNING t.identifier, j.payload
-  `)) as unknown as Array<{ identifier: string; payload: Record<string, unknown> }>;
+    RETURNING t.identifier, j.payload, j.locked_at
+  `)) as unknown as Array<{ identifier: string; payload: Record<string, unknown>; locked_at: string | null }>;
 
   // Assemblies and document exports have no per-row state to recover from; replay the dead job's own payload.
   const replayedAssembleBooks: string[] = [];
@@ -35,6 +35,13 @@ export async function sweepStrandedWork() {
       replayedAssembleBooks.push(job.payload.bookId);
       bump(job.payload.bookId);
     }
+  }
+
+  // Digest skips already-summarized sources, so replaying one that died mid-run resumes it.
+  // Only locked jobs (killed with the server) — old exhausted ones were finished or abandoned.
+  for (const job of deadJobs.filter((j) => j.identifier === "digest" && j.locked_at !== null)) {
+    await quickAddJob({ connectionString }, "digest", job.payload, { maxAttempts: 1 });
+    if (typeof job.payload.bookId === "string") bump(job.payload.bookId);
   }
 
   // Index jobs are hash-skipping (chunking) and embedding-IS-NULL-resumable, so a dead

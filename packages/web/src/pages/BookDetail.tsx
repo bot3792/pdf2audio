@@ -258,9 +258,14 @@ export function BookDetail() {
   const hasRawText = book.files?.some((f) => f.hasRawText) ?? false;
   const isAssembling = book.status === "assembling";
   const isSynthetic = book.kind !== "pdf";
+  // A worker killed mid-run (restart, network drop) leaves digestJob stuck on "running";
+  // treat a stale heartbeat as interrupted, mirroring the server's resumeDigest guard
   const digestRunning = book.digestJob?.status === "running";
+  const digestLive =
+    digestRunning && Date.now() - new Date(book.digestJob!.updatedAt).getTime() < 15 * 60_000;
   const digestFailed = book.digestJob?.status === "failed";
   const digestTotal = book.origin?.type === "digest" ? book.origin.sourceBookIds.length : 0;
+  const digestIncomplete = digestTotal > 0 && book.chapters.length < digestTotal && !digestLive;
 
   // Translation view: replace every chapter row with its <activeLanguage> counterpart — no fallback to the original
   const translationByChapter = new Map(translationRows.map((t) => [t.chapterId, t]));
@@ -690,11 +695,10 @@ export function BookDetail() {
           {book.chapters.length === 0 ? (
             isSynthetic ? (
               <div className="rounded-lg border border-(--border) bg-(--bg-subtle) p-4 space-y-3" data-testid="digest-block">
-                {digestRunning ? (
+                {digestLive ? (
                   <div className="flex items-center gap-2 text-sm text-(--text-secondary)">
                     <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
-                    Generating digest — {book.digestJob?.progress ?? "starting"}
-                    {digestTotal > 0 ? ` of ${digestTotal} books` : ""}... chapters appear as summaries finish.
+                    Generating digest — {book.digestJob?.progress ? `${book.digestJob.progress} books` : "starting"}... chapters appear as summaries finish.
                   </div>
                 ) : (
                   <>
@@ -758,15 +762,19 @@ export function BookDetail() {
             )
           ) : (
             <>
-            {isSynthetic && digestRunning && (
+            {isSynthetic && digestLive && (
               <div className="flex items-center gap-2 text-sm text-(--text-muted) mb-2" data-testid="digest-progress">
                 <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
-                Generating digest — {book.digestJob?.progress ?? "starting"}{digestTotal > 0 ? ` of ${digestTotal} books` : ""}...
+                Generating digest — {book.digestJob?.progress ? `${book.digestJob.progress} books` : "starting"}...
               </div>
             )}
-            {isSynthetic && digestFailed && (
+            {isSynthetic && (digestFailed || digestIncomplete) && (
               <div className="flex items-center gap-3 text-sm mb-2" data-testid="digest-partial-failed">
-                <span className="text-red-600">Digest incomplete: {book.digestJob?.error ?? "some sources failed"}</span>
+                <span className="text-red-600">
+                  {digestFailed
+                    ? `Digest incomplete: ${book.digestJob?.error ?? "some sources failed"}`
+                    : `Digest interrupted — ${book.chapters.length} of ${digestTotal} books summarized`}
+                </span>
                 <button
                   onClick={() => resumeDigestMutation.mutate({ id: book.id })}
                   disabled={resumeDigestMutation.isPending}
