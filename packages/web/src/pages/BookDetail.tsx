@@ -5,7 +5,7 @@ import { ChapterTable } from "../components/ChapterTable.tsx";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
 import { SynthesizeModal } from "../components/SynthesizeModal.tsx";
 import { StructureModal } from "../components/StructureModal.tsx";
-import { TranslationModal } from "../components/TranslationModal.tsx";
+import { VariantModal } from "../components/VariantModal.tsx";
 import { BookFilesSection } from "../components/BookFilesSection.tsx";
 import { AudioOutputsSection } from "../components/AudioOutputsSection.tsx";
 import { DocumentOutputsSection } from "../components/DocumentOutputsSection.tsx";
@@ -22,7 +22,7 @@ export function BookDetail() {
   const navigate = useNavigate();
   const utils = trpc.useUtils();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeLanguage = searchParams.get("lang");
+  const activeVariant = searchParams.get("variant");
 
   const { data: book, isLoading } = trpc.books.get.useQuery(
     { id: id! },
@@ -74,13 +74,13 @@ export function BookDetail() {
 
   const { data: originalAudioSize } = trpc.chapters.selectedAudioSize.useQuery(
     { bookId: id! },
-    { enabled: !!id && !activeLanguage },
+    { enabled: !!id && !activeVariant },
   );
-  const { data: translationAudioSize } = trpc.translations.selectedAudioSize.useQuery(
-    { bookId: id!, language: activeLanguage! },
-    { enabled: !!id && !!activeLanguage },
+  const { data: variantAudioSize } = trpc.variants.selectedAudioSize.useQuery(
+    { bookId: id!, key: activeVariant! },
+    { enabled: !!id && !!activeVariant },
   );
-  const selectedAudioSize = activeLanguage ? translationAudioSize : originalAudioSize;
+  const selectedAudioSize = activeVariant ? variantAudioSize : originalAudioSize;
 
   const { data: bookDocuments = [] } = trpc.books.documents.useQuery(
     { bookId: id! },
@@ -142,21 +142,24 @@ export function BookDetail() {
   const [showSynthesize, setShowSynthesize] = useState(false);
   const [createTab, setCreateTab] = useState<"audio" | "document">("audio");
   const [askScope, setAskScope] = useState<AiScope | null>(null);
-  const setActiveLanguage = (lang: string | null) => {
+  const setActiveVariant = (key: string | null) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      if (lang) next.set("lang", lang);
-      else next.delete("lang");
+      if (key) next.set("variant", key);
+      else next.delete("variant");
       return next;
     }, { replace: true });
   };
   const [titlesRequested, setTitlesRequested] = useState(false);
-  useEffect(() => setTitlesRequested(false), [activeLanguage]);
+  useEffect(() => setTitlesRequested(false), [activeVariant]);
 
-  const { data: languages = [] } = trpc.translations.languages.useQuery(
+  const { data: variantLanes = [] } = trpc.variants.list.useQuery(
     { bookId: id! },
     { enabled: !!id },
   );
+  const activeLane = activeVariant ? variantLanes.find((l) => l.key === activeVariant) ?? null : null;
+  const activeLabel = activeVariant ? activeLane?.label ?? activeVariant : null;
+  const activeKind = activeLane?.kind ?? "translation";
 
   // Prev/next navigation follows the home list's persisted sort order, scoped to the book's folder
   const { data: siblingList } = trpc.books.list.useQuery(
@@ -183,10 +186,10 @@ export function BookDetail() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [prevBook?.id, nextBook?.id, askScope, showStructure, showTranslation, showSynthesize]);
 
-  const { data: translationRows = [] } = trpc.translations.listForBook.useQuery(
-    { bookId: id!, language: activeLanguage! },
+  const { data: translationRows = [] } = trpc.variants.listForBook.useQuery(
+    { bookId: id!, key: activeVariant! },
     {
-      enabled: !!id && !!activeLanguage,
+      enabled: !!id && !!activeVariant,
       refetchInterval: (query) => {
         const active = query.state.data?.some((t) =>
           t.status === "translating" || t.status === "pending" ||
@@ -199,31 +202,31 @@ export function BookDetail() {
     },
   );
 
-  const invalidateTranslations = () => {
-    utils.translations.listForBook.invalidate();
-    utils.translations.languages.invalidate();
+  const invalidateVariants = () => {
+    utils.variants.listForBook.invalidate();
+    utils.variants.list.invalidate();
     utils.books.assemblies.invalidate({ bookId: id! });
     utils.books.documents.invalidate({ bookId: id! });
     utils.books.logs.invalidate({ bookId: id! });
   };
-  const queueAudioMutation = trpc.translations.queueAudio.useMutation({ onSuccess: invalidateTranslations });
-  const processSelectedTranslationsMutation = trpc.translations.processSelectedTranslations.useMutation({ onSuccess: invalidateTranslations });
-  const processSelectedAudioMutation = trpc.translations.processSelectedAudio.useMutation({ onSuccess: invalidateTranslations });
-  const stopAudioMutation = trpc.translations.stopAudio.useMutation({ onSuccess: invalidateTranslations });
-  const translateTitlesMutation = trpc.translations.translateMissingTitles.useMutation({
+  const queueAudioMutation = trpc.variants.queueAudio.useMutation({ onSuccess: invalidateVariants });
+  const processSelectedVariantsMutation = trpc.variants.processSelected.useMutation({ onSuccess: invalidateVariants });
+  const processSelectedAudioMutation = trpc.variants.processSelectedAudio.useMutation({ onSuccess: invalidateVariants });
+  const stopAudioMutation = trpc.variants.stopAudio.useMutation({ onSuccess: invalidateVariants });
+  const translateTitlesMutation = trpc.variants.translateMissingTitles.useMutation({
     onSuccess: () => {
       setTitlesRequested(true);
-      invalidateTranslations();
+      invalidateVariants();
     },
   });
-  const assembleTranslationMutation = trpc.translations.assemble.useMutation({ onSuccess: invalidateTranslations });
+  const assembleVariantMutation = trpc.variants.assemble.useMutation({ onSuccess: invalidateVariants });
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
   const invalidateAudioSizes = () => {
     utils.books.diskUsage.invalidate({ bookId: id! });
     utils.chapters.selectedAudioSize.invalidate({ bookId: id! });
-    utils.translations.selectedAudioSize.invalidate();
+    utils.variants.selectedAudioSize.invalidate();
   };
   const deleteAudioMutation = trpc.chapters.deleteAudioSelected.useMutation({
     onSuccess: () => {
@@ -231,10 +234,10 @@ export function BookDetail() {
       invalidateAudioSizes();
     },
   });
-  const deleteTranslationAudioMutation = trpc.translations.deleteAudioSelected.useMutation({
+  const deleteVariantAudioMutation = trpc.variants.deleteAudioSelected.useMutation({
     onSuccess: () => {
-      utils.translations.listForBook.invalidate();
-      utils.translations.languages.invalidate();
+      utils.variants.listForBook.invalidate();
+      utils.variants.list.invalidate();
       invalidateAudioSizes();
     },
   });
@@ -267,9 +270,9 @@ export function BookDetail() {
   const digestTotal = book.origin?.type === "digest" ? book.origin.sourceBookIds.length : 0;
   const digestIncomplete = digestTotal > 0 && book.chapters.length < digestTotal && !digestLive;
 
-  // Translation view: replace every chapter row with its <activeLanguage> counterpart — no fallback to the original
+  // Translation view: replace every chapter row with its <activeVariant> counterpart — no fallback to the original
   const translationByChapter = new Map(translationRows.map((t) => [t.chapterId, t]));
-  const viewChapters = !activeLanguage
+  const viewChapters = !activeVariant
     ? book.chapters
     : book.chapters.map((c) => {
         const t = translationByChapter.get(c.id);
@@ -281,8 +284,8 @@ export function BookDetail() {
           status: translated
             ? (t.audioStatus ?? "suspended")
             : t?.status === "translating" || t?.status === "pending"
-              ? "translating"
-              : "untranslated",
+              ? (activeKind === "translation" ? "translating" : "rewriting")
+              : (activeKind === "translation" ? "untranslated" : "missing"),
           wordCount: t ? t.wordCount : 0,
           durationMs: translated ? t.audioDurationMs : null,
           audioPath: translated && t.hasAudio ? "translated" : null,
@@ -312,31 +315,31 @@ export function BookDetail() {
   const selectedSynthesizable = viewChapters.filter((c) => {
     if (!c.selected) return false;
     if (["failed", "suspended", "pending", "done"].includes(c.status)) return true;
-    const t = activeLanguage ? translationByChapter.get(c.id) : undefined;
+    const t = activeVariant ? translationByChapter.get(c.id) : undefined;
     return t?.status === "translating" || t?.status === "pending";
   }).length;
   const allSelectedDone = selectedCount > 0 && viewChapters.filter((c) => c.selected).every((c) => c.status === "done" && c.audioPath);
   const canAssemble = allSelectedDone && !isAssembling;
   // Language-view audio queueing is idempotent server-side, so running chapters don't block it
-  const canProcess = selectedSynthesizable > 0 && !isAssembling && (!!activeLanguage || !hasActiveChapters);
-  const translationsRunning = activeLanguage
+  const canProcess = selectedSynthesizable > 0 && !isAssembling && (!!activeVariant || !hasActiveChapters);
+  const translationsRunning = activeVariant
     ? translationRows.some((t) => t.status === "translating" || t.status === "pending")
     : false;
   // Covers audio queued behind a running translation, which the row mapping shows as "untranslated"
-  const translationAudioQueued = activeLanguage
+  const translationAudioQueued = activeVariant
     ? translationRows.some((t) => t.audioStatus === "pending" || t.audioStatus === "synthesizing")
     : false;
-  const missingTitleCount = activeLanguage
+  const missingTitleCount = activeVariant && activeKind === "translation"
     ? translationRows.filter((t) => t.status === "done" && !t.title).length
     : 0;
-  const selectedTranslatable = activeLanguage
+  const selectedTranslatable = activeVariant
     ? book.chapters.filter((c) => {
         if (!c.selected) return false;
         const t = translationByChapter.get(c.id);
         return !t || t.status === "failed" || t.status === "suspended";
       }).length
     : 0;
-  const selectedCleanable = activeLanguage
+  const selectedCleanable = activeVariant
     ? 0
     : book.chapters.filter((c) => {
         if (!c.selected) return false;
@@ -344,30 +347,30 @@ export function BookDetail() {
         return s !== "done" && s !== "cleaning" && s !== "pending";
       }).length;
   // Document export needs text, not audio: original chapters always have it, language views need a finished translation
-  const selectedExportable = activeLanguage
+  const selectedExportable = activeVariant
     ? book.chapters.filter((c) => c.selected && translationByChapter.get(c.id)?.status === "done").length
     : selectedCount;
   // Synced EPUB embeds the narration, so it needs finished audio, not just text
-  const selectedSyncExportable = activeLanguage
+  const selectedSyncExportable = activeVariant
     ? book.chapters.filter((c) => c.selected && translationByChapter.get(c.id)?.audioStatus === "done").length
     : selectedWithAudio;
-  const viewPendingExports = pendingExports.filter((e) => (e.language ?? null) === activeLanguage);
+  const viewPendingExports = pendingExports.filter((e) => (e.language ?? null) === activeVariant);
   const pendingExportFor = (format: "pdf" | "epub" | "epub-sync") => viewPendingExports.find((e) => e.format === format);
   const canExportDocument = selectedExportable > 0 && !isAssembling && !exportDocumentMutation.isPending;
   const exportTooltip = (format: "pdf" | "epub") =>
     pendingExportFor(format) ? `${format.toUpperCase()} export already ${pendingExportFor(format)!.running ? "rendering" : "queued"}`
       : selectedExportable === 0
-      ? (activeLanguage ? "No selected chapters have a finished translation" : "No chapters selected")
+      ? (activeVariant ? `No selected chapters have finished ${activeLabel} text` : "No chapters selected")
       : isAssembling ? "Wait for the current assembly to finish"
       : `Render the selected chapters as ${format === "pdf" ? "a PDF" : "an EPUB"} book`;
   const syncExportTooltip =
     pendingExportFor("epub-sync") ? `Synced EPUB export already ${pendingExportFor("epub-sync")!.running ? "rendering" : "queued"}`
       : selectedSyncExportable === 0
-      ? `No selected chapters have finished${activeLanguage ? ` ${activeLanguage}` : ""} audio`
+      ? `No selected chapters have finished${activeVariant ? ` ${activeLabel}` : ""} audio`
       : isAssembling ? "Wait for the current assembly to finish"
       : "EPUB with read-along narration — audio plus highlighted text, for Storyteller and other readers that support EPUB media overlays";
 
-  const langSuffix = activeLanguage ? ` · ${activeLanguage}` : "";
+  const langSuffix = activeVariant ? ` · ${activeLabel}` : "";
 
   return (
     <div className="min-h-screen bg-(--bg-page)">
@@ -525,61 +528,61 @@ export function BookDetail() {
             <button
               onClick={() => setShowTranslation(true)}
               disabled={book.chapters.length === 0}
-              title={book.chapters.length === 0 ? "Extract chapters first" : "Translate chapters and review side by side"}
+              title={book.chapters.length === 0 ? "Extract chapters first" : "Translate or rewrite chapters (ELI5, summary, custom prompts) and review side by side"}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-(--border-input) bg-(--bg-card) text-sm font-medium text-(--text-primary) shadow-sm hover:bg-(--bg-subtle) disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="open-translation"
             >
               <svg className="w-4 h-4 text-teal-600" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 1a7 7 0 100 14A7 7 0 008 1zM2.5 8c0-.53.075-1.042.215-1.527.777.212 1.685.375 2.687.478a17.6 17.6 0 000 2.098c-1.002.103-1.91.266-2.687.478A5.48 5.48 0 012.5 8zm4.41-.94a16.1 16.1 0 000 1.88c.36.02.724.031 1.09.031s.73-.011 1.09-.031a16.1 16.1 0 000-1.88C8.73 7.04 8.366 7.03 8 7.03s-.73.011-1.09.031zm4.688.42c.014.171.021.345.021.52s-.007.349-.021.52c1.002-.103 1.91-.266 2.687-.478a5.512 5.512 0 000-.084c-.777-.212-1.685-.375-2.687-.478zM8 2.5c.474 0 1.056.607 1.474 1.885.09.276.17.575.238.892A18.7 18.7 0 008 5.25c-.585 0-1.158-.024-1.712.027.068-.317.148-.616.238-.892C6.944 3.107 7.526 2.5 8 2.5zm-2.86.79a7.28 7.28 0 00-.395 1.05 12.9 12.9 0 00-1.573.34A5.53 5.53 0 015.14 3.29zm5.72 0a5.53 5.53 0 012.368 2.39c-.485-.135-1.013-.25-1.573-.34a7.28 7.28 0 00-.394-1.05h-.001zM8 13.5c-.474 0-1.056-.607-1.474-1.885a9.05 9.05 0 01-.238-.892c.554.051 1.127.077 1.712.077s1.158-.026 1.712-.077a9.05 9.05 0 01-.238.892C9.056 12.893 8.474 13.5 8 13.5zm-3.255-2.13c.112.365.244.717.395 1.05a5.53 5.53 0 01-2.368-2.39c.485.135 1.013.25 1.573.34h.4zm6.51 0c.56-.09 1.088-.205 1.573-.34a5.53 5.53 0 01-2.368 2.39c.151-.333.283-.685.395-1.05h.4z"/>
               </svg>
-              Translate
+              Translate / Transform
             </button>
 
-            {/* Language view switcher */}
-            {languages.length > 0 && (
+            {/* Variant view switcher */}
+            {variantLanes.length > 0 && (
               <div className="flex items-center gap-2 ml-auto" data-testid="language-switcher">
                 <button
-                  onClick={() => setActiveLanguage(null)}
+                  onClick={() => setActiveVariant(null)}
                   className={`text-xs px-3 py-1 rounded-full border font-medium ${
-                    !activeLanguage
+                    !activeVariant
                       ? "bg-blue-600 border-blue-600 text-white"
                       : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
                   }`}
                 >
                   Original
                 </button>
-                {languages.map((l) => (
+                {variantLanes.map((l) => (
                   <button
-                    key={l.language}
-                    onClick={() => setActiveLanguage(l.language)}
+                    key={l.key}
+                    onClick={() => setActiveVariant(l.key)}
                     className={`text-xs px-3 py-1 rounded-full border font-medium ${
-                      activeLanguage === l.language
+                      activeVariant === l.key
                         ? "bg-blue-600 border-blue-600 text-white"
                         : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
                     }`}
-                    title={`${l.done} of ${book.chapters.length} chapters translated`}
+                    title={`${l.done} of ${book.chapters.length} chapters ${l.kind === "translation" ? "translated" : "rewritten"}`}
                   >
-                    {l.language} ({l.done}/{book.chapters.length})
+                    {l.label ?? l.key} ({l.done}/{book.chapters.length})
                   </button>
                 ))}
               </div>
             )}
           </div>
 
-          {activeLanguage && (
+          {activeVariant && (
             <div
               className="flex items-center gap-2 mb-3 px-4 py-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-sm text-blue-800 dark:text-blue-200"
               data-testid="translation-view-banner"
             >
-              <span className="font-semibold">{activeLanguage} translation view</span>
+              <span className="font-semibold">{activeLabel} {activeKind === "translation" ? "translation" : "rewrite"} view</span>
               <span className="text-blue-700/80 dark:text-blue-300/80">
-                — text, audio, and assemblies below are the {activeLanguage} version. Select chapters to translate or synthesize them in bulk.
-                {translationsRunning ? " Translation in progress..." : ""}
+                — text, audio, and assemblies below are the {activeLabel} version. Select chapters to generate or synthesize them in bulk.
+                {translationsRunning ? (activeKind === "translation" ? " Translation in progress..." : " Rewrite in progress...") : ""}
               </span>
               <div className="flex-1" />
               {missingTitleCount > 0 ? (
                 <button
-                  onClick={() => translateTitlesMutation.mutate({ bookId: book.id, language: activeLanguage })}
+                  onClick={() => translateTitlesMutation.mutate({ bookId: book.id, key: activeVariant })}
                   disabled={translateTitlesMutation.isPending || titlesRequested}
                   title={`Translate the ${missingTitleCount} chapter title${missingTitleCount === 1 ? "" : "s"} still shown in the original language`}
                   className="text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline shrink-0 disabled:opacity-50 disabled:no-underline"
@@ -589,7 +592,7 @@ export function BookDetail() {
                 </button>
               ) : null}
               <button
-                onClick={() => setActiveLanguage(null)}
+                onClick={() => setActiveVariant(null)}
                 className="text-xs font-medium text-blue-700 dark:text-blue-300 hover:underline shrink-0"
               >
                 Back to original
@@ -605,7 +608,7 @@ export function BookDetail() {
                 disabled={selectedSynthesizable === 0}
                 title={
                   selectedSynthesizable === 0
-                    ? (activeLanguage ? "No selected chapters have a translation ready or underway" : "No selected chapters are ready for synthesis")
+                    ? (activeVariant ? `No selected chapters have ${activeLabel} text ready or underway` : "No selected chapters are ready for synthesis")
                     : "Pick voice and speed, then synthesize the selected chapters"
                 }
                 className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -615,8 +618,8 @@ export function BookDetail() {
               </button>
               <button
                 onClick={() =>
-                  activeLanguage
-                    ? stopAudioMutation.mutate({ bookId: book.id, language: activeLanguage })
+                  activeVariant
+                    ? stopAudioMutation.mutate({ bookId: book.id, key: activeVariant })
                     : cancelMutation.mutate({ id: book.id })
                 }
                 disabled={!(hasActiveChapters || translationAudioQueued) || cancelMutation.isPending || stopAudioMutation.isPending}
@@ -627,23 +630,25 @@ export function BookDetail() {
                 Cancel processing
               </button>
               <button
-                onClick={() => processSelectedTranslationsMutation.mutate({ bookId: book.id, language: activeLanguage! })}
-                disabled={!activeLanguage || selectedTranslatable === 0 || processSelectedTranslationsMutation.isPending}
+                onClick={() => processSelectedVariantsMutation.mutate({ bookId: book.id, key: activeVariant! })}
+                disabled={!activeVariant || selectedTranslatable === 0 || processSelectedVariantsMutation.isPending}
                 title={
-                  !activeLanguage ? "Open a language view to translate the selected chapters" :
-                  selectedTranslatable === 0 ? "No selected chapters need translation — already-translated ones are skipped" :
-                  `Translate the selected chapters to ${activeLanguage} (finished ones are skipped, stopped ones resume)`
+                  !activeVariant ? "Open a variant view to run it on the selected chapters" :
+                  selectedTranslatable === 0 ? "No selected chapters need this — finished ones are skipped" :
+                  activeKind === "translation"
+                    ? `Translate the selected chapters to ${activeLabel} (finished ones are skipped, stopped ones resume)`
+                    : `Rewrite the selected chapters as ${activeLabel} (finished ones are skipped, stopped ones resume)`
                 }
                 className="px-4 py-2 bg-teal-600 text-white rounded-md text-sm font-medium hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="translate-selected"
               >
-                Translate selected ({selectedTranslatable}){langSuffix}
+                {activeKind === "translation" ? "Translate" : "Rewrite"} selected ({selectedTranslatable}){langSuffix}
               </button>
               <button
                 onClick={() => cleanupSelectedMutation.mutate({ bookId: book.id })}
-                disabled={!!activeLanguage || selectedCleanable === 0 || cleanupSelectedMutation.isPending}
+                disabled={!!activeVariant || selectedCleanable === 0 || cleanupSelectedMutation.isPending}
                 title={
-                  activeLanguage ? "Switch to the Original view — cleanup runs on the original text" :
+                  activeVariant ? "Switch to the Original view — cleanup runs on the original text" :
                   selectedCleanable === 0 ? "No selected chapters need cleanup — already-cleaned and running ones are skipped" :
                   "Ask DeepSeek to strip OCR artifacts from the selected chapters without altering the prose (cleaned ones are skipped)"
                 }
@@ -656,12 +661,12 @@ export function BookDetail() {
                 onClick={() => {
                   const selected = book.chapters.filter((c) => c.selected).map((c) => ({ id: c.id, title: c.title }));
                   setAskScope(
-                    selected.length > 0 && !activeLanguage
+                    selected.length > 0 && !activeVariant
                       ? { kind: "chapters", bookId: book.id, chapters: selected }
                       : { kind: "book-raw", bookId: book.id, bookTitle: book.title, chapters: selected },
                   );
                 }}
-                disabled={book.rawTextTotalWords === 0 && (selectedCount === 0 || !!activeLanguage)}
+                disabled={book.rawTextTotalWords === 0 && (selectedCount === 0 || !!activeVariant)}
                 title={
                   book.rawTextTotalWords === 0 && selectedCount === 0
                     ? "No raw text or chapters to ask about"
@@ -678,9 +683,9 @@ export function BookDetail() {
                     deleteChaptersMutation.mutate({ bookId: book.id });
                   }
                 }}
-                disabled={selectedCount === 0 || hasActiveChapters || !!activeLanguage || deleteChaptersMutation.isPending}
+                disabled={selectedCount === 0 || hasActiveChapters || !!activeVariant || deleteChaptersMutation.isPending}
                 title={
-                  activeLanguage ? "Switch to the Original view to delete chapters" :
+                  activeVariant ? "Switch to the Original view to delete chapters" :
                   selectedCount === 0 ? "No chapters selected" :
                   hasActiveChapters ? "Wait for active chapters to finish" :
                   "Delete selected chapters and their audio"
@@ -790,18 +795,18 @@ export function BookDetail() {
               chapters={viewChapters}
               files={book.files?.map((f) => ({ id: f.id, index: f.index, filename: f.filename }))}
               onQueue={(cid, resume) =>
-                activeLanguage
-                  ? queueAudioMutation.mutate({ chapterId: cid, language: activeLanguage, resume })
+                activeVariant
+                  ? queueAudioMutation.mutate({ chapterId: cid, key: activeVariant, resume })
                   : queueMutation.mutate({ id: cid, resume })
               }
-              onRename={activeLanguage ? undefined : (cid, title) => renameChapterMutation.mutate({ id: cid, title })}
-              onReorder={activeLanguage ? undefined : (chapterIds) => reorderChaptersMutation.mutate({ bookId: book.id, chapterIds })}
+              onRename={activeVariant ? undefined : (cid, title) => renameChapterMutation.mutate({ id: cid, title })}
+              onReorder={activeVariant ? undefined : (chapterIds) => reorderChaptersMutation.mutate({ bookId: book.id, chapterIds })}
               onSetSelected={(cid, selected) => setSelectedMutation.mutate({ id: cid, selected })}
               onSetAllSelected={(selected) => setAllSelectedMutation.mutate({ bookId: book.id, selected })}
               onSetSelectedBatch={(ids, selected) => setSelectedBatchMutation.mutate({ ids, selected })}
-              language={activeLanguage}
-              languages={languages.map((l) => l.language)}
-              onSwitchLanguage={setActiveLanguage}
+              variant={activeLane ?? (activeVariant ? { key: activeVariant, kind: "translation" as const, label: null } : null)}
+              variants={variantLanes.map((l) => ({ key: l.key, label: l.label, kind: l.kind }))}
+              onSwitchVariant={setActiveVariant}
             />
             </>
           )}
@@ -850,11 +855,11 @@ export function BookDetail() {
                 <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() =>
-                    activeLanguage
-                      ? assembleTranslationMutation.mutate({ bookId: book.id, language: activeLanguage })
+                    activeVariant
+                      ? assembleVariantMutation.mutate({ bookId: book.id, key: activeVariant })
                       : assembleMutation.mutate({ id: book.id })
                   }
-                  disabled={!canAssemble || assembleMutation.isPending || assembleTranslationMutation.isPending}
+                  disabled={!canAssemble || assembleMutation.isPending || assembleVariantMutation.isPending}
                   title={
                     selectedCount === 0 ? "No chapters selected" :
                     !allSelectedDone ? "All selected chapters must be done with audio" :
@@ -867,19 +872,19 @@ export function BookDetail() {
                 </button>
                 <button
                   onClick={() => {
-                    if (confirm(`Delete the synthesized${activeLanguage ? ` ${activeLanguage}` : ""} MP3s and WAV chunks of ${audioDataCount} selected chapter(s), freeing ${audioDataSize}? ${activeLanguage ? "Translated text" : "Chapters and text"} are kept — you can re-synthesize anytime.`)) {
-                      if (activeLanguage) {
-                        deleteTranslationAudioMutation.mutate({ bookId: book.id, language: activeLanguage });
+                    if (confirm(`Delete the synthesized${activeVariant ? ` ${activeLabel}` : ""} MP3s and WAV chunks of ${audioDataCount} selected chapter(s), freeing ${audioDataSize}? ${activeVariant ? "Variant text" : "Chapters and text"} are kept — you can re-synthesize anytime.`)) {
+                      if (activeVariant) {
+                        deleteVariantAudioMutation.mutate({ bookId: book.id, key: activeVariant });
                       } else {
                         deleteAudioMutation.mutate({ bookId: book.id });
                       }
                     }
                   }}
-                  disabled={audioDataCount === 0 || hasActiveChapters || deleteAudioMutation.isPending || deleteTranslationAudioMutation.isPending}
+                  disabled={audioDataCount === 0 || hasActiveChapters || deleteAudioMutation.isPending || deleteVariantAudioMutation.isPending}
                   title={
                     audioDataCount === 0 ? "No selected chapters have synthesized audio on disk" :
                     hasActiveChapters ? "Wait for active chapters to finish" :
-                    `Delete the synthesized${activeLanguage ? ` ${activeLanguage}` : ""} MP3s and WAV chunks of the selected chapters (${audioDataSize}) — text is kept, re-synthesize anytime`
+                    `Delete the synthesized${activeVariant ? ` ${activeLabel}` : ""} MP3s and WAV chunks of the selected chapters (${audioDataSize}) — text is kept, re-synthesize anytime`
                   }
                   className="px-4 py-2 border border-red-300 dark:border-red-900 text-red-600 dark:text-red-400 rounded-md text-sm font-medium hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid="delete-audio-selected"
@@ -891,7 +896,7 @@ export function BookDetail() {
               <div className={`pt-3 ${createTab === "document" ? "" : "hidden"}`}>
                 <div className="flex items-start gap-2 flex-wrap">
                   <button
-                    onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "pdf" })}
+                    onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeVariant ?? undefined, format: "pdf" })}
                     disabled={!canExportDocument || !!pendingExportFor("pdf")}
                     title={exportTooltip("pdf")}
                     className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -900,7 +905,7 @@ export function BookDetail() {
                     Export PDF ({selectedExportable}){langSuffix}
                   </button>
                   <button
-                    onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeLanguage ?? undefined, format: "epub" })}
+                    onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeVariant ?? undefined, format: "epub" })}
                     disabled={!canExportDocument || !!pendingExportFor("epub")}
                     title={exportTooltip("epub")}
                     className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -912,7 +917,7 @@ export function BookDetail() {
                     <button
                       onClick={() => exportDocumentMutation.mutate({
                         id: book.id,
-                        language: activeLanguage ?? undefined,
+                        language: activeVariant ?? undefined,
                         format: "epub-sync",
                         copyToDropDir: !!exportConfig?.readaloudDropDir && copyToImport,
                       })}
@@ -956,13 +961,13 @@ export function BookDetail() {
         {/* STAGE 3: produced outputs, scoped to the active language view */}
         <div className="space-y-6 mb-6">
           <AudioOutputsSection
-            assemblies={bookAssemblies.filter((a) => (a.language ?? null) === activeLanguage)}
-            latestOutputPath={activeLanguage ? null : book.outputPath}
+            assemblies={bookAssemblies.filter((a) => (a.language ?? null) === activeVariant)}
+            latestOutputPath={activeVariant ? null : book.outputPath}
             onDelete={(aid) => deleteAssemblyMutation.mutate({ id: aid })}
             isDeleting={deleteAssemblyMutation.isPending}
           />
           <DocumentOutputsSection
-            documents={bookDocuments.filter((d) => (d.language ?? null) === activeLanguage)}
+            documents={bookDocuments.filter((d) => (d.language ?? null) === activeVariant)}
             pending={viewPendingExports}
             onDelete={(did) => deleteDocumentMutation.mutate({ id: did })}
             isDeleting={deleteDocumentMutation.isPending}
@@ -1007,21 +1012,21 @@ export function BookDetail() {
         {showSynthesize && (
           <SynthesizeModal
             count={selectedSynthesizable}
-            language={activeLanguage}
+            language={activeLabel}
             voice={book.voice}
             speed={book.speed}
             onChangeVoice={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
             onChangeSpeed={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
             canStart={canProcess && !processSelectedMutation.isPending && !processSelectedAudioMutation.isPending}
             disabledReason={
-              selectedSynthesizable === 0 ? (activeLanguage ? "No selected chapters have a translation ready or underway" : "No selected chapters are ready for synthesis") :
-              !activeLanguage && hasActiveChapters ? "Wait for active chapters to finish" :
+              selectedSynthesizable === 0 ? (activeVariant ? `No selected chapters have ${activeLabel} text ready or underway` : "No selected chapters are ready for synthesis") :
+              !activeVariant && hasActiveChapters ? "Wait for active chapters to finish" :
               isAssembling ? "Wait for assembly to finish" :
               undefined
             }
             onStart={() => {
-              if (activeLanguage) {
-                processSelectedAudioMutation.mutate({ bookId: book.id, language: activeLanguage });
+              if (activeVariant) {
+                processSelectedAudioMutation.mutate({ bookId: book.id, key: activeVariant });
               } else {
                 processSelectedMutation.mutate({ id: book.id });
               }
@@ -1032,13 +1037,13 @@ export function BookDetail() {
         )}
 
         {showTranslation && (
-          <TranslationModal
+          <VariantModal
             bookId={book.id}
             chapters={book.chapters.map((c) => ({ id: c.id, index: c.index, title: c.title }))}
-            initialLanguage={activeLanguage ?? book.translationLanguage ?? null}
+            initialKey={activeVariant ?? book.translationLanguage ?? null}
             onClose={() => {
               setShowTranslation(false);
-              invalidateTranslations();
+              invalidateVariants();
             }}
           />
         )}

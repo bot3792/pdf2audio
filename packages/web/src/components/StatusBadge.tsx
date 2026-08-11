@@ -16,7 +16,9 @@ const statusStyles: Record<string, string> = {
   suspended: "bg-(--badge-suspended-bg) text-(--badge-suspended-text)",
   cancelled: "bg-(--badge-cancelled-bg) text-(--badge-cancelled-text)",
   untranslated: "bg-(--bg-subtle) text-(--text-faint)",
+  missing: "bg-(--bg-subtle) text-(--text-faint)",
   translating: "bg-(--badge-synthesizing-bg) text-(--badge-synthesizing-text)",
+  rewriting: "bg-(--badge-synthesizing-bg) text-(--badge-synthesizing-text)",
   cleaning: "bg-(--badge-normalizing-bg) text-(--badge-normalizing-text)",
 };
 

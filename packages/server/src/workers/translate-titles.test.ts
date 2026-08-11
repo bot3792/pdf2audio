@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, resetDb } from "../../test/setup.ts";
-import { books, chapters, chapterTranslations } from "../schema.ts";
+import { books, chapters, chapterVariants } from "../schema.ts";
 import { eq } from "drizzle-orm";
 
 vi.mock("../lib/translate.ts", async (importOriginal) => {
@@ -40,14 +40,14 @@ describe("translateTitles worker", () => {
     const db = getDb();
     const { bookId, chapterId } = await insertFixture(db);
     const [row] = await db
-      .insert(chapterTranslations)
-      .values({ chapterId, language: "Bulgarian", status: "done", text: "Преведен текст." })
+      .insert(chapterVariants)
+      .values({ chapterId, key: "Bulgarian", status: "done", text: "Преведен текст." })
       .returning();
     mockTranslateTitle.mockResolvedValue("Глава");
 
     await translateTitles({ bookId, language: "Bulgarian" });
 
-    const [updated] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, row.id));
+    const [updated] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, row.id));
     expect(updated.title).toBe("Глава");
     expect(mockTranslateTitle).toHaveBeenCalledWith({
       title: "Ch",
@@ -61,9 +61,9 @@ describe("translateTitles worker", () => {
     const { bookId, chapterId } = await insertFixture(db);
     const chapterId2 = crypto.randomUUID();
     await db.insert(chapters).values({ id: chapterId2, bookId, index: 1, title: "Ch2", rawText: "More text." });
-    await db.insert(chapterTranslations).values([
-      { chapterId, language: "Bulgarian", status: "translating", text: "partial" },
-      { chapterId: chapterId2, language: "Bulgarian", status: "done", text: "t", title: "Има си" },
+    await db.insert(chapterVariants).values([
+      { chapterId, key: "Bulgarian", status: "translating", text: "partial" },
+      { chapterId: chapterId2, key: "Bulgarian", status: "done", text: "t", title: "Има си" },
     ]);
 
     await translateTitles({ bookId, language: "Bulgarian" });
@@ -76,9 +76,9 @@ describe("translateTitles worker", () => {
     const { bookId, chapterId } = await insertFixture(db);
     const chapterId2 = crypto.randomUUID();
     await db.insert(chapters).values({ id: chapterId2, bookId, index: 1, title: "Ch2", rawText: "More text." });
-    await db.insert(chapterTranslations).values([
-      { chapterId, language: "Bulgarian", status: "done", text: "a" },
-      { chapterId: chapterId2, language: "Bulgarian", status: "done", text: "b" },
+    await db.insert(chapterVariants).values([
+      { chapterId, key: "Bulgarian", status: "done", text: "a" },
+      { chapterId: chapterId2, key: "Bulgarian", status: "done", text: "b" },
     ]);
     mockTranslateTitle
       .mockRejectedValueOnce(new Error("API down"))
@@ -86,7 +86,7 @@ describe("translateTitles worker", () => {
 
     await expect(translateTitles({ bookId, language: "Bulgarian" })).rejects.toThrow("1 title translation failed");
 
-    const rows = await db.select().from(chapterTranslations);
+    const rows = await db.select().from(chapterVariants);
     expect(rows.find((r) => r.chapterId === chapterId2)?.title).toBe("Втора глава");
     expect(rows.find((r) => r.chapterId === chapterId)?.title).toBeNull();
   });

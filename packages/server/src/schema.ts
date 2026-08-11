@@ -63,6 +63,12 @@ export type DigestJob = {
   updatedAt: string;
 };
 
+export type VariantParams = {
+  temperature?: number;
+  // "whole" sends the entire chapter as one chunk (for outputs much shorter than the source)
+  mode?: "chunked" | "whole";
+};
+
 // Snapshot title so the link label survives source deletion
 export type ChapterSource =
   | { kind: "book"; bookId: string; title: string }
@@ -146,10 +152,18 @@ export const chapters = pgTable("chapters", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const chapterTranslations = pgTable("chapter_translations", {
+// Physical names ("chapter_translations", "language") predate transforms; the
+// table now holds any derived rendition of a chapter, keyed by variant key
+// (a language name for translations, a preset id or custom slug for transforms).
+export const chapterVariants = pgTable("chapter_translations", {
   id: uuid("id").primaryKey().defaultRandom(),
   chapterId: uuid("chapter_id").notNull().references(() => chapters.id, { onDelete: "cascade" }),
-  language: text("language").notNull(),
+  key: text("language").notNull(),
+  kind: text("kind", { enum: ["translation", "transform"] }).notNull().default("translation"),
+  label: text("label"),
+  // Snapshot of the instruction that produced this variant; null for translations
+  prompt: text("prompt"),
+  params: jsonb("params").$type<VariantParams>(),
   title: text("title"),
   text: text("text").notNull().default(""),
   status: text("status", {
@@ -170,7 +184,7 @@ export const chapterTranslations = pgTable("chapter_translations", {
   synthesizedWith: jsonb("synthesized_with").$type<{ voice?: string; speed?: number | null }>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [unique("chapter_translations_chapter_language").on(t.chapterId, t.language)]);
+}, (t) => [unique("chapter_translations_chapter_language").on(t.chapterId, t.key)]);
 
 export const bookLogs = pgTable("book_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -243,7 +257,7 @@ export const bookChunks = pgTable("book_chunks", {
   source: text("source", { enum: ["raw", "chapter", "translation"] }).notNull(),
   bookFileId: uuid("book_file_id").references(() => bookFiles.id, { onDelete: "cascade" }),
   chapterId: uuid("chapter_id").references(() => chapters.id, { onDelete: "cascade" }),
-  translationId: uuid("translation_id").references(() => chapterTranslations.id, { onDelete: "cascade" }),
+  translationId: uuid("translation_id").references(() => chapterVariants.id, { onDelete: "cascade" }),
   language: text("language"),
   seq: integer("seq").notNull(),
   text: text("text").notNull(),
@@ -274,7 +288,7 @@ export type BookFile = typeof bookFiles.$inferSelect;
 export type NewBookFile = typeof bookFiles.$inferInsert;
 export type Assembly = typeof assemblies.$inferSelect;
 export type BookDocument = typeof documents.$inferSelect;
-export type ChapterTranslation = typeof chapterTranslations.$inferSelect;
+export type ChapterVariant = typeof chapterVariants.$inferSelect;
 export type Note = typeof notes.$inferSelect;
 export type BookChunk = typeof bookChunks.$inferSelect;
 export type NewBookChunk = typeof bookChunks.$inferInsert;

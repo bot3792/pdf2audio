@@ -15,7 +15,7 @@ import { registerApiRoutes } from "./api-routes.ts";
 import { registerScriptRunRoutes } from "./script-run-routes.ts";
 import { ensureDataDirs, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
-import { books, bookFiles, assemblies, documents, chapters, chapterTranslations } from "./schema.ts";
+import { books, bookFiles, assemblies, documents, chapters, chapterVariants } from "./schema.ts";
 import { eq } from "drizzle-orm";
 import path from "node:path";
 import { access } from "node:fs/promises";
@@ -103,7 +103,7 @@ async function main() {
 
   fastify.get("/audio/translation/:translationId", async (request, reply) => {
     const { translationId } = request.params as { translationId: string };
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
 
     if (!row?.audioPath) {
       return reply.code(404).send({ error: "Translation audio not found" });

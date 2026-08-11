@@ -51,7 +51,7 @@ PDF Upload → rawExtract (seconds, always) [→ bookNote (optional AI answer �
 
 Every upload extracts raw text with `pdftotext` in seconds (stored per file in `book_files.raw_text`); the slow Marker extraction is **opt-in** ("Extract chapters now" checkbox, default off) and can be run later via `books.extractChapters` from the book page. Raw-only files carry `book_files.status = "raw"` and are skipped by the extract worker until flipped to `pending`. Whole-book Ask AI (`books.aiPromptRaw`) and the upload-time AI prompt run against the concatenated raw text; every AI answer is auto-saved to the `notes` table.
 
-**Synthetic books** (`books.kind !== "pdf"`, currently `"digest"` and `"api"`): books with no PDF (`pdfPath`/`filename` null, zero `book_files` rows) whose chapters are AI-generated text. An **api** book is created by an external script through the JSON API (`api-routes.ts` + `lib/api-books.ts`, docs in `docs/synthetic-books-api.md`) — the caller sends finished chapter text; `cleanText` is computed inline at insert (the text is already spoken prose), so `synthesize: true` queues straight to TTS, otherwise chapters arrive suspended. Digest chapters get the same inline normalization. Example consumer: `scripts/hn-top10.mjs` (Hacker News podcast book). A **digest** is created from the home page (select books → Create digest): one `digest` job sequentially summarizes each source book (chapter text preferred, raw text fallback via `lib/book-source-text.ts`), saves each summary as a note on the source book, and inserts one suspended chapter per source with a `chapters.source` back-link (`{kind:"book",bookId,title}` — snapshot; notes appended as chapters use `{kind:"note",noteId}`, future feed chapters use `{kind:"url"}`). Provenance in `books.origin`, run state in `books.digest_job` (progress "3/10", idempotent resume — already-summarized sources are skipped). Everything downstream (normalize/synthesize/translate/cleanup/assemble/export) works on synthetic chapters unchanged; every PDF-assuming path (extract, redetect, retry, structure, propose, applyChapterBoundaries, append-upload) is guarded on `kind !== "pdf"` — keep it that way when adding features.
+**Synthetic books** (`books.kind !== "pdf"`, currently `"digest"` and `"api"`): books with no PDF (`pdfPath`/`filename` null, zero `book_files` rows) whose chapters are AI-generated text. An **api** book is created by an external script through the JSON API (`api-routes.ts` + `lib/api-books.ts`, docs in `docs/synthetic-books-api.md`) — the caller sends finished chapter text; `cleanText` is computed inline at insert (the text is already spoken prose), so `synthesize: true` queues straight to TTS, otherwise chapters arrive suspended. Digest chapters get the same inline normalization. Example consumer: `scripts/hn-top10.mjs` (Hacker News podcast book). A **digest** is created from the home page (select books → Create digest): one `digest` job sequentially summarizes each source book (chapter text preferred, raw text fallback via `lib/book-source-text.ts`), saves each summary as a note on the source book, and inserts one suspended chapter per source with a `chapters.source` back-link (`{kind:"book",bookId,title}` — snapshot; notes appended as chapters use `{kind:"note",noteId}`, future feed chapters use `{kind:"url"}`). Provenance in `books.origin`, run state in `books.digest_job` (progress "3/10", idempotent resume — already-summarized sources are skipped). Everything downstream (normalize/synthesize/translate/transform/cleanup/assemble/export) works on synthetic chapters unchanged; every PDF-assuming path (extract, redetect, retry, structure, propose, applyChapterBoundaries, append-upload) is guarded on `kind !== "pdf"` — keep it that way when adding features.
 
 **Inserted chapters** (any chapter whose `source` jsonb is set — currently notes via `notes.toChapter`, "Add as chapter" on a note) don't derive from extraction output, so the three rebuild flows (retry, redetect, applyChapterBoundaries) must never delete them: they all go through `resetChaptersKeepingInserted` (`lib/insert-chapters.ts`), which keeps source-tagged chapters at the front (index 0..k-1) with audio state reset (their files die with the output dir) while newly detected chapters offset from k. Preserve this invariant in any new flow that bulk-deletes chapters.
 
@@ -71,9 +71,9 @@ Every upload extracts raw text with `pdftotext` in seconds (stored per file in `
 
 4. **assemble** (`workers/assemble.ts`, user-triggered) — FFmpeg concatenates selected chapter MP3s into one (or copies directly for single-chapter books). node-id3 writes ID3v2 CHAP/CTOC frames for chapter markers. Assembly is an explicit user action, not auto-queued. Each assembly is recorded in the `assemblies` table with metadata (duration, chapter count, summary).
 
-5. **translate / translateTitles** (`workers/translate.ts`, `translate-titles.ts`, translate pool) — Per-chapter DeepSeek translation into `chapter_translations` (chunked via `lib/translate.ts`, `runToken` fencing, `sourceHash` staleness detection); title-only backfill for translated chapter titles. Chunks stream token-by-token: the worker publishes deltas (including the model's hidden reasoning as `thinking` events) through the in-process channel in `lib/translate-live.ts`, relayed to the modal by `GET /translations/:id/stream` SSE; the DB row stays the source of truth, written once per completed chunk.
+5. **translate / translateTitles** (`workers/translate.ts`, `translate-titles.ts`, translate pool) — Per-chapter DeepSeek generation of a *variant* into `chapter_translations` (TS export `chapterVariants`): either a translation (kind `translation`, key = language) or a prompt-driven rewrite (kind `transform`, key = preset id like `eli5` or `custom-<slug>`; the prompt is snapshotted on the row, presets live in `lib/transform-presets.ts`). Chunked via `lib/transform.ts` (`runToken` fencing, `sourceHash` staleness detection; transforms can run whole-chapter via `params.mode`); translateTitles backfills translated chapter titles (translation lanes only — transforms keep the original title). Chunks stream token-by-token: the worker publishes deltas (including the model's hidden reasoning as `thinking` events) through the in-process channel in `lib/translate-live.ts`, relayed to the modal by `GET /translations/:id/stream` SSE; the DB row stays the source of truth, written once per completed chunk.
 
-6. **synthesizeTranslation** (`workers/synthesize-translation.ts`, tts pool) — TTS for a finished translation (audio state on the `chapter_translations` row, per-language output dir + chunk previews + sync map). Auto-queues a language assembly when every selected translated chapter has audio.
+6. **synthesizeTranslation** (`workers/synthesize-translation.ts`, tts pool) — TTS for a finished variant (audio state on the `chapter_translations` row, per-variant-slug output dir + chunk previews + sync map). Auto-queues a variant assembly when every selected chapter of that variant has audio.
 
 7. **assembleDocument** (`workers/assemble-document.ts`, assembly pool) — Renders selected chapters to `pdf`/`epub` via Vivliostyle CLI, or builds the `epub-sync` read-along EPUB from chapter MP3s + sync maps (`lib/readaloud-epub.ts`); records a `documents` row; optionally copies epub-sync output to `READALOUD_DROP_DIR`.
 
@@ -124,7 +124,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 ### Tables
 
-**books** — id (uuid), title, kind (`pdf` | `digest` | `api`, default pdf), filename + pdfPath (nullable — null for synthetic books), outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed` | `suspended`), voice, speed, error, forceOcr, llmChapterDetection, chapterDetection, chapterProposal (jsonb), translationLanguage, skipSynthesis, totalChapters, noteJob (jsonb), origin (jsonb `BookOrigin` — digest or api provenance), digestJob (jsonb `DigestJob`), folderId (FK folders, `set null` on folder delete — book deletion must go through `lib/delete-book.ts` for disk cleanup, so never cascade), profileId (FK profiles, defaults to the fixed default-profile id), createdAt, updatedAt
+**books** — id (uuid), title, kind (`pdf` | `digest` | `api`, default pdf), filename + pdfPath (nullable — null for synthetic books), outputPath, status (`pending` | `extracting` | `synthesizing` | `assembling` | `done` | `failed` | `suspended`), voice, speed, error, forceOcr, llmChapterDetection, chapterDetection, chapterProposal (jsonb), translationLanguage (last active variant key — drives the variant view default), skipSynthesis, totalChapters, noteJob (jsonb), origin (jsonb `BookOrigin` — digest or api provenance), digestJob (jsonb `DigestJob`), folderId (FK folders, `set null` on folder delete — book deletion must go through `lib/delete-book.ts` for disk cleanup, so never cascade), profileId (FK profiles, defaults to the fixed default-profile id), createdAt, updatedAt
 
 **folders** — id (uuid), name, parentId (self-FK, cascade — nested folders), profileId (FK profiles), createdAt, updatedAt. Books live in at most one folder (null = home/root). Home shows only root-level folder rows + unfiled books; `/folders/:id` shows a folder's contents. Recursive aggregates (bookCount/active/size) are computed in `books.list`; subtree/ancestor walks via CTE helpers in `lib/folders.ts`. `folders.delete` collects all descendant books first and deletes each via `deleteBook` before removing the folder row. `folders.move` reparents a folder (rejects moves into the folder's own subtree).
 
@@ -132,7 +132,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **book_files** — id (uuid), bookId (FK, cascade delete), index, filename, pdfPath, status (`raw` | `pending` | `extracting` | `done` | `failed`), selected, skipSynthesis, rawText, rawWords, error, createdAt. One row per uploaded PDF; `raw` = pdftotext-only, marker neither queued nor planned.
 
-**chapter_translations** — id (uuid), chapterId (FK, cascade delete), language, title, text, status (`pending` | `translating` | `done` | `failed` | `suspended`), progress, error, sourceHash (staleness detection), runToken (write fencing), audioPath, audioDurationMs, audioStatus, audioProgress, audioError, synthesizedWith, createdAt, updatedAt. Unique (chapterId, language). First-class per-language variants — original text always preserved.
+**chapter_translations** (TS export `chapterVariants`) — id (uuid), chapterId (FK, cascade delete), language (TS property `key` — the variant key: a language name for translations, a preset id or `custom-<slug>` for transforms), kind (`translation` | `transform`), label (display name; null → key), prompt (snapshot of the transform instruction; null for translations), params (jsonb `VariantParams`: temperature, chunked/whole mode), title, text, status (`pending` | `translating` | `done` | `failed` | `suspended`), progress, error, sourceHash (staleness detection), runToken (write fencing), audioPath, audioDurationMs, audioStatus, audioProgress, audioError, synthesizedWith, createdAt, updatedAt. Unique (chapterId, key). First-class per-chapter variants (translations and AI rewrites) — original text always preserved. Physical table/column names predate transforms and are kept to avoid a risky rename.
 
 **assemblies** — id (uuid), bookId (FK, cascade delete), outputPath, durationMs, chapterCount, chapterSummary, chapterIds (json array), createdAt
 
@@ -146,7 +146,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **notes** — id (uuid), bookId (FK, cascade delete, **nullable** — null marks a library-chat answer), profileId (FK profiles), prompt, model (`flash` | `pro`), result (markdown), scope (jsonb `NoteScope` — chapter id+title snapshot, `book-raw`, or `library {folderId?, question}`; no FK to chapters so notes survive chapter re-detection), createdAt. Auto-inserted by `chapters.aiPrompt`, `books.aiPromptRaw`, the `bookNote` worker, and `notes.saveLibraryAnswer` via `lib/notes.ts` `saveNote()`. `notes.toChapter` refuses library notes (no book to attach to).
 
-**book_chunks** — id (uuid), bookId (FK, cascade), profileId + folderId (denormalized from books for index-friendly scoping, refreshed on reindex), source (`raw` | `chapter` | `translation`), bookFileId/chapterId/translationId (FKs, cascade — exactly the one matching `source` is set, translations also carry chapterId), language (translation language), seq, text, charStart/charEnd (true offsets into the source-unit text), pageStart/pageEnd (from `\f` form feeds for raw, chapter page range otherwise), sourceHash (sha256 of the unit's full text — unchanged hash skips reindex), tsv (generated `to_tsvector('simple', text)`, GIN-indexed), embedding (`vector(1024)`, BGE-M3, HNSW cosine index, null until the embed pass), createdAt. Requires the pgvector image (`pgvector/pgvector:pg17`); extensions `vector` + `pg_trgm` are created in migration 0026.
+**book_chunks** — id (uuid), bookId (FK, cascade), profileId + folderId (denormalized from books for index-friendly scoping, refreshed on reindex), source (`raw` | `chapter` | `translation`), bookFileId/chapterId/translationId (FKs, cascade — exactly the one matching `source` is set, translations also carry chapterId), language (variant key), seq, text, charStart/charEnd (true offsets into the source-unit text), pageStart/pageEnd (from `\f` form feeds for raw, chapter page range otherwise), sourceHash (sha256 of the unit's full text — unchanged hash skips reindex), tsv (generated `to_tsvector('simple', text)`, GIN-indexed), embedding (`vector(1024)`, BGE-M3, HNSW cosine index, null until the embed pass), createdAt. Requires the pgvector image (`pgvector/pgvector:pg17`); extensions `vector` + `pg_trgm` are created in migration 0026.
 
 When modifying the schema, change `schema.ts` and run `pnpm db:generate` to produce a migration, then `pnpm db:migrate`. Never write migrations manually.
 
@@ -161,7 +161,7 @@ data/output/{bookId}/                Chapter MP3s (ch000.mp3, ...), ch000.sync.j
                                      timestamped assembly MP3s and exported PDF/EPUB/readaloud files
 data/output/{bookId}/{langSlug}/     Translation audio (per-language chNNN.mp3 + sync maps)
 data/output/{bookId}/chunks/         Per-chapter chunk WAV previews + chunks.json manifest
-                                     (chunks/{langSlug}/chNNN/ for translations); disposable once
+                                     (chunks/{variantSlug}/chNNN/ for variants); disposable once
                                      the sync map exists
 data/previews/                       Voice preview MP3s (global, shared)
 ```
@@ -177,18 +177,18 @@ packages/server/src/
   env.ts                Zod-validated environment variables (dotenv + schema)
   main.ts               Fastify entrypoint: file/audio/document download routes, tRPC plugin, static /files/
   upload-routes.ts      POST /upload and /upload/:bookId (multipart) — always queues rawExtract; extract only when fullExtract
-  translation-stream-routes.ts  GET /translations/:id/stream — SSE relay of live translation deltas
+  translation-stream-routes.ts  GET /translations/:id/stream — SSE relay of live variant generation deltas
   api-routes.ts         External JSON API (/api/books…) for scripts creating synthetic books/chapters
   script-run-routes.ts  GET /scripts/hn-top10/stream — spawns the HN script, streams output as SSE
   db.ts                 Drizzle postgres connection
   schema.ts             Drizzle table definitions (source of truth for DB schema)
   trpc.ts               tRPC init (router, publicProcedure, x-profile-id context)
-  router.ts             Root tRPC router: books, folders, profiles, chapters, bookFiles, translations, notes
+  router.ts             Root tRPC router: books, folders, profiles, chapters, bookFiles, variants, notes
   routes/
     books.ts            Library + book lifecycle + digests + exports (see tRPC Routes below)
     chapters.ts         Chapter CRUD, selection, text edits, cleanup, AI prompts, audio deletion
     bookFiles.ts        Source-file selection, re-extract, skip-synthesis, cancel
-    translations.ts     Translation runs, per-language audio synthesis/assembly, audio deletion
+    variants.ts         Variant runs (translations + transforms, createTransform, presets), per-variant audio synthesis/assembly, audio deletion
     folders.ts          Folder CRUD (profile-scoped), recursive delete
     profiles.ts         Profile (workspace) CRUD
     notes.ts            Per-book notes list/delete
@@ -201,8 +201,8 @@ packages/server/src/
     normalize.ts        Text normalization
     synthesize.ts       TTS synthesis (skips suspended, writes progress + sync map)
     synthesize-translation.ts  TTS for finished translations (per-language audio + sync map)
-    translate.ts        Per-chapter DeepSeek translation
-    translate-titles.ts Backfill translated chapter titles
+    translate.ts        Per-chapter DeepSeek variant generation (translation or transform)
+    translate-titles.ts Backfill translated chapter titles (translation lanes only)
     cleanup.ts          DeepSeek OCR-artifact cleanup (writes customText)
     propose.ts          LLM chapter-boundary proposals (structure modal)
     redetect.ts         Chapter re-detection without re-running marker
@@ -222,8 +222,10 @@ packages/server/src/
     token-estimate.ts   Pessimistic token estimate for context guards
     notes.ts            saveNote() shared by AI prompt paths
     cleanup.ts          DeepSeek chunk prompts for OCR-artifact cleanup
-    translate.ts        Chunked translation prompts (splitForTranslation)
-    translate-live.ts   In-process pub/sub for live translation streaming (run-fenced sessions)
+    translate.ts        Translation chunk/title prompts
+    transform.ts        Shared variant engine: splitIntoChunks, transformChunk, per-kind strategy, custom-label inference
+    transform-presets.ts Rewrite presets (eli5, shorten, summary, enrich) — edit prompts here
+    translate-live.ts   In-process pub/sub for live variant streaming (run-fenced sessions)
     api-books.ts        External-API core: create api books, append source-tagged chapters, status
     tts.ts              Voice registry + synthesis dispatch (kokoro / bg-mlx / mms / kugel)
     tts-chunks.ts       Bulgarian narrator text chunking (250-320 chars)
@@ -340,7 +342,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 - `GET /files/*` — Static mount of the whole output dir (chunk WAV previews, direct file access)
 - `POST /api/books` / `POST /api/books/:bookId/chapters` / `GET /api/books/:bookId` — External JSON API for scripts and other projects (`api-routes.ts` + `lib/api-books.ts`, full reference in `docs/synthetic-books-api.md`): create synthetic `kind:"api"` books, append source-tagged chapters to any book (rebuild-safe), poll synthesis status. Optional `synthesize: true` queues TTS per chapter (text is normalized inline at insert); optional `x-profile-id` scopes like the web app.
 - `GET /scripts/hn-top10/stream` — Runs `scripts/hn-top10.mjs` as a subprocess and streams its output as SSE (`script-run-routes.ts`); backs the "HN digest" button/modal on the home page. Validated query params (date/count/synthesize/folder/profile), single-flight lock, child survives client disconnect.
-- `GET /translations/:translationId/stream` — SSE live feed for a running translation (`translation-stream-routes.ts`): snapshot on connect, then `delta`/`thinking`/`status` events from the worker's in-process channel (`lib/translate-live.ts`). The modal's 1s polling stays as fallback.
+- `GET /translations/:translationId/stream` — SSE live feed for a running variant generation (`translation-stream-routes.ts`): snapshot on connect, then `delta`/`thinking`/`status` events from the worker's in-process channel (`lib/translate-live.ts`). The modal's 1s polling stays as fallback.
 - `POST /chat` — Library-chat streaming endpoint (`chat-routes.ts`). Raw Fastify route because tRPC can't stream; AI SDK UI-message stream over `reply.hijack()` + `pipeUIMessageStreamToResponse`. Profile via `x-profile-id`. Scope accepts `folderId` (subtree) or `bookId` (single-book chat).
 - `POST /chat/ask` — Streaming Ask AI (`chat-routes.ts` + `lib/ask-ai.ts`): whole scope (book raw text or selected chapters) stuffed in context, no tools; same 1M token guard and auto-save-note behavior as the retired sync mutations (`books.aiPromptRaw` / `chapters.aiPrompt`); emits a `data-note` part with the saved noteId. Consumed by `ChapterAiModal` via `useChat` (one "Ask AI" button, scope switcher inside the modal).
 
@@ -381,7 +383,7 @@ All others dropped (PageHeader, PageFooter, Footnote, Figure, etc.).
 
 **Propose (LLM) button** (structure modal) uses a different path: `workers/propose.ts` → `lib/toc-detect.ts` calls the DeepSeek API (per source file): call 1 reads the first/last 15 pages (from marker blocks, so OCR books work) and extracts the printed TOC as JSON; call 2 selects chapter-start headings from a blockIndex-keyed catalog and returns a cleaned title per selection (OCR artifacts fixed, TOC wording preferred), with a corrective retry when far fewer headings than TOC entries were selected. Proposal titles flow through apply: `applyChapterBoundaries` accepts optional per-boundary `title` overrides passed to `sliceChaptersAtIndices`. No `max_tokens` on these calls — deepseek-v4-flash spends budget on reasoning first and a cap can produce an empty response; calls take 1-5 min each (reasoning), timeout 600s.
 
-**Cleanup (AI) button** (chapter modal + "Cleanup selected" toolbar batch): `workers/cleanup.ts` → `lib/cleanup.ts` sends chapter text (`customText ?? cleanText ?? rawText`, chunked via `splitForTranslation`) to DeepSeek with a strict strip-artifacts-never-paraphrase prompt (temperature 0.3, `allowEmpty` — a 100%-garbage chunk legitimately cleans to nothing). Cleaned chunks accumulate in memory and land in `chapters.customText` in ONE final write so an interrupted run never truncates a chapter. Run state lives in the `chapters.cleanup` jsonb (`status/progress/error/runToken/createdAt/updatedAt`); `runToken` fences duplicate runs, `updatedAt` drives the 15-min stale-running guard. Batch skips chapters whose cleanup status is `done` (manual customText alone does NOT count as cleaned); re-force is per-chapter "Re-clean". Startup sweep requeues stranded pending/cleaning chapters.
+**Cleanup (AI) button** (chapter modal + "Cleanup selected" toolbar batch): `workers/cleanup.ts` → `lib/cleanup.ts` sends chapter text (`customText ?? cleanText ?? rawText`, chunked via the shared `splitIntoChunks`) to DeepSeek with a strict strip-artifacts-never-paraphrase prompt (temperature 0.3, `allowEmpty` — a 100%-garbage chunk legitimately cleans to nothing). Cleaned chunks accumulate in memory and land in `chapters.customText` in ONE final write so an interrupted run never truncates a chapter. Run state lives in the `chapters.cleanup` jsonb (`status/progress/error/runToken/createdAt/updatedAt`); `runToken` fences duplicate runs, `updatedAt` drives the 15-min stale-running guard. Batch skips chapters whose cleanup status is `done` (manual customText alone does NOT count as cleaned); re-force is per-chapter "Re-clean". Startup sweep requeues stranded pending/cleaning chapters.
 
 ## Text Normalization (`lib/normalizer.ts`)
 

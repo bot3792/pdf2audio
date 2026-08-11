@@ -1,5 +1,5 @@
 import { db } from "../db.ts";
-import { chapters, books, documents, chapterTranslations } from "../schema.ts";
+import { chapters, books, documents, chapterVariants } from "../schema.ts";
 import { eq, asc, and } from "drizzle-orm";
 import { renderDocumentHtml, type DocumentChapter } from "../lib/document-html.ts";
 import { buildDocument } from "../lib/vivliostyle.ts";
@@ -51,16 +51,16 @@ export async function assembleDocument(payload: AssembleDocumentPayload) {
           customText: chapters.customText,
           cleanText: chapters.cleanText,
           rawText: chapters.rawText,
-          translatedTitle: chapterTranslations.title,
-          translatedText: chapterTranslations.text,
-          translationStatus: chapterTranslations.status,
+          translatedTitle: chapterVariants.title,
+          translatedText: chapterVariants.text,
+          translationStatus: chapterVariants.status,
         })
-        .from(chapterTranslations)
-        .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+        .from(chapterVariants)
+        .innerJoin(chapters, eq(chapterVariants.chapterId, chapters.id))
         .where(and(
           eq(chapters.bookId, bookId),
           eq(chapters.selected, true),
-          eq(chapterTranslations.language, language),
+          eq(chapterVariants.key, language),
         ))
         .orderBy(asc(chapters.index));
       selectedCount = rows.length;
@@ -158,17 +158,17 @@ async function assembleReadaloud(
         id: chapters.id,
         index: chapters.index,
         originalTitle: chapters.title,
-        translatedTitle: chapterTranslations.title,
-        audioPath: chapterTranslations.audioPath,
-        durationMs: chapterTranslations.audioDurationMs,
-        audioStatus: chapterTranslations.audioStatus,
+        translatedTitle: chapterVariants.title,
+        audioPath: chapterVariants.audioPath,
+        durationMs: chapterVariants.audioDurationMs,
+        audioStatus: chapterVariants.audioStatus,
       })
-      .from(chapterTranslations)
-      .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+      .from(chapterVariants)
+      .innerJoin(chapters, eq(chapterVariants.chapterId, chapters.id))
       .where(and(
         eq(chapters.bookId, bookId),
         eq(chapters.selected, true),
-        eq(chapterTranslations.language, language),
+        eq(chapterVariants.key, language),
       ))
       .orderBy(asc(chapters.index));
     candidates = rows

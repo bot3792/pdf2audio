@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "./db.ts";
-import { chapterTranslations } from "./schema.ts";
+import { chapterVariants } from "./schema.ts";
 import { eq } from "drizzle-orm";
 import {
   liveTranslationState,
@@ -13,7 +13,7 @@ const HEARTBEAT_MS = 15_000;
 export function registerTranslationStreamRoutes(fastify: FastifyInstance) {
   fastify.get("/translations/:translationId/stream", async (request, reply) => {
     const { translationId } = request.params as { translationId: string };
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     if (!row) return reply.code(404).send({ error: "Translation not found" });
 
     reply.hijack();

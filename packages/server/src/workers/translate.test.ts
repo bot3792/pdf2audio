@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, resetDb } from "../../test/setup.ts";
-import { books, chapters, chapterTranslations } from "../schema.ts";
+import { books, chapters, chapterVariants } from "../schema.ts";
 import { eq } from "drizzle-orm";
 
 vi.mock("../lib/translate.ts", async (importOriginal) => {
@@ -18,7 +18,8 @@ vi.mock("../db.ts", async () => {
 });
 
 import { translate } from "./translate.ts";
-import { translateChunk, translateTitle, splitForTranslation } from "../lib/translate.ts";
+import { translateChunk, translateTitle } from "../lib/translate.ts";
+import { splitIntoChunks } from "../lib/transform.ts";
 import { subscribeTranslationLive, type TranslationLiveEvent } from "../lib/translate-live.ts";
 import { createHash } from "node:crypto";
 
@@ -41,10 +42,10 @@ async function insertFixture(
   const chapterId = crypto.randomUUID();
   await db.insert(chapters).values({ id: chapterId, bookId, index: 0, title: "Ch", rawText: SOURCE });
   const [row] = await db
-    .insert(chapterTranslations)
+    .insert(chapterVariants)
     .values({
       chapterId,
-      language: "Bulgarian",
+      key: "Bulgarian",
       status: opts?.status ?? "pending",
       text: opts?.text ?? "",
       progress: opts?.progress,
@@ -66,12 +67,12 @@ describe("translate worker", () => {
   it("translates all chunks and accumulates text", async () => {
     const db = getDb();
     const { bookId, translationId } = await insertFixture(db);
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     mockTranslateChunk.mockImplementation(async ({ text }) => `BG(${text.slice(0, 10)})`);
 
     await translate({ translationId, bookId }, helpers);
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.status).toBe("done");
     expect(row.progress).toBe(`${total}/${total}`);
     expect(row.text.split("\n\n")).toHaveLength(total);
@@ -81,7 +82,7 @@ describe("translate worker", () => {
   it("stops mid-run and keeps completed chunks when suspended", async () => {
     const db = getDb();
     const { bookId, translationId } = await insertFixture(db);
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     expect(total).toBeGreaterThan(1);
 
     let calls = 0;
@@ -89,16 +90,16 @@ describe("translate worker", () => {
       calls++;
       if (calls === 2) {
         await db
-          .update(chapterTranslations)
+          .update(chapterVariants)
           .set({ status: "suspended" })
-          .where(eq(chapterTranslations.id, translationId));
+          .where(eq(chapterVariants.id, translationId));
       }
       return `BG-${calls}`;
     });
 
     await translate({ translationId, bookId }, helpers);
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.status).toBe("suspended");
     expect(row.text).toBe("BG-1");
     expect(row.progress).toBe(`1/${total}`);
@@ -107,7 +108,7 @@ describe("translate worker", () => {
 
   it("resumes from saved progress without re-translating done chunks", async () => {
     const db = getDb();
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     const { bookId, translationId } = await insertFixture(db, {
       text: "BG-DONE-1",
       progress: `1/${total}`,
@@ -117,7 +118,7 @@ describe("translate worker", () => {
 
     await translate({ translationId, bookId }, helpers);
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.status).toBe("done");
     expect(row.text.startsWith("BG-DONE-1")).toBe(true);
     expect(mockTranslateChunk).toHaveBeenCalledTimes(total - 1);
@@ -130,15 +131,15 @@ describe("translate worker", () => {
 
     await translate({ translationId, bookId }, helpers);
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.status).toBe("done");
     expect(row.text.includes("STALE")).toBe(false);
-    expect(mockTranslateChunk).toHaveBeenCalledTimes(splitForTranslation(SOURCE).length);
+    expect(mockTranslateChunk).toHaveBeenCalledTimes(splitIntoChunks(SOURCE).length);
   });
 
   it("starts over when the source text changed since the partial was made", async () => {
     const db = getDb();
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     const { bookId, translationId } = await insertFixture(db, {
       text: "OLD-SOURCE-PARTIAL",
       progress: `1/${total}`,
@@ -148,7 +149,7 @@ describe("translate worker", () => {
 
     await translate({ translationId, bookId }, helpers);
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.status).toBe("done");
     expect(row.text.includes("OLD-SOURCE-PARTIAL")).toBe(false);
     expect(row.sourceHash).toBe(SOURCE_HASH);
@@ -162,7 +163,7 @@ describe("translate worker", () => {
     await translate({ translationId, bookId }, helpers);
 
     expect(mockTranslateChunk).not.toHaveBeenCalled();
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.status).toBe("suspended");
   });
 
@@ -170,9 +171,9 @@ describe("translate worker", () => {
     const db = getDb();
     const { bookId, translationId } = await insertFixture(db);
     await db
-      .update(chapterTranslations)
+      .update(chapterVariants)
       .set({ audioStatus: "pending" })
-      .where(eq(chapterTranslations.id, translationId));
+      .where(eq(chapterVariants.id, translationId));
     mockTranslateChunk.mockImplementation(async () => "BG");
 
     await translate({ translationId, bookId }, helpers);
@@ -201,7 +202,7 @@ describe("translate worker", () => {
 
     await translate({ translationId, bookId }, helpers);
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.title).toBe("Глава");
     expect(mockTranslateTitle).toHaveBeenCalledWith({
       title: "Ch",
@@ -212,18 +213,18 @@ describe("translate worker", () => {
 
   it("keeps an existing title when resuming", async () => {
     const db = getDb();
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     const { bookId, translationId } = await insertFixture(db, {
       text: "BG-DONE-1",
       progress: `1/${total}`,
       sourceHash: SOURCE_HASH,
     });
-    await db.update(chapterTranslations).set({ title: "Стара глава" }).where(eq(chapterTranslations.id, translationId));
+    await db.update(chapterVariants).set({ title: "Стара глава" }).where(eq(chapterVariants.id, translationId));
     mockTranslateChunk.mockImplementation(async () => "BG");
 
     await translate({ translationId, bookId }, helpers);
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.title).toBe("Стара глава");
     expect(mockTranslateTitle).not.toHaveBeenCalled();
   });
@@ -231,7 +232,7 @@ describe("translate worker", () => {
   it("stops writing when a newer run takes over the row", async () => {
     const db = getDb();
     const { bookId, translationId } = await insertFixture(db);
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     expect(total).toBeGreaterThan(1);
 
     let calls = 0;
@@ -239,16 +240,16 @@ describe("translate worker", () => {
       calls++;
       if (calls === 2) {
         await db
-          .update(chapterTranslations)
+          .update(chapterVariants)
           .set({ runToken: "newer-run" })
-          .where(eq(chapterTranslations.id, translationId));
+          .where(eq(chapterVariants.id, translationId));
       }
       return `BG-${calls}`;
     });
 
     await translate({ translationId, bookId }, helpers);
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.text).toBe("BG-1");
     expect(row.runToken).toBe("newer-run");
     expect(mockTranslateChunk).toHaveBeenCalledTimes(2);
@@ -275,7 +276,7 @@ describe("translate worker", () => {
     expect(events.filter((e) => e.type === "thinking").length).toBeGreaterThan(0);
     expect(events.at(-1)).toEqual({ type: "status", status: "done" });
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     const streamed = events.reduce(
       (text, e) => (e.type === "snapshot" ? e.text : e.type === "delta" ? text + e.text : text),
       "",
@@ -302,7 +303,7 @@ describe("translate worker", () => {
 
     await expect(translate({ translationId, bookId }, helpers)).rejects.toThrow("API down");
 
-    const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+    const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
     expect(row.status).toBe("failed");
     expect(row.error).toBe("API down");
   });

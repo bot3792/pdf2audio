@@ -30,6 +30,12 @@ export type ChapterRow = {
   cleanup?: { status: "pending" | "cleaning" | "done" | "failed" | "suspended"; progress?: string; error?: string } | null;
 };
 
+export type VariantRef = {
+  key: string;
+  kind: "translation" | "transform";
+  label: string | null;
+};
+
 export type FileInfo = {
   id: string;
   index: number;
@@ -50,9 +56,9 @@ export function ChapterTable({
   onSetSelected,
   onSetAllSelected,
   onSetSelectedBatch,
-  language,
-  languages,
-  onSwitchLanguage,
+  variant,
+  variants,
+  onSwitchVariant,
 }: {
   bookId: string;
   chapters: ChapterRow[];
@@ -63,10 +69,10 @@ export function ChapterTable({
   onSetSelected: (id: string, selected: boolean) => void;
   onSetAllSelected: (selected: boolean) => void;
   onSetSelectedBatch: (ids: string[], selected: boolean) => void;
-  // When set, the chapter modal shows this language's translation instead of the original
-  language?: string | null;
-  languages?: string[];
-  onSwitchLanguage?: (language: string | null) => void;
+  // When set, the chapter modal shows this variant's text instead of the original
+  variant?: VariantRef | null;
+  variants?: VariantRef[];
+  onSwitchVariant?: (key: string | null) => void;
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -446,7 +452,7 @@ export function ChapterTable({
                         onRename={onRename ? (title) => onRename(chapter.id, title) : undefined}
                         onClickTitle={() => setModalChapterIndex(chapters.indexOf(chapter))}
                       />
-                      {!language && chapter.cleanup?.status === "done" ? (
+                      {!variant && chapter.cleanup?.status === "done" ? (
                         <span
                           className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-emerald-100 text-emerald-600"
                           title="Cleaned by AI — the custom text holds the result"
@@ -503,7 +509,7 @@ export function ChapterTable({
                     </td>
                   )}
                   <td className="px-4 py-3">
-                    <ChapterStatusCell chapter={chapter} cleanup={language ? null : chapter.cleanup ?? null} />
+                    <ChapterStatusCell chapter={chapter} cleanup={variant ? null : chapter.cleanup ?? null} />
                   </td>
                   <td className="px-4 py-3 text-sm text-(--text-tertiary) text-right tabular-nums">
                     {chapter.wordCount.toLocaleString()}
@@ -641,9 +647,9 @@ export function ChapterTable({
           chapters={chapters}
           files={files}
           chapterIndex={modalChapterIndex}
-          language={language}
-          languages={languages}
-          onSwitchLanguage={onSwitchLanguage}
+          variant={variant}
+          variants={variants}
+          onSwitchVariant={onSwitchVariant}
           onClose={() => setModalChapterIndex(null)}
           onNavigate={setModalChapterIndex}
           onQueue={onQueue}

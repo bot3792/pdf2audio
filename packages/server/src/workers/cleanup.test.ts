@@ -19,7 +19,7 @@ vi.mock("../db.ts", async () => {
 
 import { cleanup } from "./cleanup.ts";
 import { cleanupChunk } from "../lib/cleanup.ts";
-import { splitForTranslation } from "../lib/translate.ts";
+import { splitIntoChunks } from "../lib/transform.ts";
 
 const mockCleanupChunk = vi.mocked(cleanupChunk);
 
@@ -54,7 +54,7 @@ describe("cleanup worker", () => {
   it("cleans all chunks and writes customText once with status done", async () => {
     const db = getDb();
     const { bookId, chapterId } = await insertFixture(db);
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     mockCleanupChunk.mockImplementation(async ({ text }) => `CLEAN(${text.slice(0, 10)})`);
 
     await cleanup({ chapterId, bookId });
@@ -82,7 +82,7 @@ describe("cleanup worker", () => {
   it("drops chunks that clean to empty", async () => {
     const db = getDb();
     const { bookId, chapterId } = await insertFixture(db);
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     expect(total).toBeGreaterThan(1);
     let calls = 0;
     mockCleanupChunk.mockImplementation(async () => (++calls === 1 ? "" : `CLEAN-${calls}`));
@@ -124,7 +124,7 @@ describe("cleanup worker", () => {
   it("stops mid-run without writing text when suspended", async () => {
     const db = getDb();
     const { bookId, chapterId } = await insertFixture(db);
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     expect(total).toBeGreaterThan(1);
 
     let calls = 0;
@@ -151,7 +151,7 @@ describe("cleanup worker", () => {
   it("stops writing when a newer run takes over the chapter", async () => {
     const db = getDb();
     const { bookId, chapterId } = await insertFixture(db);
-    const total = splitForTranslation(SOURCE).length;
+    const total = splitIntoChunks(SOURCE).length;
     expect(total).toBeGreaterThan(1);
 
     let calls = 0;

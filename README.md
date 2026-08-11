@@ -1,6 +1,6 @@
 # pdf2audio
 
-Turns PDF books into audiobooks — and more. Upload PDFs, pick a voice, and get chapter-marked MP3s, AI digests, translations, PDF/EPUB exports, and read-along synced EPUBs (audio + highlighted text) you can listen to offline on a phone.
+Turns PDF books into audiobooks — and more. Upload PDFs, pick a voice, and get chapter-marked MP3s, AI digests, translations, AI rewrites (ELI5, summaries, custom prompts), PDF/EPUB exports, and read-along synced EPUBs (audio + highlighted text) you can listen to offline on a phone.
 
 Built for local use on Apple Silicon Macs. Fully offline after the initial model downloads (AI features need a DeepSeek API key).
 
@@ -9,7 +9,7 @@ Built for local use on Apple Silicon Macs. Fully offline after the initial model
 - **PDF → audiobook**: chapter detection (deterministic tiers + optional LLM TOC detection), per-chapter TTS synthesis, single MP3 assembly with ID3v2 chapter markers.
 - **Raw-first uploads**: every upload gets instant `pdftotext` raw text; the slow Marker extraction (OCR-capable) is opt-in and can run later.
 - **Per-chapter control**: edit text, re-synthesize, include/exclude, suspend/queue, AI cleanup of OCR artifacts, manual or LLM-proposed chapter boundaries.
-- **Translations**: first-class per-language chapter variants (DeepSeek) with their own TTS audio and assemblies; the original text is always preserved. Translation streams live into the side-by-side view — you see the model's thinking, then the translated text token by token.
+- **Translations & transforms**: first-class per-chapter variants (DeepSeek) with their own TTS audio and assemblies; the original text is always preserved. A variant is either a translation (per language) or a rewrite — ELI5, shortened, summary, enriched-with-examples presets, or any custom prompt. Generation streams live into the side-by-side view — you see the model's thinking, then the text token by token.
 - **Ask AI + notes**: whole-book or per-chapter prompts; every answer is auto-saved as a note on the book, and any note can be appended to the book as a chapter of its own — ready to reorder and synthesize.
 - **Digest books**: select N books → one synthetic book with an AI summary chapter per source, ready to synthesize.
 - **External API**: plain JSON endpoints (`POST /api/books`, see `docs/synthetic-books-api.md`) so scripts and other projects can create synthetic books and chapters — with optional straight-to-audio synthesis. Ships with `scripts/hn-top10.mjs`, which turns any day's top Hacker News stories (via hckrnews.com archives) into a podcast-style book — one chapter per story, article text extracted with Defuddle, community reaction capped at 20%.
@@ -23,7 +23,7 @@ Built for local use on Apple Silicon Macs. Fully offline after the initial model
 ```
 Upload → rawExtract (pdftotext, seconds, always)
        → extract (Marker, opt-in, OCR-capable) → normalize → synthesize (TTS) → assemble → MP3
-       → translate → synthesizeTranslation → per-language assembly
+       → translate/transform → synthesizeTranslation → per-variant assembly
        → assembleDocument → PDF / EPUB / synced EPUB
 ```
 
@@ -69,7 +69,7 @@ All runtime data lives in `./data/` (gitignored, resolved relative to `packages/
 data/uploads/{bookId}/            Uploaded PDFs
 data/tmp/{bookId}/                Marker JSON output
 data/output/{bookId}/             Chapter MP3s + sync maps, assemblies, exported documents
-data/output/{bookId}/{lang}/      Translation audio
+data/output/{bookId}/{slug}/      Variant audio (language or transform slug)
 data/output/{bookId}/chunks/      Chunk WAV previews (disposable once sync maps exist)
 data/previews/                    Voice preview MP3s
 ```
@@ -87,7 +87,7 @@ data/previews/                    Voice preview MP3s
 - Bulgarian narrator — `pip install mlx numpy huggingface_hub` and `pip install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"`
 - Meta MMS Bulgarian — `pip install transformers torch`
 - KugelAudio narrator — `pip install mlx-audio`, then `pip install "transformers==4.57.6" "regex<2025.0.0"` (mlx-audio pulls transformers 5.x, which breaks marker-pdf)
-- Optional: a [DeepSeek](https://platform.deepseek.com/) API key for translation, cleanup, digests, Ask AI, and LLM chapter detection
+- Optional: a [DeepSeek](https://platform.deepseek.com/) API key for translation, rewrites, cleanup, digests, Ask AI, and LLM chapter detection
 
 ## Setup
 

@@ -3,20 +3,20 @@ import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 import { ChapterAiModal } from "./ChapterAiModal.tsx";
-import { TranslationModal } from "./TranslationModal.tsx";
+import { VariantModal } from "./VariantModal.tsx";
 import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
-import type { ChapterRow, FileInfo } from "./ChapterTable.tsx";
+import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
   bookId: string;
   chapters: ChapterRow[];
   files?: FileInfo[];
   chapterIndex: number;
-  // When set, the modal shows this language's translation: its text, chunk previews, and audio
-  language?: string | null;
-  languages?: string[];
-  onSwitchLanguage?: (language: string | null) => void;
+  // When set, the modal shows this variant's text, chunk previews, and audio
+  variant?: VariantRef | null;
+  variants?: VariantRef[];
+  onSwitchVariant?: (key: string | null) => void;
   onClose: () => void;
   onNavigate: (index: number) => void;
   onQueue: (id: string, resume?: boolean) => void;
@@ -39,9 +39,9 @@ export function ChapterModal({
   chapters,
   files,
   chapterIndex,
-  language,
-  languages,
-  onSwitchLanguage,
+  variant,
+  variants,
+  onSwitchVariant,
   onClose,
   onNavigate,
   onQueue,
@@ -77,17 +77,19 @@ export function ChapterModal({
     setIsEditing(false);
     setSelectedChunkPreviewUrl(null);
     setPdfPage(null);
-  }, [chapterIndex, language]);
+  }, [chapterIndex, variant?.key]);
 
-  const isTranslation = !!language;
+  const isVariant = !!variant;
+  const isTranslationKind = variant?.kind === "translation";
+  const variantName = variant ? variant.label ?? variant.key : null;
   const { data: originalChapter, isLoading: originalLoading } = trpc.chapters.get.useQuery(
     { id: chapter.id },
-    { enabled: !isTranslation, refetchInterval: chapter.status === "synthesizing" ? 1000 : false },
+    { enabled: !isVariant, refetchInterval: chapter.status === "synthesizing" ? 1000 : false },
   );
-  const { data: translationDetail, isLoading: translationLoading } = trpc.translations.detail.useQuery(
-    { chapterId: chapter.id, language: language! },
+  const { data: variantDetail, isLoading: variantLoading } = trpc.variants.detail.useQuery(
+    { chapterId: chapter.id, key: variant?.key ?? "" },
     {
-      enabled: isTranslation,
+      enabled: isVariant,
       retry: false,
       refetchInterval: (query) => {
         const s = query.state.data?.status;
@@ -95,17 +97,17 @@ export function ChapterModal({
       },
     },
   );
-  const fullChapter = isTranslation
-    ? translationDetail && {
-        rawText: translationDetail.text,
+  const fullChapter = isVariant
+    ? variantDetail && {
+        rawText: variantDetail.text,
         cleanText: null,
         customText: null,
         sourceBlocks: null,
         chunkTextSource: "raw" as const,
-        chunkPreviews: translationDetail.chunkPreviews,
+        chunkPreviews: variantDetail.chunkPreviews,
       }
     : originalChapter;
-  const isLoading = isTranslation ? translationLoading : originalLoading;
+  const isLoading = isVariant ? variantLoading : originalLoading;
   const utils = trpc.useUtils();
 
   useEffect(() => {
@@ -141,14 +143,14 @@ export function ChapterModal({
     },
   });
 
-  const refreshTranslations = () => {
-    utils.translations.detail.invalidate();
-    utils.translations.listForBook.invalidate();
-    utils.translations.languages.invalidate();
+  const refreshVariants = () => {
+    utils.variants.detail.invalidate();
+    utils.variants.listForBook.invalidate();
+    utils.variants.list.invalidate();
     utils.books.logs.invalidate();
   };
-  const startTranslationMutation = trpc.translations.start.useMutation({ onSuccess: refreshTranslations });
-  const stopTranslationMutation = trpc.translations.stop.useMutation({ onSuccess: refreshTranslations });
+  const startVariantMutation = trpc.variants.start.useMutation({ onSuccess: refreshVariants });
+  const stopVariantMutation = trpc.variants.stop.useMutation({ onSuccess: refreshVariants });
 
   const invalidateCleanup = () => {
     utils.books.get.invalidate();
@@ -174,19 +176,19 @@ export function ChapterModal({
     cleanupStatus === "done" ? "Re-clean" :
     "Cleanup (AI)";
 
-  const translationStatus = isTranslation ? translationDetail?.status : undefined;
-  const translationRunning = translationStatus === "pending" || translationStatus === "translating";
-  const translateLabel =
-    translationStatus === "suspended" ? "Resume" :
-    translationStatus === "failed" ? "Retry" :
-    translationStatus === "done" ? "Re-translate" :
-    "Translate";
+  const variantStatus = isVariant ? variantDetail?.status : undefined;
+  const variantRunning = variantStatus === "pending" || variantStatus === "translating";
+  const runLabel =
+    variantStatus === "suspended" ? "Resume" :
+    variantStatus === "failed" ? "Retry" :
+    variantStatus === "done" ? (isTranslationKind ? "Re-translate" : "Re-run") :
+    (isTranslationKind ? "Translate" : "Run");
 
-  function handleTranslate() {
-    startTranslationMutation.mutate({
+  function handleRunVariant() {
+    startVariantMutation.mutate({
       chapterId: chapter.id,
-      language: language!,
-      restart: translationStatus === "done",
+      key: variant!.key,
+      restart: variantStatus === "done",
     });
   }
 
@@ -277,7 +279,7 @@ export function ChapterModal({
               <span className="text-sm font-mono text-(--text-faint)">#{chapter.index + 1}</span>
               <h2 className="text-lg font-semibold text-(--text-primary) truncate">{chapter.title}</h2>
               <StatusBadge status={chapter.status} error={chapter.error} />
-              {!isTranslation && chapter.cleanup?.status === "done" ? (
+              {!isVariant && chapter.cleanup?.status === "done" ? (
                 <span
                   className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700"
                   title="Cleaned by AI — the custom text holds the result"
@@ -336,7 +338,7 @@ export function ChapterModal({
 
         <div className="flex items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
           {chapter.status === "done" && chapter.audioPath ? (
-            <audio key={`${chapter.id}-${language ?? "original"}`} controls preload="none" className="h-8 mr-2">
+            <audio key={`${chapter.id}-${variant?.key ?? "original"}`} controls preload="none" className="h-8 mr-2">
               <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} type="audio/mpeg" />
             </audio>
           ) : null}
@@ -354,7 +356,7 @@ export function ChapterModal({
             disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status) || chapter.synthesizable === false}
             title={
               chapter.synthesizable === false
-                ? "No finished translation for this chapter"
+                ? `No finished ${variantName} text for this chapter`
                 : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
                   ? "Can't re-synthesize while it's being processed"
                   : "Re-synthesize this chapter's audio from text (from scratch)"
@@ -371,7 +373,7 @@ export function ChapterModal({
           >
             Ask AI
           </button>
-          {!isTranslation ? (
+          {!isVariant ? (
             <>
               <button
                 onClick={() => queueCleanupMutation.mutate({ id: chapter.id })}
@@ -412,27 +414,27 @@ export function ChapterModal({
               ) : null}
             </>
           ) : null}
-          {isTranslation ? (
+          {isVariant ? (
             <>
               <button
-                onClick={handleTranslate}
-                disabled={translationRunning || startTranslationMutation.isPending}
+                onClick={handleRunVariant}
+                disabled={variantRunning || startVariantMutation.isPending}
                 title={
-                  translationRunning ? "Translation is running" :
-                  translationStatus === "suspended" ? "Continue from where it stopped" :
-                  translationStatus === "failed" ? "Retry the failed translation" :
-                  translationStatus === "done" ? "Discard this translation and translate again" :
-                  `Translate this chapter to ${language}`
+                  variantRunning ? `${variantName} is running` :
+                  variantStatus === "suspended" ? "Continue from where it stopped" :
+                  variantStatus === "failed" ? "Retry the failed run" :
+                  variantStatus === "done" ? `Discard this ${variantName} text and generate it again` :
+                  isTranslationKind ? `Translate this chapter to ${variantName}` : `Rewrite this chapter as ${variantName}`
                 }
                 className="text-xs px-2.5 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="chapter-translate"
               >
-                {translateLabel}
+                {runLabel}
               </button>
               <button
-                onClick={() => stopTranslationMutation.mutate({ chapterId: chapter.id, language: language! })}
-                disabled={!translationRunning || stopTranslationMutation.isPending}
-                title={translationRunning ? "Stop and keep everything translated so far" : "Nothing is running"}
+                onClick={() => stopVariantMutation.mutate({ chapterId: chapter.id, key: variant!.key })}
+                disabled={!variantRunning || stopVariantMutation.isPending}
+                title={variantRunning ? "Stop and keep everything generated so far" : "Nothing is running"}
                 className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
                 data-testid="chapter-translate-stop"
               >
@@ -440,52 +442,52 @@ export function ChapterModal({
               </button>
               <button
                 onClick={() => setShowCompare(true)}
-                title="Review original and translation side by side"
+                title="Review the original and this variant side by side"
                 className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium"
                 data-testid="chapter-compare"
               >
                 Compare
               </button>
-              {translationRunning ? (
+              {variantRunning ? (
                 <span className="text-xs text-blue-600" data-testid="chapter-translation-progress">
-                  Translating{translationDetail?.progress ? ` · ${translationDetail.progress} chunks` : ""}...
+                  {isTranslationKind ? "Translating" : "Rewriting"}{variantDetail?.progress ? ` · ${variantDetail.progress} chunks` : ""}...
                 </span>
-              ) : translationStatus === "failed" && translationDetail?.error ? (
-                <span className="text-xs text-red-600 truncate" title={translationDetail.error}>
-                  Failed: {translationDetail.error}
+              ) : variantStatus === "failed" && variantDetail?.error ? (
+                <span className="text-xs text-red-600 truncate" title={variantDetail.error}>
+                  Failed: {variantDetail.error}
                 </span>
               ) : null}
-              {startTranslationMutation.error || stopTranslationMutation.error ? (
+              {startVariantMutation.error || stopVariantMutation.error ? (
                 <span className="text-xs text-red-600 truncate">
-                  {(startTranslationMutation.error ?? stopTranslationMutation.error)?.message}
+                  {(startVariantMutation.error ?? stopVariantMutation.error)?.message}
                 </span>
               ) : null}
             </>
           ) : null}
           <div className="flex-1" />
-          {onSwitchLanguage && languages && languages.length > 0 && !isEditing ? (
+          {onSwitchVariant && variants && variants.length > 0 && !isEditing ? (
             <div className="flex items-center gap-1 mr-2" data-testid="modal-language-switcher">
               <button
-                onClick={() => onSwitchLanguage(null)}
+                onClick={() => onSwitchVariant(null)}
                 className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
-                  !language
+                  !variant
                     ? "bg-blue-600 border-blue-600 text-white"
                     : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
                 }`}
               >
                 Original
               </button>
-              {languages.map((l) => (
+              {variants.map((v) => (
                 <button
-                  key={l}
-                  onClick={() => onSwitchLanguage(l)}
+                  key={v.key}
+                  onClick={() => onSwitchVariant(v.key)}
                   className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
-                    language === l
+                    variant?.key === v.key
                       ? "bg-blue-600 border-blue-600 text-white"
                       : "border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle)"
                   }`}
                 >
-                  {l}
+                  {v.label ?? v.key}
                 </button>
               ))}
             </div>
@@ -517,7 +519,7 @@ export function ChapterModal({
                   Reset
                 </button>
               ) : null}
-              {fullChapter && !isTranslation ? (
+              {fullChapter && !isVariant ? (
                 <button
                   onClick={startEditing}
                   className="text-xs px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium"
@@ -568,9 +570,9 @@ export function ChapterModal({
                 sourceBlocks={fullChapter.sourceBlocks as SourceBlock[]}
                 onOpenPdf={sourceFile ? setPdfPage : undefined}
               />
-            ) : isTranslation && !fullChapter.rawText ? (
+            ) : isVariant && !fullChapter.rawText ? (
               <div className="flex items-center justify-center flex-1 text-sm text-(--text-muted)">
-                {translationRunning ? "Waiting for the first chunk..." : `No ${language} translation text yet.`}
+                {variantRunning ? "Waiting for the first chunk..." : `No ${variantName} text yet.`}
               </div>
             ) : (
               <TextPreview
@@ -585,16 +587,16 @@ export function ChapterModal({
                 onHoverChunk={setHoveredChunkUrl}
               />
             )
-          ) : isTranslation ? (
+          ) : isVariant ? (
             <div className="flex flex-col items-center justify-center gap-3 flex-1 text-sm text-(--text-muted)">
-              <span>No {language} translation for this chapter yet.</span>
+              <span>No {variantName} text for this chapter yet.</span>
               <button
-                onClick={handleTranslate}
-                disabled={startTranslationMutation.isPending}
+                onClick={handleRunVariant}
+                disabled={startVariantMutation.isPending}
                 className="text-xs px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50"
                 data-testid="chapter-translate-empty"
               >
-                {startTranslationMutation.isPending ? "Starting..." : `Translate to ${language}`}
+                {startVariantMutation.isPending ? "Starting..." : isTranslationKind ? `Translate to ${variantName}` : `Generate ${variantName}`}
               </button>
             </div>
           ) : (
@@ -618,15 +620,15 @@ export function ChapterModal({
           onClose={() => setShowAi(false)}
         />
       ) : null}
-      {showCompare && language ? (
-        <TranslationModal
+      {showCompare && variant ? (
+        <VariantModal
           bookId={bookId}
           chapters={chapters}
-          initialLanguage={language}
+          initialKey={variant.key}
           initialChapterId={chapter.id}
           onClose={() => {
             setShowCompare(false);
-            refreshTranslations();
+            refreshVariants();
           }}
         />
       ) : null}

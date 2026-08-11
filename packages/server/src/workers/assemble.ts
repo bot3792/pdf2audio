@@ -1,5 +1,5 @@
 import { db } from "../db.ts";
-import { chapters, books, assemblies, chapterTranslations } from "../schema.ts";
+import { chapters, books, assemblies, chapterVariants } from "../schema.ts";
 import { eq, asc, and } from "drizzle-orm";
 import { concatMp3s } from "../lib/ffmpeg.ts";
 import { writeChapterMarkers } from "../lib/id3-chapters.ts";
@@ -33,16 +33,16 @@ export async function assemble(payload: AssemblePayload) {
           id: chapters.id,
           index: chapters.index,
           title: chapters.title,
-          audioPath: chapterTranslations.audioPath,
-          durationMs: chapterTranslations.audioDurationMs,
-          audioStatus: chapterTranslations.audioStatus,
+          audioPath: chapterVariants.audioPath,
+          durationMs: chapterVariants.audioDurationMs,
+          audioStatus: chapterVariants.audioStatus,
         })
-        .from(chapterTranslations)
-        .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+        .from(chapterVariants)
+        .innerJoin(chapters, eq(chapterVariants.chapterId, chapters.id))
         .where(and(
           eq(chapters.bookId, bookId),
           eq(chapters.selected, true),
-          eq(chapterTranslations.language, language),
+          eq(chapterVariants.key, language),
         ))
         .orderBy(asc(chapters.index));
       selectedCount = rows.length;

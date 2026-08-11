@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { WorkerUtils } from "graphile-worker";
 import { and, asc, eq, isNotNull, ne, or, sql } from "drizzle-orm";
 import { db } from "../db.ts";
-import { books, bookFiles, bookChunks, chapters, chapterTranslations, type Book, type SearchIndexJob, type NewBookChunk } from "../schema.ts";
+import { books, bookFiles, bookChunks, chapters, chapterVariants, type Book, type SearchIndexJob, type NewBookChunk } from "../schema.ts";
 import { chunkPagedText, chunkPlainText, type ChunkDraft } from "../lib/search-chunks.ts";
 import { describeError } from "../lib/deepseek.ts";
 
@@ -109,17 +109,17 @@ export async function indexBook({ bookId }: IndexBookPayload, { addJob }: { addJ
     }
 
     const translations = await db
-      .select({ translation: chapterTranslations, chapter: chapters })
-      .from(chapterTranslations)
-      .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
-      .where(and(eq(chapters.bookId, bookId), eq(chapterTranslations.status, "done")));
+      .select({ translation: chapterVariants, chapter: chapters })
+      .from(chapterVariants)
+      .innerJoin(chapters, eq(chapterVariants.chapterId, chapters.id))
+      .where(and(eq(chapters.bookId, bookId), eq(chapterVariants.status, "done")));
     for (const { translation, chapter } of translations) {
       units.push({
         key: { translationId: translation.id, chapterId: translation.chapterId },
         keyColumn: bookChunks.translationId,
         keyValue: translation.id,
         source: "translation",
-        language: translation.language,
+        language: translation.key,
         text: translation.text,
         chunk: (text) => chunkPlainText(text, chapter.pageStart, chapter.pageEnd),
       });

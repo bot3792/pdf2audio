@@ -590,9 +590,9 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
                         <span
                           key={l.language}
                           className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border border-(--border) text-(--text-secondary)"
-                          title={`${l.done} of ${book.chapterCount} chapters translated to ${l.language}`}
+                          title={`${l.done} of ${book.chapterCount} chapters have ${l.label ?? l.language} text`}
                         >
-                          {l.language} {l.done}/{book.chapterCount}
+                          {l.label ?? l.language} {l.done}/{book.chapterCount}
                         </span>
                       ))}
                     </div>

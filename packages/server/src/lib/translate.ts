@@ -1,38 +1,5 @@
 import { deepseekChat, deepseekChatStream } from "./deepseek.ts";
 
-const MAX_CHUNK_CHARS = 2500;
-
-export function splitForTranslation(text: string): string[] {
-  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  const chunks: string[] = [];
-  let current = "";
-
-  const push = () => {
-    if (current) chunks.push(current);
-    current = "";
-  };
-
-  for (const paragraph of paragraphs) {
-    if (paragraph.length > MAX_CHUNK_CHARS) {
-      push();
-      let rest = paragraph;
-      while (rest.length > MAX_CHUNK_CHARS) {
-        const window = rest.slice(0, MAX_CHUNK_CHARS);
-        const breakAt = Math.max(window.lastIndexOf(". "), window.lastIndexOf("! "), window.lastIndexOf("? "));
-        const cut = breakAt > MAX_CHUNK_CHARS / 2 ? breakAt + 1 : MAX_CHUNK_CHARS;
-        chunks.push(rest.slice(0, cut).trim());
-        rest = rest.slice(cut).trim();
-      }
-      if (rest) chunks.push(rest);
-      continue;
-    }
-    if (current && current.length + paragraph.length + 2 > MAX_CHUNK_CHARS) push();
-    current = current ? `${current}\n\n${paragraph}` : paragraph;
-  }
-  push();
-  return chunks;
-}
-
 export type TranslateChunkArgs = {
   text: string;
   language: string;

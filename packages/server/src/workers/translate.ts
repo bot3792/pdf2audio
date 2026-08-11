@@ -1,7 +1,8 @@
 import { db } from "../db.ts";
-import { chapters, chapterTranslations } from "../schema.ts";
+import { chapters, chapterVariants } from "../schema.ts";
 import { eq, and, ne } from "drizzle-orm";
-import { splitForTranslation, translateChunk, translateTitle } from "../lib/translate.ts";
+import { translateTitle } from "../lib/translate.ts";
+import { chunksForVariant, variantChunkFn, variantLabel } from "../lib/transform.ts";
 import { describeError } from "../lib/deepseek.ts";
 import { appendLog } from "../lib/log.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -20,7 +21,7 @@ export async function translate(
 ) {
   const { translationId, bookId } = payload;
 
-  const [row] = await db.select().from(chapterTranslations).where(eq(chapterTranslations.id, translationId));
+  const [row] = await db.select().from(chapterVariants).where(eq(chapterVariants.id, translationId));
   if (!row) throw new Error(`Translation ${translationId} not found`);
   if (row.status === "suspended") return;
 
@@ -33,18 +34,18 @@ export async function translate(
   // updates match zero rows from here on, so duplicate jobs can't interleave text.
   const runToken = randomUUID();
   const transitioned = await db
-    .update(chapterTranslations)
+    .update(chapterVariants)
     .set({ status: "translating", error: null, runToken, updatedAt: new Date() })
-    .where(and(eq(chapterTranslations.id, translationId), ne(chapterTranslations.status, "suspended")))
-    .returning({ id: chapterTranslations.id });
+    .where(and(eq(chapterVariants.id, translationId), ne(chapterVariants.status, "suspended")))
+    .returning({ id: chapterVariants.id });
   if (transitioned.length === 0) {
     await chLog("Translation skipped (stopped before start)");
     return;
   }
   const owned = and(
-    eq(chapterTranslations.id, translationId),
-    ne(chapterTranslations.status, "suspended"),
-    eq(chapterTranslations.runToken, runToken),
+    eq(chapterVariants.id, translationId),
+    ne(chapterVariants.status, "suspended"),
+    eq(chapterVariants.runToken, runToken),
   );
 
   let live: TranslationLiveHandle | undefined;
@@ -52,7 +53,9 @@ export async function translate(
     const source = chapter.customText ?? chapter.cleanText ?? chapter.rawText;
     if (!source) throw new Error("Chapter has no text");
 
-    const chunks = splitForTranslation(source);
+    const label = variantLabel(row);
+    const runChunk = variantChunkFn(row);
+    const chunks = chunksForVariant(source, row);
     const sourceHash = createHash("sha256").update(source).digest("hex");
 
     // Resume only when the source is byte-identical to what the partial was translated from.
@@ -64,24 +67,24 @@ export async function translate(
     let translated = done > 0 ? row.text : "";
     const existingTitle = done > 0 ? row.title : null;
     if (done === 0) {
-      await db.update(chapterTranslations).set({ text: "", progress: null, title: null, sourceHash, updatedAt: new Date() })
+      await db.update(chapterVariants).set({ text: "", progress: null, title: null, sourceHash, updatedAt: new Date() })
         .where(owned);
     }
 
+    const isTranslation = row.kind === "translation";
     await chLog(
       done > 0
-        ? `Resuming translation to ${row.language} (${done}/${chunks.length} chunks done)`
-        : `Translating "${chapter.title}" to ${row.language} (${chunks.length} chunks)`,
+        ? `Resuming ${isTranslation ? `translation to ${label}` : `${label} rewrite`} (${done}/${chunks.length} chunks done)`
+        : `${isTranslation ? `Translating "${chapter.title}" to ${label}` : `Rewriting "${chapter.title}" as ${label}`} (${chunks.length} chunks)`,
     );
 
     live = beginTranslationLive(translationId, translated);
 
     for (let i = done; i < chunks.length; i++) {
       if (translated) live.append("\n\n");
-      const result = await translateChunk({
+      const result = await runChunk({
         text: chunks[i],
-        language: row.language,
-        previousTranslation: translated ? translated.slice(-1500) : undefined,
+        previousOutput: translated ? translated.slice(-1500) : undefined,
         onDelta: live.append,
         onThinking: live.think,
       });
@@ -90,10 +93,10 @@ export async function translate(
       live.sync(translated);
 
       const updated = await db
-        .update(chapterTranslations)
+        .update(chapterVariants)
         .set({ text: translated, progress: `${i + 1}/${chunks.length}`, updatedAt: new Date() })
         .where(owned)
-        .returning({ id: chapterTranslations.id });
+        .returning({ id: chapterVariants.id });
 
       if (updated.length === 0) {
         await chLog(`Translation stopped — kept ${i}/${chunks.length} chunks`);
@@ -102,29 +105,31 @@ export async function translate(
       }
     }
 
-    const title = existingTitle ?? await translateTitle({
-      title: chapter.title,
-      language: row.language,
-      translatedOpening: translated.slice(0, 1000),
-    });
+    const title = existingTitle ?? (isTranslation
+      ? await translateTitle({
+          title: chapter.title,
+          language: row.key,
+          translatedOpening: translated.slice(0, 1000),
+        })
+      : chapter.title);
 
     const [finished] = await db
-      .update(chapterTranslations)
+      .update(chapterVariants)
       .set({ status: "done", title, updatedAt: new Date() })
       .where(owned)
-      .returning({ audioStatus: chapterTranslations.audioStatus });
+      .returning({ audioStatus: chapterVariants.audioStatus });
     if (!finished) {
       await chLog(`Translation stopped — kept ${chunks.length}/${chunks.length} chunks`);
       live.end("suspended");
       return;
     }
     live.end("done");
-    await chLog(`Translation to ${row.language} done`);
+    await chLog(`${isTranslation ? `Translation to ${label}` : `${label} rewrite`} done`);
     await queueIndexBook(bookId);
 
-    // Synthesis queued while this translation was still running waits as audioStatus=pending
+    // Synthesis queued while this variant was still running waits as audioStatus=pending
     if (finished.audioStatus === "pending") {
-      await chLog(`Starting queued ${row.language} synthesis`);
+      await chLog(`Starting queued ${label} synthesis`);
       await addJob("synthesizeTranslation", { translationId, bookId }, { maxAttempts: 1 });
     }
   } catch (err) {
@@ -132,7 +137,7 @@ export async function translate(
     live?.end("failed", message);
     await chLog(`Translation failed: ${message}`);
     await db
-      .update(chapterTranslations)
+      .update(chapterVariants)
       .set({ status: "failed", error: message, updatedAt: new Date() })
       .where(owned);
     throw err;

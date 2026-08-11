@@ -1,5 +1,5 @@
 import { db } from "../db.ts";
-import { chapters, chapterTranslations } from "../schema.ts";
+import { chapters, chapterVariants } from "../schema.ts";
 import { eq, and, asc, isNull } from "drizzle-orm";
 import { translateTitle } from "../lib/translate.ts";
 import { describeError } from "../lib/deepseek.ts";
@@ -15,18 +15,19 @@ export async function translateTitles(payload: TranslateTitlesPayload) {
 
   const rows = await db
     .select({
-      id: chapterTranslations.id,
-      text: chapterTranslations.text,
+      id: chapterVariants.id,
+      text: chapterVariants.text,
       chapterTitle: chapters.title,
       chapterIndex: chapters.index,
     })
-    .from(chapterTranslations)
-    .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+    .from(chapterVariants)
+    .innerJoin(chapters, eq(chapterVariants.chapterId, chapters.id))
     .where(and(
       eq(chapters.bookId, bookId),
-      eq(chapterTranslations.language, language),
-      eq(chapterTranslations.status, "done"),
-      isNull(chapterTranslations.title),
+      eq(chapterVariants.key, language),
+      eq(chapterVariants.status, "done"),
+      eq(chapterVariants.kind, "translation"),
+      isNull(chapterVariants.title),
     ))
     .orderBy(asc(chapters.index));
 
@@ -43,9 +44,9 @@ export async function translateTitles(payload: TranslateTitlesPayload) {
         translatedOpening: row.text.slice(0, 1000),
       });
       await db
-        .update(chapterTranslations)
+        .update(chapterVariants)
         .set({ title, updatedAt: new Date() })
-        .where(and(eq(chapterTranslations.id, row.id), eq(chapterTranslations.status, "done")));
+        .where(and(eq(chapterVariants.id, row.id), eq(chapterVariants.status, "done")));
     } catch (err) {
       failed++;
       await appendLog(bookId, `[Ch ${row.chapterIndex + 1}] Title translation failed: ${describeError(err)}`);

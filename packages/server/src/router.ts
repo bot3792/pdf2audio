@@ -3,7 +3,7 @@ import { router } from "./trpc.ts";
 import { booksRouter } from "./routes/books.ts";
 import { chaptersRouter } from "./routes/chapters.ts";
 import { bookFilesRouter } from "./routes/bookFiles.ts";
-import { translationsRouter } from "./routes/translations.ts";
+import { variantsRouter } from "./routes/variants.ts";
 import { notesRouter } from "./routes/notes.ts";
 import { foldersRouter } from "./routes/folders.ts";
 import { profilesRouter } from "./routes/profiles.ts";
@@ -15,7 +15,7 @@ export const appRouter = router({
   profiles: profilesRouter,
   chapters: chaptersRouter,
   bookFiles: bookFilesRouter,
-  translations: translationsRouter,
+  variants: variantsRouter,
   notes: notesRouter,
   search: searchRouter,
 });

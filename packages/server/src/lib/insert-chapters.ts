@@ -1,5 +1,5 @@
 import { db } from "../db.ts";
-import { chapters, chapterTranslations, type ChapterSource } from "../schema.ts";
+import { chapters, chapterVariants, type ChapterSource } from "../schema.ts";
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { appendLog } from "./log.ts";
 
@@ -64,7 +64,7 @@ export async function resetChaptersKeepingInserted(bookId: string): Promise<numb
 
   if (kept.length > 0) {
     await db
-      .update(chapterTranslations)
+      .update(chapterVariants)
       .set({
         audioStatus: null,
         audioPath: null,
@@ -73,7 +73,7 @@ export async function resetChaptersKeepingInserted(bookId: string): Promise<numb
         audioError: null,
         synthesizedWith: null,
       })
-      .where(inArray(chapterTranslations.chapterId, kept.map((c) => c.id)));
+      .where(inArray(chapterVariants.chapterId, kept.map((c) => c.id)));
   }
 
   return kept.length;

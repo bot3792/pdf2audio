@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getDb, resetDb } from "../../test/setup.ts";
-import { books, chapters, chapterTranslations } from "../schema.ts";
+import { books, chapters, chapterVariants } from "../schema.ts";
 import { asc, eq } from "drizzle-orm";
 
 vi.mock("../db.ts", async () => {
@@ -36,9 +36,9 @@ describe("resetChaptersKeepingInserted", () => {
       },
       { bookId, index: 2, title: "Extracted too", rawText: "c", status: "suspended" },
     ]);
-    await db.insert(chapterTranslations).values({
+    await db.insert(chapterVariants).values({
       chapterId: noteChapterId,
-      language: "Bulgarian",
+      key: "Bulgarian",
       text: "превод",
       status: "done",
       audioPath: "/t.mp3",
@@ -61,8 +61,8 @@ describe("resetChaptersKeepingInserted", () => {
     });
     const [translation] = await db
       .select()
-      .from(chapterTranslations)
-      .where(eq(chapterTranslations.chapterId, noteChapterId));
+      .from(chapterVariants)
+      .where(eq(chapterVariants.chapterId, noteChapterId));
     expect(translation).toMatchObject({ text: "превод", status: "done", audioPath: null, audioStatus: null, audioDurationMs: null });
   });
 

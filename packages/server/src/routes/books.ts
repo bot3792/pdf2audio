@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
-import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterTranslations, folders, DEFAULT_PROFILE_ID } from "../schema.ts";
+import { books, bookFiles, chapters, bookLogs, assemblies, documents, chapterVariants, folders, DEFAULT_PROFILE_ID } from "../schema.ts";
 import type { Book, Chapter } from "../schema.ts";
 import { eq, desc, asc, gt, and, ne, inArray, ilike, sql } from "drizzle-orm";
 import { uploadsDir, bookOutputDir } from "../lib/paths.ts";
@@ -82,10 +82,10 @@ async function cleanableChunkDirs(bookId: string): Promise<string[]> {
     .where(and(eq(chapters.bookId, bookId), eq(chapters.status, "done")));
 
   const doneTranslations = await db
-    .select({ language: chapterTranslations.language, index: chapters.index })
-    .from(chapterTranslations)
-    .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
-    .where(and(eq(chapters.bookId, bookId), eq(chapterTranslations.audioStatus, "done")));
+    .select({ language: chapterVariants.key, index: chapters.index })
+    .from(chapterVariants)
+    .innerJoin(chapters, eq(chapterVariants.chapterId, chapters.id))
+    .where(and(eq(chapters.bookId, bookId), eq(chapterVariants.audioStatus, "done")));
 
   return [
     ...doneChapters.map((c) => chapterChunkPreviewDir(bookId, c.index)),
@@ -125,13 +125,14 @@ export const booksRouter = router({
 
     const translationAgg = (await db.execute(sql`
       SELECT c.book_id, ct.language,
+        min(ct.label) AS label,
         count(*) FILTER (WHERE ct.status = 'done')::int AS done,
         count(*) FILTER (WHERE ct.status IN ('translating', 'pending'))::int AS running,
         count(*) FILTER (WHERE ct.status = 'failed')::int AS failed,
         count(*) FILTER (WHERE ct.audio_status = 'synthesizing')::int AS audio_running
       FROM chapter_translations ct JOIN chapters c ON c.id = ct.chapter_id
       GROUP BY c.book_id, ct.language ORDER BY ct.language
-    `)) as unknown as Array<{ book_id: string; language: string; done: number; running: number; failed: number; audio_running: number }>;
+    `)) as unknown as Array<{ book_id: string; language: string; label: string | null; done: number; running: number; failed: number; audio_running: number }>;
 
     const assemblyAgg = (await db.execute(sql`
       SELECT book_id, count(*)::int AS count FROM assemblies GROUP BY book_id
@@ -206,7 +207,7 @@ export const booksRouter = router({
         failures,
         // Cancellations are deliberate — only real failures get the red badge (mirrors hard_failed)
         failed: book.status === "failed" && !(book.error ?? "").startsWith("Cancelled"),
-        languages: translations.map((t) => ({ language: t.language, done: t.done })),
+        languages: translations.map((t) => ({ language: t.language, label: t.label, done: t.done })),
         outputs: {
           assemblies: assembliesBy.get(book.id)?.[0]?.count ?? 0,
           pdfs: documentRows.find((d) => d.format === "pdf")?.count ?? 0,
@@ -973,13 +974,13 @@ export const booksRouter = router({
         if (input.language) {
           const rows = await db
             .select({ id: chapters.id })
-            .from(chapterTranslations)
-            .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+            .from(chapterVariants)
+            .innerJoin(chapters, eq(chapterVariants.chapterId, chapters.id))
             .where(and(
               eq(chapters.bookId, input.id),
               eq(chapters.selected, true),
-              eq(chapterTranslations.language, input.language),
-              eq(chapterTranslations.audioStatus, "done"),
+              eq(chapterVariants.key, input.language),
+              eq(chapterVariants.audioStatus, "done"),
             ));
           exportable = rows.length;
         } else {
@@ -997,13 +998,13 @@ export const booksRouter = router({
       } else if (input.language) {
         const rows = await db
           .select({ id: chapters.id })
-          .from(chapterTranslations)
-          .innerJoin(chapters, eq(chapterTranslations.chapterId, chapters.id))
+          .from(chapterVariants)
+          .innerJoin(chapters, eq(chapterVariants.chapterId, chapters.id))
           .where(and(
             eq(chapters.bookId, input.id),
             eq(chapters.selected, true),
-            eq(chapterTranslations.language, input.language),
-            eq(chapterTranslations.status, "done"),
+            eq(chapterVariants.key, input.language),
+            eq(chapterVariants.status, "done"),
           ));
         exportable = rows.length;
       } else {

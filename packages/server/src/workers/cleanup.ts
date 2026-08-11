@@ -1,7 +1,7 @@
 import { db } from "../db.ts";
 import { chapters, type ChapterCleanup } from "../schema.ts";
 import { and, eq, sql } from "drizzle-orm";
-import { splitForTranslation } from "../lib/translate.ts";
+import { splitIntoChunks } from "../lib/transform.ts";
 import { cleanupChunk } from "../lib/cleanup.ts";
 import { describeError } from "../lib/deepseek.ts";
 import { appendLog } from "../lib/log.ts";
@@ -54,7 +54,7 @@ export async function cleanup(payload: CleanupPayload) {
     const source = chapter.customText ?? chapter.cleanText ?? chapter.rawText;
     if (!source) throw new Error("Chapter has no text");
 
-    const chunks = splitForTranslation(source);
+    const chunks = splitIntoChunks(source);
     await chLog(`Cleaning "${chapter.title}" (${chunks.length} chunks)`);
 
     // Cleaned chunks accumulate in memory and land in customText in one final
