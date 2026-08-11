@@ -47,7 +47,7 @@ export function SourceChips({
         const chapterParam = source.chapterId ? `chapter=${source.chapterId}` : "";
         if (source.kind === "translation" && source.language) {
           return (
-            <Link key={source.id} to={`/books/${source.bookId}?lang=${source.language}${chapterParam ? `&${chapterParam}` : ""}`} target="_blank" rel="noopener noreferrer" className={chipClass}>
+            <Link key={source.id} to={`/books/${source.bookId}?variant=${encodeURIComponent(source.language)}${chapterParam ? `&${chapterParam}` : ""}`} target="_blank" rel="noopener noreferrer" className={chipClass}>
               {inner}
             </Link>
           );

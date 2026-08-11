@@ -1,5 +1,7 @@
 # Translation — state of play and next steps
 
+> **Historical (July 2026).** Superseded on 2026-08-11: translation infra was generalized into chapter *variants* (translations + AI rewrites — ELI5/shorten/summary/enrich/custom prompts). See AGENTS.md; the tRPC router is `variants`, the modal is `VariantModal`, the chunker is `lib/transform.ts` `splitIntoChunks`.
+
 Branch: `translation` (based on `main`). Everything below is committed and green:
 `pnpm build` passes, `pnpm test` in `packages/server` passes (115 tests).
 

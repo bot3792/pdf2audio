@@ -264,7 +264,7 @@ packages/web/src/
     use-body-scroll-lock.ts  Modal scroll lock hook
   pages/
     Home.tsx            Profile switcher, upload zone, search box, book/folder list, breadcrumbs
-    BookDetail.tsx      Per-book orchestration: staged sections (1 Input → 2 Work → 3 Output → danger zone), language view in ?lang= query param
+    BookDetail.tsx      Per-book orchestration: staged sections (1 Input → 2 Work → 3 Output → danger zone), variant view (translation or rewrite) in ?variant= query param
     Chat.tsx            Library chat: useChat + streaming /chat, folder (?folderId=) / book (?bookId=) scoping, source chips, saved answers
   components/
     BookFilesSection.tsx    Stage 1 card: source-file table, add files, re-extract, extraction settings
@@ -278,7 +278,7 @@ packages/web/src/
     ChapterModal.tsx    Chapter detail modal: view tabs, text editing, per-chapter actions
     ChapterAiModal.tsx  Ask-AI prompt modal per chapter/book (presets, model pick)
     StructureModal.tsx  Heading-outline structure view, manual boundaries, LLM proposals
-    TranslationModal.tsx Translation language start/progress modal
+    VariantModal.tsx    Variant start/progress modal: language + rewrite-preset + custom-prompt targets, live side-by-side view
     DigestModal.tsx     Create-digest modal (prompt presets, text-availability warnings + exclusion)
     FolderPickerModal.tsx Move-to-folder tree picker
     Breadcrumbs.tsx     Droppable folder breadcrumbs
@@ -316,7 +316,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 
 **bookFiles**: `setSelected` / `setSelectedBatch` / `setAllSelected` · `setSkipSynthesis` · `remove` · `reExtract` / `reExtractSelected` · `cancel`
 
-**translations**: `get` / `detail` / `listForBook` / `languages` · `start` / `stop` / `processSelectedTranslations` · `translateMissingTitles` · `queueAudio` / `processSelectedAudio` / `stopAudio` · `selectedAudioSize` / `deleteAudioSelected` · `assemble`
+**variants**: `presets` · `get` / `detail` / `listForBook` / `list` · `start` / `createTransform` / `stop` / `processSelected` · `translateMissingTitles` · `queueAudio` / `processSelectedAudio` / `stopAudio` · `selectedAudioSize` / `deleteAudioSelected` · `assemble` — all keyed by `key` (variant key), not `language`
 
 **folders**: `list` / `create` / `rename` / `move` / `path` / `deleteStats` / `delete` — profile-scoped; `move` rejects subtree cycles; `delete` is recursive (books via `deleteBook`)
 
@@ -362,7 +362,7 @@ Agentic RAG over the whole library (`/chat` page): DeepSeek iteratively calls se
 
 **Chat loop** (`chat-routes.ts` + `lib/chat-tools.ts` + `lib/citations.ts`): Vercel AI SDK `streamText` with the OpenAI-compatible provider pointed at DeepSeek, `stopWhen: stepCountIs(8)`, 3-min abort signal, 4096 max output tokens. Tools: `search_library` (hybrid search, registers hits in a per-request `CitationCatalog` as `c_1…` ids), `read_passage` (neighbor expansion by citation id), `list_books` (titles only). The model must cite `[c_N]` inline; after streaming, `verifySources()` keeps only catalog-known ids (toc-detect discipline — hallucinated ids are dropped) and emits one `data-sources` part the UI renders as chips. The catalog is re-seeded from prior messages' `data-sources` parts so follow-up turns can cite earlier ids. No server-side chat persistence — the transcript lives in `useChat` state; answers are saved via `notes.saveLibraryAnswer`.
 
-**Frontend** (`pages/Chat.tsx`, `components/chat/`): `useChat` + `DefaultChatTransport` against `/chat` (scope + model sent per message in the request body), folder-scope dropdown, model toggle, tool calls rendered as collapsed "Searched: …" lines, `[c_N]` markers rewritten to `[n]` numbering matching the source chips. Chip targets: raw → `PdfPreviewModal` (`/pdf/:fileId#page=N`), chapter with resolvable file+page → same, otherwise `/books/:bookId`; translation → `/books/:bookId?lang=xx`.
+**Frontend** (`pages/Chat.tsx`, `components/chat/`): `useChat` + `DefaultChatTransport` against `/chat` (scope + model sent per message in the request body), folder-scope dropdown, model toggle, tool calls rendered as collapsed "Searched: …" lines, `[c_N]` markers rewritten to `[n]` numbering matching the source chips. Chip targets: raw → `PdfPreviewModal` (`/pdf/:fileId#page=N`), chapter with resolvable file+page → same, otherwise `/books/:bookId`; translation/variant → `/books/:bookId?variant=<key>`.
 
 **Indexing lifecycle**: see Job Flow #10. Backfill all existing books with `pnpm backfill:index` (skips `search_index.status === "done"` unless `--force`). Page numbers for raw text rely on `pdftotext` form feeds surviving in `book_files.raw_text` — do not strip `\f` in `lib/pdf-raw-text.ts`.
 
