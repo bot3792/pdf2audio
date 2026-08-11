@@ -74,8 +74,7 @@ describe("buildReadaloudEpub", () => {
     expect(opf).toContain('<meta property="media:duration">0:00:05.000</meta>');
     expect(opf).toContain('<meta property="media:active-class">-epub-media-overlay-active</meta>');
     expect(opf).toContain('<itemref linear="yes" idref="titlepage"/>');
-    // trailing non-overlaid page — works around the Storyteller iOS last-item crash
-    expect(opf.trim()).toMatch(/<itemref linear="yes" idref="colophon"\/>\s*<\/spine>/);
+    expect(opf.trim()).toMatch(/<itemref linear="yes" idref="ch001"\/>\s*<\/spine>/);
 
 
     const xhtml = await zipEntry(outputPath, "OEBPS/ch000.xhtml");

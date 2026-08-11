@@ -136,7 +136,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **assemblies** — id (uuid), bookId (FK, cascade delete), outputPath, durationMs, chapterCount, chapterSummary, chapterIds (json array), createdAt
 
-**documents** — id (uuid), bookId (FK, cascade delete), language (null = original), format (`pdf` | `epub` | `epub-sync`), outputPath, chapterCount, chapterSummary, chapterIds (json array), createdAt. Written by the `assembleDocument` worker: `pdf`/`epub` render text via Vivliostyle CLI (first run downloads a rendering browser into the Vivliostyle cache); `epub-sync` is a read-along EPUB 3 with Media Overlays (audio + SMIL-highlighted text, built by `lib/readaloud-epub.ts` + system `zip`, playable in Storyteller/media-overlay readers). Layout mirrors the IDPF moby-dick sample (flat OEBPS, no `../` in SMIL refs); the spine ALWAYS ends with a non-overlaid `colophon.xhtml` — the Storyteller iOS app crashes (unchecked `readingOrder[index+1]`) if the last spine item has an overlay, so never remove it. If `READALOUD_DROP_DIR` env is set, finished exports are also copied there (pointed at `storyteller/data/import`, a Storyteller watch folder → books auto-import).
+**documents** — id (uuid), bookId (FK, cascade delete), language (null = original), format (`pdf` | `epub` | `epub-sync`), outputPath, chapterCount, chapterSummary, chapterIds (json array), createdAt. Written by the `assembleDocument` worker: `pdf`/`epub` render text via Vivliostyle CLI (first run downloads a rendering browser into the Vivliostyle cache); `epub-sync` is a read-along EPUB 3 with Media Overlays (audio + SMIL-highlighted text, built by `lib/readaloud-epub.ts` + system `zip`, playable in Storyteller/media-overlay readers). Layout mirrors the IDPF moby-dick sample (flat OEBPS, no `../` in SMIL refs). If `READALOUD_DROP_DIR` env is set, finished exports are also copied there (pointed at `storyteller/data/import`, a Storyteller watch folder → books auto-import).
 
 **Sync maps** — `ch000.sync.json` next to each chapter/translation MP3: per-chunk `{text, startMs, endMs}` (`lib/sync-map.ts`). Written by the synthesize workers after MP3 encode; backfilled on demand from chunk WAV durations (`ensureSyncMap`) during `epub-sync` export. Once the sync map exists, the chunk WAVs are disposable — the map + MP3 can rebuild read-along exports forever.
 
@@ -232,7 +232,7 @@ packages/server/src/
     id3-chapters.ts     MP3 chapter marker writing
     normalizer.ts       Text cleanup rules for TTS input
     sync-map.ts         Text↔audio timing maps (chNNN.sync.json) built from chunk WAV durations
-    readaloud-epub.ts   EPUB 3 Media Overlays builder for epub-sync exports (flat layout + colophon)
+    readaloud-epub.ts   EPUB 3 Media Overlays builder for epub-sync exports (flat layout)
     document-html.ts    HTML rendering for Vivliostyle document exports
     vivliostyle.ts      Vivliostyle CLI subprocess wrapper
     chunk-previews.ts   Chunk WAV preview listing + text locating (read-along in the web UI)
@@ -346,7 +346,7 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 
 ## Storyteller Companion (read-along on iPhone)
 
-`storyteller/docker-compose.yml` runs a self-hosted [Storyteller](https://storyteller-platform.dev/) server on port 8001 (secret key + admin credentials + library data in `storyteller/`, all gitignored). Its `/data/import` watch folder auto-imports synced EPUBs within seconds; `READALOUD_DROP_DIR` in `.env` points pdf2audio's epub-sync exports there (behind the "Copy to Storyteller import folder" checkbox, default off). The free Storyteller Reader iOS app connects to the server over the phone-hotspot tether (`http://172.20.10.2:8001` when the Mac tethers via USB), downloads books, and plays them offline with read-along highlighting. The Storyteller iOS app (≤2.11.3) crashes on readalouds whose last spine item has a media overlay — our exporter's trailing colophon page sidesteps this (fix reported upstream, MR !616).
+`storyteller/docker-compose.yml` runs a self-hosted [Storyteller](https://storyteller-platform.dev/) server on port 8001 (secret key + admin credentials + library data in `storyteller/`, all gitignored). Its `/data/import` watch folder auto-imports synced EPUBs within seconds; `READALOUD_DROP_DIR` in `.env` points pdf2audio's epub-sync exports there (behind the "Copy to Storyteller import folder" checkbox, default off). The free Storyteller Reader iOS app connects to the server over the phone-hotspot tether (`http://172.20.10.2:8001` when the Mac tethers via USB), downloads books, and plays them offline with read-along highlighting. Storyteller iOS builds ≤2.11.3 crash on readalouds whose last spine item has a media overlay; that's fixed upstream (our MR !616), so the exporter no longer appends the trailing colophon page it once used as a workaround — if downloads start crashing, update the app.
 
 ## Library Chat & Search Index
 

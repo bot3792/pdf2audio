@@ -102,26 +102,6 @@ function titlepageXhtml(title: string, lang: string): string {
 `;
 }
 
-// The Storyteller iOS app (BookService.swift getLocatorFor) subscripts readingOrder one past
-// the current chapter without a bounds check — if the LAST spine item has a media overlay,
-// every download crashes with SIGTRAP. A trailing non-overlaid page sidesteps it.
-function colophonXhtml(lang: string): string {
-  return `<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${lang}" lang="${lang}">
-<head>
-  <title>Colophon</title>
-  <link rel="stylesheet" type="text/css" href="css/style.css"/>
-</head>
-<body>
-  <section epub:type="backmatter colophon">
-    <p>Produced with pdf2audio.</p>
-  </section>
-</body>
-</html>
-`;
-}
-
 function navXhtml(title: string, chapters: { base: string; title: string }[], lang: string): string {
   const items = chapters
     .map((ch) => `      <li><a href="${ch.base}.xhtml">${esc(ch.title)}</a></li>`)
@@ -210,14 +190,12 @@ ${durations}
   <manifest>
     <item id="nav" properties="nav" href="nav.xhtml" media-type="application/xhtml+xml"/>
     <item id="titlepage" href="titlepage.xhtml" media-type="application/xhtml+xml"/>
-    <item id="colophon" href="colophon.xhtml" media-type="application/xhtml+xml"/>
 ${hasCover ? `    <item id="cover-image" properties="cover-image" href="images/cover.jpg" media-type="image/jpeg"/>\n` : ""}    <item id="style" href="css/style.css" media-type="text/css"/>
 ${manifest}
   </manifest>
   <spine>
     <itemref linear="yes" idref="titlepage"/>
 ${spine}
-    <itemref linear="yes" idref="colophon"/>
   </spine>
 </package>
 `;
@@ -260,7 +238,6 @@ export async function buildReadaloudEpub(opts: {
   await writeFile(path.join(stagingDir, "OEBPS", "package.opf"), packageOpf({ title, lang, hasCover, chapters: named }));
   await writeFile(path.join(stagingDir, "OEBPS", "nav.xhtml"), navXhtml(title, named, lang));
   await writeFile(path.join(stagingDir, "OEBPS", "titlepage.xhtml"), titlepageXhtml(title, lang));
-  await writeFile(path.join(stagingDir, "OEBPS", "colophon.xhtml"), colophonXhtml(lang));
   await writeFile(path.join(stagingDir, "OEBPS", "css", "style.css"), STYLE_CSS);
 
   for (const ch of named) {
