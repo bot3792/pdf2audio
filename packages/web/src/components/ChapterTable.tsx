@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { ChapterModal } from "./ChapterModal.tsx";
 import { ChapterAiModal } from "./ChapterAiModal.tsx";
@@ -69,6 +69,18 @@ export function ChapterTable({
   onSwitchLanguage?: (language: string | null) => void;
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link (?chapter=<id>, e.g. from chat citations) opens the chapter modal
+  useEffect(() => {
+    const target = searchParams.get("chapter");
+    if (!target || chapters.length === 0) return;
+    const idx = chapters.findIndex((c) => c.id === target);
+    if (idx >= 0) setModalChapterIndex(idx);
+    searchParams.delete("chapter");
+    setSearchParams(searchParams, { replace: true });
+  }, [chapters, searchParams, setSearchParams]);
+
   const [aiChapter, setAiChapter] = useState<{ id: string; title: string } | null>(null);
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; page: number; filename?: string } | null>(null);
   const toggleAllRef = useRef<HTMLInputElement>(null);
@@ -342,6 +354,7 @@ export function ChapterTable({
         <table className="w-full min-w-[56rem] divide-y divide-(--divide)">
           <thead className="bg-(--bg-subtle) sticky top-0 z-10">
             <tr>
+              {canDrag && <th className="w-8 px-2 py-3"></th>}
               <th className="px-3 py-3 w-10">
                 <input
                   ref={toggleAllRef}
@@ -351,7 +364,6 @@ export function ChapterTable({
                   className="rounded border-(--border-input) text-indigo-600 focus:ring-indigo-500"
                 />
               </th>
-              {canDrag && <th className="w-8 px-2 py-3"></th>}
               <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">#</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-(--text-muted) uppercase tracking-wider">Title</th>
               {isMultiFile && (
