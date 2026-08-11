@@ -7,6 +7,7 @@ import { getBookSummaryText } from "../lib/book-source-text.ts";
 import { estimateTokens, MODEL_CONTEXT_TOKENS } from "../lib/token-estimate.ts";
 import { saveNote } from "../lib/notes.ts";
 import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
+import { normalizeForTts } from "../lib/normalizer.ts";
 import { appendLog } from "../lib/log.ts";
 import { queueIndexBook } from "../lib/search-index.ts";
 
@@ -119,6 +120,7 @@ export async function digest(payload: DigestPayload) {
       [{
         title: source.title,
         text: result,
+        cleanText: normalizeForTts(result),
         pageStart: null,
         pageEnd: null,
         sourceBlocks: null,

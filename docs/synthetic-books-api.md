@@ -4,6 +4,8 @@ Plain JSON HTTP endpoints for creating books and chapters from scripts and other
 
 Base URL: the API server (default `http://localhost:3034`). Optional `x-profile-id` header scopes the book to a profile (same convention as the web app; omitted → default profile).
 
+Limits: 500 chapters per request (append for more), 5M chars per chapter text, 32MB request body.
+
 ## POST /api/books
 
 Create a synthetic book (`kind: "api"`), optionally with chapters in the same call.
@@ -25,7 +27,7 @@ Create a synthetic book (`kind: "api"`), optionally with chapters in the same ca
 - `client` — free-form identifier of the calling script; stored in `books.origin` and chapter sources.
 - `chapters[].url` — optional; when present the chapter gets a `{kind:"url"}` source and the UI renders a "source ↗" link. Without it the source is `{kind:"api"}`.
 - `synthesize: false` (default) — chapters arrive **suspended** for review in the web UI, like digest chapters.
-- `synthesize: true` — chapters are queued straight through normalize → TTS with the book's voice; poll `GET /api/books/:id` for audio readiness.
+- `synthesize: true` — chapters are queued straight to TTS with the book's voice (API text is normalized inline at insert — no worker roundtrip); poll `GET /api/books/:id` for audio readiness.
 
 Response `201`:
 
@@ -51,6 +53,8 @@ Status poll for scripts:
   ]
 }
 ```
+
+The API comfortably handles bulk imports — e.g. a scraped blog archive as one book with 1,500+ chapters (one per article), created with one `POST /api/books` and a few appends, batched to stay under the request caps. Importers for personal content live in their own repos next to the scraper that produces the files; this repo only hosts generic consumers.
 
 ## Example consumer: scripts/hn-top10.mjs
 

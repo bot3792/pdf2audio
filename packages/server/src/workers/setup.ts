@@ -77,9 +77,15 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
     concurrency: 1,
     taskList: {
       extract: wrapTask("extract", extract),
-      normalize: wrapTask("normalize", normalize),
       redetect: wrapTask("redetect", (payload) => redetect(payload as any)),
       propose: wrapTask("propose", (payload) => propose(payload as any)),
+    },
+  },
+  {
+    name: "prep", // milliseconds of regex; must never queue behind a marker or propose run
+    concurrency: 2,
+    taskList: {
+      normalize: wrapTask("normalize", normalize),
     },
   },
   {

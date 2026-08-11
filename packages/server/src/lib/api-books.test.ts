@@ -49,6 +49,7 @@ describe("createApiBook", () => {
 
     const rows = await db.select().from(chapters).where(eq(chapters.bookId, book.id)).orderBy(asc(chapters.index));
     expect(rows.map((r) => r.status)).toEqual(["suspended", "suspended"]);
+    expect(rows[0].cleanText).toBe("Chapter one text.");
     expect(rows[0].source).toEqual({ kind: "url", url: "https://example.com/one", title: "Story one" });
     expect(rows[1].source).toEqual({ kind: "api", client: "hn-top10" });
 
@@ -56,7 +57,7 @@ describe("createApiBook", () => {
     expect(mockQuickAddJob.mock.calls[0][1]).toBe("indexBook");
   });
 
-  it("queues normalize per chapter when synthesize is set", async () => {
+  it("queues synthesize directly when synthesize is set — chapters are pre-normalized", async () => {
     const db = getDb();
     const input = createBookInputSchema.parse({
       title: "HN",
@@ -68,8 +69,10 @@ describe("createApiBook", () => {
 
     const rows = await db.select().from(chapters).where(eq(chapters.bookId, book.id));
     expect(rows.map((r) => r.status)).toEqual(["pending", "pending"]);
-    const normalizeCalls = mockQuickAddJob.mock.calls.filter((c) => c[1] === "normalize");
-    expect(normalizeCalls).toHaveLength(2);
+    expect(rows.every((r) => r.cleanText !== null)).toBe(true);
+    const synthesizeCalls = mockQuickAddJob.mock.calls.filter((c) => c[1] === "synthesize");
+    expect(synthesizeCalls).toHaveLength(2);
+    expect(mockQuickAddJob.mock.calls.filter((c) => c[1] === "normalize")).toHaveLength(0);
   });
 
   it("rejects an unknown voice", async () => {

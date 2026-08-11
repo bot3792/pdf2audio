@@ -4,6 +4,7 @@ import { db } from "../db.ts";
 import { books, chapters, type ChapterSource } from "../schema.ts";
 import { and, asc, eq, gte, sql } from "drizzle-orm";
 import { insertSuspendedChapters } from "./insert-chapters.ts";
+import { normalizeForTts } from "./normalizer.ts";
 import { queueIndexBook } from "./search-index.ts";
 import { appendLog } from "./log.ts";
 import { parseTtsVoice } from "./tts.ts";
@@ -13,7 +14,7 @@ const connectionString = env.DATABASE_URL;
 
 export const chapterInputSchema = z.object({
   title: z.string().min(1).max(500),
-  text: z.string().min(1).max(2_000_000),
+  text: z.string().min(1).max(5_000_000),
   url: z.string().url().optional(),
 });
 
@@ -53,6 +54,8 @@ async function insertApiChapters(
     inputs.map((ch) => ({
       title: ch.title,
       text: ch.text,
+      // API text is already spoken prose — normalize inline so synthesis needs no worker roundtrip
+      cleanText: normalizeForTts(ch.text),
       pageStart: null,
       pageEnd: null,
       sourceBlocks: null,
@@ -71,7 +74,7 @@ async function insertApiChapters(
   if (synthesize && inserted.length > 0) {
     for (const ch of inserted) {
       await db.update(chapters).set({ status: "pending" }).where(eq(chapters.id, ch.id));
-      await quickAddJob({ connectionString }, "normalize", { chapterId: ch.id, bookId }, { maxAttempts: 1 });
+      await quickAddJob({ connectionString }, "synthesize", { chapterId: ch.id, bookId }, { maxAttempts: 1 });
     }
     await appendLog(bookId, `Queued ${inserted.length} chapter${inserted.length === 1 ? "" : "s"} for synthesis`);
   }

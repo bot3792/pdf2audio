@@ -5,7 +5,7 @@ import { appendLog } from "./log.ts";
 
 export async function insertSuspendedChapters(
   bookId: string,
-  detected: { title: string; text: string; pageStart: number | null; pageEnd: number | null; sourceBlocks: unknown; source?: ChapterSource }[],
+  detected: { title: string; text: string; cleanText?: string; pageStart: number | null; pageEnd: number | null; sourceBlocks: unknown; source?: ChapterSource }[],
   chapterOffset: number,
   sourceFileIndex: number | null,
 ) {
@@ -22,6 +22,7 @@ export async function insertSuspendedChapters(
         index: globalIndex,
         title: ch.title,
         rawText: ch.text,
+        ...(ch.cleanText ? { cleanText: ch.cleanText } : {}),
         pageStart: ch.pageStart,
         pageEnd: ch.pageEnd,
         sourceBlocks: ch.sourceBlocks,
