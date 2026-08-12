@@ -87,6 +87,9 @@ export function registerChatRoutes(fastify: FastifyInstance) {
           messages: await convertToModelMessages(messages),
           tools,
           stopWhen: stepCountIs(MAX_STEPS),
+          // Last step must produce text — otherwise a search-happy model burns
+          // all steps on tools and the stream ends with no answer at all
+          prepareStep: ({ stepNumber }) => (stepNumber >= MAX_STEPS - 1 ? { toolChoice: "none" } : undefined),
           abortSignal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
           maxOutputTokens: 4096,
         });
