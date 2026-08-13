@@ -21,6 +21,8 @@ type ChapterModalProps = {
   onNavigate: (index: number) => void;
   onQueue: (id: string, resume?: boolean) => void;
   onSetSelected: (id: string, selected: boolean) => void;
+  // Voice the next synthesis will use for this view (variant lane or book)
+  synthVoice?: string;
 };
 
 type SourceBlock = {
@@ -46,6 +48,7 @@ export function ChapterModal({
   onNavigate,
   onQueue,
   onSetSelected,
+  synthVoice,
 }: ChapterModalProps) {
   useBodyScrollLock();
   const chapter = chapters[chapterIndex];
@@ -359,12 +362,20 @@ export function ChapterModal({
                 ? `No finished ${variantName} text for this chapter`
                 : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
                   ? "Can't re-synthesize while it's being processed"
-                  : "Re-synthesize this chapter's audio from text (from scratch)"
+                  : `Re-synthesize this chapter's audio from text (from scratch)${synthVoice ? ` with ${getVoiceLabel(synthVoice)}` : ""}`
             }
             className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Re-synthesize
           </button>
+          {synthVoice ? (
+            <span
+              className="text-xs text-(--text-faint)"
+              title={`Next synthesis uses this voice — change it via "Synthesize selected" above the chapter table`}
+            >
+              {getVoiceLabel(synthVoice)}
+            </span>
+          ) : null}
           <button
             onClick={() => setShowAi(true)}
             title="Summarize, question, or run any prompt against this chapter's text"

@@ -415,4 +415,27 @@ describe("variants router", () => {
 
     await expect(caller.processSelected({ bookId, key: "custom-ghost" })).rejects.toThrow(/copy the prompt/);
   });
+
+  it("setVoice stores a per-variant voice and merges partial updates", async () => {
+    const db = getDb();
+    const { bookId } = await insertFixture(db);
+
+    await caller.setVoice({ bookId, key: "Bulgarian", voice: "bg-mlx:narrator" });
+    await caller.setVoice({ bookId, key: "Bulgarian", speed: 1.2 });
+    await caller.setVoice({ bookId, key: "eli5", voice: "af_bella" });
+
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(book.variantVoices).toEqual({
+      Bulgarian: { voice: "bg-mlx:narrator", speed: 1.2 },
+      eli5: { voice: "af_bella" },
+    });
+    expect(book.voice).toBe("af_heart");
+  });
+
+  it("setVoice rejects unknown voice ids", async () => {
+    const db = getDb();
+    const { bookId } = await insertFixture(db);
+
+    await expect(caller.setVoice({ bookId, key: "Bulgarian", voice: "not-a-voice" })).rejects.toThrow(/Unsupported voice/);
+  });
 });

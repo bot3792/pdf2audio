@@ -222,6 +222,7 @@ export function BookDetail() {
   const assembleVariantMutation = trpc.variants.assemble.useMutation({ onSuccess: invalidateVariants });
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
+  const setVariantVoiceMutation = trpc.variants.setVoice.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
   const invalidateAudioSizes = () => {
     utils.books.diskUsage.invalidate({ bookId: id! });
@@ -807,6 +808,7 @@ export function BookDetail() {
               variant={activeLane ?? (activeVariant ? { key: activeVariant, kind: "translation" as const, label: null } : null)}
               variants={variantLanes.map((l) => ({ key: l.key, label: l.label, kind: l.kind }))}
               onSwitchVariant={setActiveVariant}
+              synthVoice={(activeVariant && book.variantVoices?.[activeVariant]?.voice) || book.voice}
             />
             </>
           )}
@@ -1013,10 +1015,18 @@ export function BookDetail() {
           <SynthesizeModal
             count={selectedSynthesizable}
             language={activeLabel}
-            voice={book.voice}
-            speed={book.speed}
-            onChangeVoice={(voice) => updateSettingsMutation.mutate({ id: book.id, voice })}
-            onChangeSpeed={(speed) => updateSettingsMutation.mutate({ id: book.id, speed })}
+            voice={(activeVariant && book.variantVoices?.[activeVariant]?.voice) || book.voice}
+            speed={(activeVariant && book.variantVoices?.[activeVariant]?.speed) || book.speed}
+            onChangeVoice={(voice) =>
+              activeVariant
+                ? setVariantVoiceMutation.mutate({ bookId: book.id, key: activeVariant, voice })
+                : updateSettingsMutation.mutate({ id: book.id, voice })
+            }
+            onChangeSpeed={(speed) =>
+              activeVariant
+                ? setVariantVoiceMutation.mutate({ bookId: book.id, key: activeVariant, speed })
+                : updateSettingsMutation.mutate({ id: book.id, speed })
+            }
             canStart={canProcess && !processSelectedMutation.isPending && !processSelectedAudioMutation.isPending}
             disabledReason={
               selectedSynthesizable === 0 ? (activeVariant ? `No selected chapters have ${activeLabel} text ready or underway` : "No selected chapters are ready for synthesis") :

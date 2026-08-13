@@ -69,6 +69,9 @@ export type VariantParams = {
   mode?: "chunked" | "whole";
 };
 
+// Per-lane (variant key) voice/speed overrides; absent fields fall back to books.voice/speed
+export type VariantVoices = Record<string, { voice?: string; speed?: number }>;
+
 // Snapshot title so the link label survives source deletion
 export type ChapterSource =
   | { kind: "book"; bookId: string; title: string }
@@ -107,6 +110,7 @@ export const books = pgTable("books", {
   }).notNull().default("pending"),
   voice: text("voice").notNull().default("af_heart"),
   speed: real("speed").notNull().default(1.0),
+  variantVoices: jsonb("variant_voices").$type<VariantVoices>(),
   error: text("error"),
   forceOcr: boolean("force_ocr").notNull().default(false),
   llmChapterDetection: boolean("llm_chapter_detection").notNull().default(false),

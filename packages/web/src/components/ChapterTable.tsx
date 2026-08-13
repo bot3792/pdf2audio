@@ -59,6 +59,7 @@ export function ChapterTable({
   variant,
   variants,
   onSwitchVariant,
+  synthVoice,
 }: {
   bookId: string;
   chapters: ChapterRow[];
@@ -73,6 +74,8 @@ export function ChapterTable({
   variant?: VariantRef | null;
   variants?: VariantRef[];
   onSwitchVariant?: (key: string | null) => void;
+  // Voice the next synthesis will use for this view (variant lane or book)
+  synthVoice?: string;
 }) {
   const [modalChapterIndex, setModalChapterIndex] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -654,6 +657,7 @@ export function ChapterTable({
           onNavigate={setModalChapterIndex}
           onQueue={onQueue}
           onSetSelected={onSetSelected}
+          synthVoice={synthVoice}
         />
       ) : null}
 

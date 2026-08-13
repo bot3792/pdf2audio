@@ -72,6 +72,10 @@ export async function synthesizeTranslation(
     const [book] = await db.select().from(books).where(eq(books.id, bookId));
     if (!book) throw new Error(`Book ${bookId} not found`);
 
+    const lane = book.variantVoices?.[current.key];
+    const voice = lane?.voice ?? book.voice;
+    const speed = lane?.speed ?? book.speed;
+
     const slug = languageSlug(current.key);
     const label = variantLabel(current);
     const wordCount = text.split(/\s+/).filter(Boolean).length;
@@ -118,8 +122,8 @@ export async function synthesizeTranslation(
     await ttsSynthesize({
       inputText: text,
       outputPath: wavPath,
-      voice: book.voice,
-      speed: book.speed,
+      voice,
+      speed,
       chunkPreviewDir,
       chunkPreviewUrlBase,
       log: chLog,
@@ -169,8 +173,8 @@ export async function synthesizeTranslation(
         audioStatus: "done",
         audioProgress: null,
         synthesizedWith: {
-          voice: book.voice,
-          speed: voiceSupportsSpeed(book.voice) ? book.speed : null,
+          voice,
+          speed: voiceSupportsSpeed(voice) ? speed : null,
         },
         updatedAt: new Date(),
       })

@@ -1,0 +1,1 @@
+ALTER TABLE "books" ADD COLUMN "variant_voices" jsonb;

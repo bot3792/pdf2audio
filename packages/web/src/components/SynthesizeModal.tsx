@@ -54,8 +54,10 @@ export function SynthesizeModal({
             disabled={!voiceSupportsSpeedControl(voice)}
           />
           <p className="text-xs text-(--text-muted)">
-            Voice and speed are saved on the book and apply to every chapter synthesized from now on
-            {language ? `, including ${language} audio` : ""}. Chapters that already have audio keep it until re-synthesized.
+            {language
+              ? `Voice and speed are saved for the ${language} variant only — the original and other variants keep their own.`
+              : "Voice and speed are saved on the book and apply to the original audio; variants without a voice of their own follow it."}{" "}
+            Chapters that already have audio keep it until re-synthesized.
           </p>
         </div>
 

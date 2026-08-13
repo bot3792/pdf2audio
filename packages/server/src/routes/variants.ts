@@ -2,6 +2,7 @@ import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, chapters, chapterVariants, type VariantParams } from "../schema.ts";
+import { parseTtsVoice } from "../lib/tts.ts";
 import { eq, and, inArray, sql, asc } from "drizzle-orm";
 import { quickAddJob } from "graphile-worker";
 import { appendLog } from "../lib/log.ts";
@@ -393,6 +394,27 @@ export const variantsRouter = router({
         { maxAttempts: 1, jobKey: `translateTitles:${input.bookId}:${input.key}` },
       );
       return { queued: rows.length };
+    }),
+
+  setVoice: publicProcedure
+    .input(z.object({
+      bookId: z.string().uuid(),
+      key: z.string().min(1),
+      voice: z.string().min(1).optional(),
+      speed: z.number().min(0.5).max(2.0).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      if (input.voice !== undefined) parseTtsVoice(input.voice);
+      const [book] = await db.select().from(books).where(eq(books.id, input.bookId));
+      if (!book) throw new Error("Book not found");
+      const lane = {
+        ...book.variantVoices?.[input.key],
+        ...(input.voice !== undefined ? { voice: input.voice } : {}),
+        ...(input.speed !== undefined ? { speed: input.speed } : {}),
+      };
+      const variantVoices = { ...book.variantVoices, [input.key]: lane };
+      await db.update(books).set({ variantVoices, updatedAt: new Date() }).where(eq(books.id, input.bookId));
+      return lane;
     }),
 
   queueAudio: publicProcedure
