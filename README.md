@@ -76,37 +76,22 @@ data/previews/                    Voice preview MP3s
 
 ## Prerequisites
 
+An Apple Silicon Mac (the MLX TTS engines need Metal) with:
+
+- Homebrew packages: `brew install ffmpeg poppler espeak-ng python@3.12`
 - Node.js >= 20 and pnpm
-- Python 3.10+ with a conda environment (or global pip)
-- Docker (for Postgres and optionally Storyteller)
-- FFmpeg — `brew install ffmpeg`
-- poppler (`pdftotext`) — `brew install poppler`
-- espeak-ng — `brew install espeak-ng`
-- Marker — `pip install marker-pdf==1.8.5`
-- Kokoro — `pip install kokoro soundfile`
-- Bulgarian narrator — `pip install mlx numpy huggingface_hub` and `pip install "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"`
-- Meta MMS Bulgarian — `pip install transformers torch`
-- KugelAudio narrator — `pip install mlx-audio`, then `pip install "transformers==4.57.6" "regex<2025.0.0"` (mlx-audio pulls transformers 5.x, which breaks marker-pdf)
+- Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (for Postgres and optionally Storyteller)
 - Optional: a [DeepSeek](https://platform.deepseek.com/) API key for translation, rewrites, cleanup, digests, Ask AI, and LLM chapter detection
 
 ## Setup
 
 ```bash
-# Clone and install everything
-pnpm setup
-
-# Copy env file (defaults work out of the box; add DEEPSEEK_API_KEY for AI features)
-cp .env.example .env
-
-# Start Postgres
-pnpm db:up
-
-# Run migrations
-pnpm db:migrate
-
-# Start dev servers (server on :3034, web on :3033)
-pnpm dev
+git clone https://github.com/subev/pdf2audio.git && cd pdf2audio
+pnpm run setup    # checks deps, builds .venv (pinned Python deps), caches models, starts Postgres, migrates
+pnpm dev          # server on :3034, web on :3033
 ```
+
+`pnpm run setup` is idempotent — rerun it after failures. (Note: it must be `pnpm run setup`; bare `pnpm setup` triggers pnpm's unrelated builtin.) It creates `.env` with working defaults and skips the ~17 GB KugelAudio narrator download unless you answer yes (or run `pnpm run setup --kugel`). Python packages install into a repo-local `.venv` from `scripts/requirements.txt` (pinned to a known-good set; point `CONDA_ENV_PATH` in `.env` at another env's `bin` dir if you manage your own). Add `DEEPSEEK_API_KEY` to `.env` for the AI features.
 
 ### Optional: Storyteller companion (read-along on a phone)
 
@@ -128,7 +113,7 @@ pnpm db:up            # Start Postgres in Docker
 pnpm db:down          # Stop Postgres
 pnpm db:generate      # Generate Drizzle migration from schema changes
 pnpm db:migrate       # Apply migrations
-pnpm setup            # Full setup (system deps check, Python/Node deps, data dirs)
+pnpm run setup        # Full setup (deps check, .venv + pinned Python deps, model caching, Postgres + migrations)
 pnpm jobs             # Show Graphile Worker queue status
 pnpm jobs:clear       # Delete all queued jobs
 cd packages/server && pnpm test   # Server test suite (spins up template DB, runs migrations)
@@ -137,8 +122,9 @@ cd packages/server && pnpm test   # Server test suite (spins up template DB, run
 ## Notes
 
 - Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.
-- The Kokoro model (`hexgrad/Kokoro-82M`, 82M params, Apache-2.0) auto-downloads on first run; `HF_HUB_OFFLINE=1` is set afterwards, so models must be cached before offline use.
+- Every TTS/extraction subprocess runs with `HF_HUB_OFFLINE=1`, so models never download at synthesis time — `pnpm run setup` caches them all up front (Kokoro-82M, Marker/Surya, BG-TTS V5, MMS Bulgarian, BGE-M3).
+- The first PDF/EPUB export downloads a rendering browser (~350 MB) into the Vivliostyle cache.
 - The Bulgarian-capable narrators are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, and `KugelAudio (7B, 24 EU languages)`; Bulgarian voice speed is fixed (UI disables the slider).
-- KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm setup` downloads and converts it. ~1.5x realtime on an M4 Pro.
+- KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm run setup --kugel` downloads and converts it. ~1.5x realtime on an M4 Pro.
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.
 - Best Kokoro voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).

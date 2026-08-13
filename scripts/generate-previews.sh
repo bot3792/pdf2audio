@@ -2,10 +2,11 @@
 set -e
 
 PREVIEW_TEXT="The quick brown fox jumps over the lazy dog. A wonderful serenity has taken possession of my entire soul, like these sweet mornings of spring which I enjoy with my whole heart."
-DATA_DIR="${DATA_DIR:-./data}"
-PREVIEWS_DIR="$DATA_DIR/previews"
-CONDA_BIN="${CONDA_ENV_PATH:-/Users/petur/miniconda3/envs/pdf2audio/bin}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DATA_DIR="${DATA_DIR:-$SCRIPT_DIR/../packages/server/data}"
+PREVIEWS_DIR="$DATA_DIR/previews"
+CONDA_BIN="${CONDA_ENV_PATH:-$SCRIPT_DIR/../.venv/bin}"
+[ -x "$CONDA_BIN/python" ] || { echo "Python env not found at $CONDA_BIN — run scripts/setup.sh or set CONDA_ENV_PATH"; exit 1; }
 
 mkdir -p "$PREVIEWS_DIR"
 

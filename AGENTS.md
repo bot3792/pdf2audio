@@ -40,7 +40,7 @@ pnpm monorepo with two packages:
 
 Postgres runs in Docker (`docker-compose.yml` at root), mapped to host port **5433** (not 5432, to avoid conflicts).
 
-Environment variables are managed via `.env` at the repo root (gitignored), with `.env.example` as template. The server loads env via `dotenv` in `packages/server/src/env.ts`, validated through a Zod schema. All server code imports the typed `env` object — never reads `process.env` directly. Vars: `DATABASE_URL`, `DATA_DIR`, `PORT`, `CONDA_ENV_PATH`, optional `DEEPSEEK_API_KEY` (all AI features), optional `READALOUD_DROP_DIR` (synced-EPUB drop folder for Storyteller auto-import).
+Environment variables are managed via `.env` at the repo root (gitignored), with `.env.example` as template. The server loads env via `dotenv` in `packages/server/src/env.ts`, validated through a Zod schema. All server code imports the typed `env` object — never reads `process.env` directly. Vars: `DATABASE_URL`, `DATA_DIR`, `PORT`, `CONDA_ENV_PATH` (Python env bin dir; default `<repo>/.venv/bin`, created by `scripts/setup.sh`), optional `DEEPSEEK_API_KEY` (all AI features), optional `READALOUD_DROP_DIR` (synced-EPUB drop folder for Storyteller auto-import).
 
 ## The Pipeline
 
@@ -358,7 +358,7 @@ Agentic RAG over the whole library (`/chat` page): DeepSeek iteratively calls se
 
 **Retrieval** (`lib/search.ts`): one SQL statement fuses a Postgres FTS leg (`websearch_to_tsquery('simple', …)`, `ts_rank_cd`) and a pgvector leg (`embedding <=> query`, HNSW, `SET LOCAL hnsw.iterative_scan = 'relaxed_order'`) with reciprocal rank fusion (k=60, top 50 per leg). `groupHits()` then collapses near-duplicates in JS: max 2 passages per source unit, prefers the query's script (Cyrillic heuristic) among close-scoring language twins, drops raw-text hits whose pages duplicate an extracted chapter hit, caps 3 hits per book. Falls back to FTS-only when the embedder is down (`embedQuery` returns null). `expandPassage()` merges adjacent chunks via true char offsets (overlap deduped) for the `read_passage` tool.
 
-**Embeddings** (`lib/embeddings.ts` + `scripts/embed_bge_m3.py`): BGE-M3 (multilingual, 1024-dim normalized dense vectors) as a lazy singleton child process in the conda env — JSON-lines `{id, texts[]} → {id, vectors[][]}` over stdin/stdout, kokoro-style spawn env (`HF_HUB_OFFLINE=1`), restart on crash, idle-kill after 5 min. Batch timeout 5 min, query timeout 20s (chat degrades to keyword search, never blocks).
+**Embeddings** (`lib/embeddings.ts` + `scripts/embed_bge_m3.py`): BGE-M3 (multilingual, 1024-dim normalized dense vectors) as a lazy singleton child process in the Python env — JSON-lines `{id, texts[]} → {id, vectors[][]}` over stdin/stdout, kokoro-style spawn env (`HF_HUB_OFFLINE=1`), restart on crash, idle-kill after 5 min. Batch timeout 5 min, query timeout 20s (chat degrades to keyword search, never blocks).
 
 **Chat loop** (`chat-routes.ts` + `lib/chat-tools.ts` + `lib/citations.ts`): Vercel AI SDK `streamText` with the OpenAI-compatible provider pointed at DeepSeek, `stopWhen: stepCountIs(8)`, 3-min abort signal, 4096 max output tokens, and a `prepareStep` that forces `toolChoice: "none"` on the last step so the turn always ends with a text answer instead of closing silently after tool calls. Tools: `search_library` (hybrid search, registers hits in a per-request `CitationCatalog` as `c_1…` ids), `read_passage` (neighbor expansion by citation id), `list_books` (titles only). The model must cite `[c_N]` inline; after streaming, `verifySources()` keeps only catalog-known ids (toc-detect discipline — hallucinated ids are dropped) and emits one `data-sources` part the UI renders as chips. The catalog is re-seeded from prior messages' `data-sources` parts so follow-up turns can cite earlier ids. No server-side chat persistence — the transcript lives in `useChat` state; answers are saved via `notes.saveLibraryAnswer`.
 
@@ -402,7 +402,7 @@ Intentionally minimal — Kokoro handles numbers/dates/abbreviations natively. W
 - **510 phoneme limit**: Voice pack tensor has 510 entries (indices 0-509). `en_tokenize` can produce chunks >510 chars. `synthesize.py` splits oversized chunks at space boundaries to stay within limits.
 - Uses MPS (Metal Performance Shaders) for Apple Silicon GPU acceleration
 - Subprocess timeout: **3 hours** (configurable in `lib/kokoro.ts`)
-- Env vars: `PYTORCH_ENABLE_MPS_FALLBACK=1`, `HF_HUB_OFFLINE=1`, conda env path via `CONDA_ENV_PATH`
+- Env vars: `PYTORCH_ENABLE_MPS_FALLBACK=1`, `HF_HUB_OFFLINE=1`, Python env path via `CONDA_ENV_PATH`
 - Outputs WAV at 24kHz, FFmpeg converts to MP3
 - 54 voices across 9 languages. Best: af_heart (A), af_bella (A-), bf_emma (B-)
 - Emits JSON progress per chunk to stdout: `{"type": "chunks", "total": N}` then `{"type": "progress", "chunk": 1, "totalChunks": N, "audioSeconds": 3.2}`
@@ -443,7 +443,7 @@ pnpm db:up            # Start Postgres in Docker (port 5433)
 pnpm db:down          # Stop Postgres
 pnpm db:generate      # Generate Drizzle migration from schema changes
 pnpm db:migrate       # Apply migrations
-pnpm setup            # Full setup (system deps check, Python/Node deps, data dirs)
+pnpm run setup        # Full setup (deps check, .venv + pinned Python deps, model caching, Postgres + migrations); bare `pnpm setup` hits pnpm's builtin
 pnpm jobs             # Show Graphile Worker queue status (pending/running/failed)
 pnpm jobs:clear       # Delete all jobs from the Graphile Worker queue
 pnpm backfill:index   # Queue search indexing for all books (skips done; --force redoes)
@@ -458,7 +458,7 @@ pnpm backfill:index   # Queue search indexing for all books (skips done; --force
 - **`tsx watch` restarts kill Graphile Worker** but orphan Python subprocesses. In-flight jobs get re-queued on restart. Don't edit server files during long synthesis runs.
 - **Graphile Worker jobs use `maxAttempts: 1`** — jobs fail once and stay failed. User retries from the UI. Use `pnpm jobs` to inspect the queue, `pnpm jobs:clear` to nuke stale jobs.
 - **Book status is computed** from chapter statuses during synthesis. Only `extracting`, `assembling` come from the stored column. `computeBookStatus()` in `routes/books.ts` derives the rest.
-- Python LSP errors on `scripts/synthesize.py` are expected — numpy/kokoro/soundfile are runtime deps in the conda env, not visible to the editor.
+- Python LSP errors on `scripts/synthesize.py` are expected — numpy/kokoro/soundfile are runtime deps in the Python env (`.venv`), not visible to the editor.
 - Graphile Worker uses the same Postgres database. Its internal tables (`graphile_worker.*`) are managed automatically.
 - **Drizzle text enums are TypeScript-only** — adding new status values (like `suspended`) doesn't require a migration since the DB column is just `text`.
 - The frontend polls `books.get` every 2 seconds while processing, stops when status is `done`, `failed`, or `suspended`.
