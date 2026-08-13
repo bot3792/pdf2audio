@@ -554,6 +554,7 @@ export function ChapterModal({
             chunkPreviews={fullChapter.chunkPreviews}
             selectedUrl={selectedChunkPreviewUrl}
             onSelect={selectChunk}
+            onFollow={setSelectedChunkPreviewUrl}
             playNonce={playNonce}
             hoveredUrl={hoveredChunkUrl}
             onHover={setHoveredChunkUrl}
@@ -651,6 +652,7 @@ function ChunkPreviewPanel({
   chunkPreviews,
   selectedUrl,
   onSelect,
+  onFollow,
   playNonce,
   hoveredUrl,
   onHover,
@@ -659,9 +661,11 @@ function ChunkPreviewPanel({
   canOpenPdf,
   onOpenPdf,
 }: {
-  chunkPreviews: Array<{ index: number; fileName: string; url: string; page?: number }>;
+  chunkPreviews: Array<{ index: number; fileName: string; url: string; page?: number; startMs?: number; endMs?: number }>;
   selectedUrl: string | null;
   onSelect: (url: string) => void;
+  // Selection driven by playback progress — highlights without re-triggering auto-play
+  onFollow: (url: string) => void;
   playNonce: number;
   hoveredUrl: string | null;
   onHover: (url: string | null) => void;
@@ -676,6 +680,12 @@ function ChunkPreviewPanel({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
 
+  // After cleanup the chunk WAVs are gone: entries carry sync-map timings instead, and the
+  // panel plays the chapter MP3, seeking to each chunk's startMs.
+  const syncMode = typeof chunkPreviews[0]?.startMs === "number";
+  const audioSrc = syncMode ? activeUrl?.split("#")[0] ?? null : activeUrl;
+  const pendingSeekRef = useRef<number | null>(null);
+
   // Ref mirror of the chosen rate so play handlers always read the latest without stale closures.
   const playbackRateRef = useRef(playbackRate);
   playbackRateRef.current = playbackRate;
@@ -683,6 +693,10 @@ function ChunkPreviewPanel({
   function playActive() {
     const audio = audioRef.current;
     if (!audio) return;
+    if (pendingSeekRef.current !== null && audio.readyState >= 1) {
+      audio.currentTime = pendingSeekRef.current;
+      pendingSeekRef.current = null;
+    }
     // Apply the speed only after play() resolves: by then the load has settled, so the browser
     // won't snap playbackRate back to 1x (which is what happens if you set it before the load).
     audio.play().then(() => { audio.playbackRate = playbackRateRef.current; }).catch(() => {});
@@ -696,8 +710,24 @@ function ChunkPreviewPanel({
   // Auto-play whenever the user explicitly picks a chunk (playNonce changes), but not on the
   // initial mount or the programmatic auto-select during synthesis (playNonce stays 0 then).
   useEffect(() => {
-    if (playNonce > 0) playActive();
+    if (playNonce > 0) {
+      if (syncMode) {
+        const target = chunkPreviews.find((preview) => preview.url === activeUrl);
+        if (typeof target?.startMs === "number") pendingSeekRef.current = target.startMs / 1000;
+      }
+      playActive();
+    }
   }, [playNonce]);
+
+  function handleTimeUpdate() {
+    const audio = audioRef.current;
+    if (!syncMode || !audio || audio.paused) return;
+    const ms = audio.currentTime * 1000;
+    const current = chunkPreviews.find(
+      (preview) => preview.startMs! <= ms && ms < preview.endMs!,
+    );
+    if (current && current.url !== activeUrl) onFollow(current.url);
+  }
 
   // Keep the active chunk's button visible in the scrollable list when the selection changes.
   useEffect(() => {
@@ -713,7 +743,12 @@ function ChunkPreviewPanel({
 
   // When a chunk finishes, roll on to the next one (audiobook-style). Selecting it bumps playNonce,
   // which auto-plays it. Pausing stops the chain since a paused chunk never fires "ended".
+  // Sync mode plays one continuous MP3, so "ended" only fires at the end of the chapter.
   function handleEnded() {
+    if (syncMode) {
+      setIsPlaying(false);
+      return;
+    }
     const idx = chunkPreviews.findIndex((preview) => preview.url === activeUrl);
     const next = idx >= 0 ? chunkPreviews[idx + 1] : undefined;
     if (next) onSelect(next.url);
@@ -811,17 +846,24 @@ function ChunkPreviewPanel({
         })}
       </div>
 
-      {activeUrl ? (
+      {audioSrc ? (
         <audio
           ref={audioRef}
-          src={activeUrl}
+          src={audioSrc}
           controls
-          preload="none"
+          preload={syncMode ? "metadata" : "none"}
           className="h-8 w-full max-w-xl"
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           // Scrubbing can reset the rate to 1x; re-assert the chosen speed after a seek.
           onSeeked={(e) => { e.currentTarget.playbackRate = playbackRateRef.current; }}
+          onLoadedMetadata={(e) => {
+            if (pendingSeekRef.current !== null) {
+              e.currentTarget.currentTime = pendingSeekRef.current;
+              pendingSeekRef.current = null;
+            }
+          }}
+          onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
         />
       ) : null}

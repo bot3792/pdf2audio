@@ -7,7 +7,7 @@ import { eq, and, inArray, sql, asc } from "drizzle-orm";
 import { quickAddJob } from "graphile-worker";
 import { appendLog } from "../lib/log.ts";
 import { env } from "../env.ts";
-import { listChunkPreviewsIn, locateChunks, pageAtOffset } from "../lib/chunk-previews.ts";
+import { listChunkPreviewsIn, locateChunks, pageAtOffset, syncMapChunkPreviews } from "../lib/chunk-previews.ts";
 import { languageSlug, translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
 import { getTransformPreset, TRANSFORM_PRESETS } from "../lib/transform-presets.ts";
 import { inferVariantLabel, variantKeySlug, variantLabel } from "../lib/transform.ts";
@@ -139,10 +139,13 @@ export const variantsRouter = router({
 
       const slug = languageSlug(row.key);
       const base = `ch${String(chapter.index).padStart(3, "0")}`;
-      const previews = await listChunkPreviewsIn(
+      let previews = await listChunkPreviewsIn(
         translationChunkPreviewDir(chapter.bookId, row.key, chapter.index),
         `/files/${chapter.bookId}/chunks/${slug}/${base}`,
       );
+      if (previews.length === 0) {
+        previews = await syncMapChunkPreviews(row.audioPath, `/audio/translation/${row.id}`);
+      }
       const ranges = locateChunks(row.text, previews.map((p) => p.text ?? ""));
       const blocks = Array.isArray(chapter.sourceBlocks) ? (chapter.sourceBlocks as SourceBlock[]) : [];
       const variantLength = Math.max(row.text?.length ?? 0, 1);

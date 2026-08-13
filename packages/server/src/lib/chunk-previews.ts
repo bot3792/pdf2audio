@@ -2,6 +2,7 @@ import path from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 
 import { bookOutputDir } from "./paths.ts";
+import { readSyncMap } from "./sync-map.ts";
 import type { SourceBlock } from "./marker.ts";
 
 export type ChunkPreview = {
@@ -12,6 +13,10 @@ export type ChunkPreview = {
   start?: number;
   end?: number;
   page?: number;
+  // Present when the preview is derived from the sync map (chunk WAVs cleaned up):
+  // the url points at the full chapter audio and playback seeks to startMs
+  startMs?: number;
+  endMs?: number;
 };
 
 type ChunkManifestEntry = { index: number; text: string };
@@ -68,6 +73,23 @@ export async function listChunkPreviewsIn(dir: string, urlBase: string): Promise
     })
     .filter((entry): entry is ChunkPreview => entry !== null)
     .sort((a, b) => a.index - b.index);
+}
+
+export async function syncMapChunkPreviews(audioPath: string | null, audioUrl: string): Promise<ChunkPreview[]> {
+  if (!audioPath) return [];
+  const map = await readSyncMap(audioPath);
+  if (!map) return [];
+  return map.chunks.map((chunk, i) => {
+    const fileName = `chunk-${String(i + 1).padStart(3, "0")}`;
+    return {
+      index: i + 1,
+      fileName,
+      url: `${audioUrl}#${fileName}`,
+      text: chunk.text,
+      startMs: chunk.startMs,
+      endMs: chunk.endMs,
+    };
+  });
 }
 
 function normalizeWithMap(text: string): { norm: string; map: number[] } {
