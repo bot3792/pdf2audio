@@ -13,7 +13,7 @@ type SortDir = BookSortDir;
 
 function ActivityPill({ label, color, pulse = true }: { label: string; color: string; pulse?: boolean }) {
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${color}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap ${color}`}>
       {pulse && <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />}
       {label}
     </span>
@@ -140,7 +140,7 @@ function FolderTableRow({
             <ActivityPill label={`${folder.activeBookCount} active`} color="bg-(--badge-synthesizing-bg) text-(--badge-synthesizing-text)" />
           )}
           {folder.failedBookCount > 0 && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-(--badge-failed-bg) text-(--badge-failed-text)">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap bg-(--badge-failed-bg) text-(--badge-failed-text)">
               {folder.failedBookCount} failed
             </span>
           )}
