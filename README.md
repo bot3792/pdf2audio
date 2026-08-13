@@ -78,9 +78,8 @@ data/previews/                    Voice preview MP3s
 
 An Apple Silicon Mac (the MLX TTS engines need Metal) with:
 
-- Homebrew packages: `brew install ffmpeg poppler espeak-ng python@3.12`
-- Node.js >= 20 and pnpm
-- Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (for Postgres and optionally Storyteller)
+- [Homebrew](https://brew.sh), then: `brew install ffmpeg poppler espeak-ng python@3.12 node pnpm`
+- Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (for Postgres and optionally Storyteller; fine to install while setup downloads models — the setup script prints the two commands to finish the database step)
 - Optional: a [DeepSeek](https://platform.deepseek.com/) API key for translation, rewrites, cleanup, digests, Ask AI, and LLM chapter detection
 
 ## Setup

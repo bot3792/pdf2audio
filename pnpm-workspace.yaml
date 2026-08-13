@@ -1,4 +1,7 @@
 packages:
   - "packages/*"
+# allowBuilds is pnpm >=11, onlyBuiltDependencies is pnpm <=10; each version ignores the other's key
+allowBuilds:
+  esbuild: true
 onlyBuiltDependencies:
   - esbuild

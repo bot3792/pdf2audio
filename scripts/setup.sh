@@ -19,7 +19,6 @@ missing=()
 command -v ffmpeg >/dev/null 2>&1 || missing+=("ffmpeg (brew install ffmpeg)")
 command -v espeak-ng >/dev/null 2>&1 || missing+=("espeak-ng (brew install espeak-ng)")
 command -v pdftotext >/dev/null 2>&1 || missing+=("pdftotext (brew install poppler)")
-command -v docker >/dev/null 2>&1 || missing+=("docker (install OrbStack or Docker Desktop)")
 command -v pnpm >/dev/null 2>&1 || missing+=("pnpm (npm install -g pnpm)")
 if command -v node >/dev/null 2>&1; then
   node -e 'process.exit(+process.versions.node.split(".")[0] >= 20 ? 0 : 1)' || missing+=("Node.js >= 20 (brew install node)")
@@ -43,7 +42,11 @@ echo "  espeak-ng: $(which espeak-ng)"
 echo "  pdftotext: $(which pdftotext)"
 echo "  python: $PYTHON ($("$PYTHON" --version))"
 echo "  node: $(node --version), pnpm: $(pnpm --version)"
-echo "  docker: $(docker --version)"
+if command -v docker >/dev/null 2>&1; then
+  echo "  docker: $(docker --version)"
+else
+  echo "  ! docker not found — continuing; install OrbStack or Docker Desktop before the database step"
+fi
 
 echo ""
 echo "Creating Python environment at .venv..."
@@ -122,7 +125,7 @@ if docker info >/dev/null 2>&1; then
   pnpm db:up
   pnpm db:migrate
 else
-  echo "Docker daemon is not running — start OrbStack/Docker Desktop, then run:"
+  echo "Docker is not available — install/start OrbStack or Docker Desktop, then run:"
   echo "  pnpm db:up && pnpm db:migrate"
 fi
 

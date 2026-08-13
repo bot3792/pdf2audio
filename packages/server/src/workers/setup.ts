@@ -1,4 +1,4 @@
-import { run, type Runner, type TaskList } from "graphile-worker";
+import { run, makeWorkerUtils, type Runner, type TaskList } from "graphile-worker";
 import { extract } from "./extract.ts";
 import { normalize } from "./normalize.ts";
 import { synthesize } from "./synthesize.ts";
@@ -120,6 +120,10 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
 let currentRunners: Runner[] = [];
 
 export async function startWorker(): Promise<Runner[]> {
+  // On a virgin database the seven pools race their concurrent schema installs
+  // (duplicate pg_namespace key on first boot) — migrate once up front instead
+  const utils = await makeWorkerUtils({ connectionString });
+  await utils.release();
   // Before the runners start, so any lock in the jobs table is provably from a dead process
   try {
     await sweepStrandedWork();
