@@ -410,6 +410,8 @@ function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu",
           lastLogTime = Date.now();
         }
         if (isNewStage) lastLoggedPercent = percent;
+      } else if (line.includes("TableRecEncoderDecoderModel")) {
+        // Benign: surya hard-pins table-rec to CPU on MPS (datalab-to/marker#827); everything else stays on MPS
       } else if (line.includes("WARNING") || line.includes("Error") || line.includes("Traceback")) {
         log(line.trim());
       }

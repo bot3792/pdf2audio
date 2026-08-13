@@ -51,10 +51,13 @@ def main():
 
     lang_code = args.lang or args.voice[0]
 
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    import torch
     from kokoro import KPipeline
     import soundfile as sf
 
-    pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
+    device = "mps" if torch.backends.mps.is_available() else None
+    pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M", device=device)
 
     phoneme_chunks = []
     chunk_texts = []
