@@ -31,7 +31,7 @@ Jobs run through [Graphile Worker](https://github.com/graphile/worker) in six po
 
 TTS engines: [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English + 8 more languages), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal.
 
-During synthesis the server keeps a per-chunk text↔audio timing map (`chNNN.sync.json`) next to each MP3. That map powers the web UI's read-along player and the synced EPUB export — and once it exists, the intermediate chunk WAVs can be deleted to reclaim disk.
+During synthesis the server keeps a per-chunk text↔audio timing map (`chNNN.sync.json`) next to each MP3. That map powers the web UI's read-along player and the synced EPUB export — and once it is written, the worker deletes the intermediate chunk WAVs to reclaim disk (`pnpm --filter server cleanup:chunks` sweeps leftovers from older runs).
 
 ## Project structure
 

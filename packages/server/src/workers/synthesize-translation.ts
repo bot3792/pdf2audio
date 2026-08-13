@@ -161,9 +161,13 @@ export async function synthesizeTranslation(
     const metadata = await parseFile(mp3Path, { duration: true });
     const durationMs = Math.round((metadata.format.duration ?? 0) * 1000);
 
-    // Persist text↔audio timings so read-along exports survive chunk-WAV cleanup
+    // Persist text↔audio timings so read-along exports survive chunk-WAV cleanup;
+    // if the sync map can't be built, keep the chunks so it can be rebuilt later
     const syncMap = await buildSyncMapFromChunks(chunkPreviewDir, durationMs).catch(() => null);
-    if (syncMap) await writeSyncMap(mp3Path, syncMap);
+    if (syncMap) {
+      await writeSyncMap(mp3Path, syncMap);
+      await rm(chunkPreviewDir, { recursive: true, force: true }).catch(() => {});
+    }
 
     await db
       .update(chapterVariants)
