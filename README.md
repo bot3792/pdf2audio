@@ -4,6 +4,12 @@ Turns PDF books into audiobooks — and more. Upload PDFs, pick a voice, and get
 
 Built for local use on Apple Silicon Macs. Fully offline after the initial model downloads (AI features need a DeepSeek API key).
 
+## Intro video
+
+[![The core idea — from PDF to audiobook](docs/media/intro-1-core-idea.jpg)](https://github.com/subev/pdf2audio/releases/download/media/pdf2audio-intro-1-the-core-idea.mp4)
+
+A 3½-minute tour of the core flow — import, chapters, synthesis, assembled MP3 — narrated by the app's own synthesized voice, playing on the right while the demo runs on the left. All videos live in the [media release](https://github.com/subev/pdf2audio/releases/tag/media).
+
 ## What it does
 
 - **PDF → audiobook**: chapter detection (deterministic tiers + optional LLM TOC detection), per-chapter TTS synthesis, single MP3 assembly with ID3v2 chapter markers.

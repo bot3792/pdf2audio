@@ -10,3 +10,5 @@ __pycache__/
 .claude/
 storyteller/STORYTELLER_SECRET_KEY.txt
 storyteller/ADMIN_CREDENTIALS.txt
+
+*.mov
