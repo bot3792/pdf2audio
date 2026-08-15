@@ -4,11 +4,13 @@ Turns PDF books into audiobooks — and more. Upload PDFs, pick a voice, and get
 
 Built for local use on Apple Silicon Macs. Fully offline after the initial model downloads (AI features need a DeepSeek API key).
 
-## Intro video
+## Intro videos
 
-[![The core idea — from PDF to audiobook](https://img.youtube.com/vi/WafnEUHj7K8/maxresdefault.jpg)](https://youtu.be/WafnEUHj7K8)
+Short standalone tours, narrated by the app's own synthesized voice — the script is a book inside the app, playing on the right while the demo runs on the left.
 
-A 3½-minute tour of the core flow — import, chapters, synthesis, assembled MP3 — [narrated by the app's own synthesized voice](https://youtu.be/WafnEUHj7K8), playing on the right while the demo runs on the left.
+| [![The core idea](https://img.youtube.com/vi/WafnEUHj7K8/hq720.jpg)](https://youtu.be/WafnEUHj7K8) | [![Smart features](https://img.youtube.com/vi/dJjhuCCz-2E/hq720.jpg)](https://youtu.be/dJjhuCCz-2E) |
+| :--: | :--: |
+| **[1 · The core idea](https://youtu.be/WafnEUHj7K8)**<br>PDF in, chapter-marked MP3 out | **[2 · Smart features](https://youtu.be/dJjhuCCz-2E)**<br>Ask AI, chat with citations, translate & transform |
 
 ## What it does
 
