@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router";
 import { StatusBadge } from "./StatusBadge.tsx";
-import { ChapterModal } from "./ChapterModal.tsx";
+import { ChapterModal, chapterAudioDownload } from "./ChapterModal.tsx";
 import { ChapterAiModal } from "./ChapterAiModal.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 
@@ -586,6 +586,24 @@ export function ChapterTable({
                       >
                         Re-synthesize
                       </button>
+                      {chapter.status === "done" && chapter.audioPath ? (
+                        <a
+                          href={chapterAudioDownload(chapter, variant).href}
+                          download={chapterAudioDownload(chapter, variant).filename}
+                          title={`Download the ${variant ? variant.label ?? variant.key : "chapter"} MP3`}
+                          className={`${ACTION_PILL} no-underline`}
+                        >
+                          Download
+                        </a>
+                      ) : (
+                        <button
+                          disabled
+                          title={`No ${variant ? variant.label ?? variant.key : "chapter"} audio to download yet`}
+                          className={`${ACTION_PILL} opacity-30 cursor-not-allowed hover:bg-transparent`}
+                        >
+                          Download
+                        </button>
+                      )}
                       {chapter.error ? (
                         <span className="text-xs text-red-500" title={chapter.error}>
                           error

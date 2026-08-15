@@ -28,6 +28,13 @@ type ChapterModalProps = {
   onChangeSynthVoice?: (voice: string) => void;
 };
 
+export function chapterAudioDownload(chapter: ChapterRow, variant?: VariantRef | null) {
+  return {
+    href: chapter.audioUrl ?? `/audio/chapter/${chapter.id}`,
+    filename: `${chapter.index + 1} ${chapter.title}${variant ? ` (${variant.label ?? variant.key})` : ""}.mp3`.replace(/[\\/]/g, "-"),
+  };
+}
+
 type SourceBlock = {
   type: string;
   text: string;
@@ -349,6 +356,24 @@ export function ChapterModal({
               <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} type="audio/mpeg" />
             </audio>
           ) : null}
+          {chapter.status === "done" && chapter.audioPath ? (
+            <a
+              href={chapterAudioDownload(chapter, variant).href}
+              download={chapterAudioDownload(chapter, variant).filename}
+              title={`Download the ${variantName ?? "chapter"} MP3`}
+              className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium no-underline"
+            >
+              Download
+            </a>
+          ) : (
+            <button
+              disabled
+              title={`No ${variantName ?? "chapter"} audio to download yet`}
+              className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) font-medium opacity-30 cursor-not-allowed"
+            >
+              Download
+            </button>
+          )}
           {chapter.status === "suspended" || chapter.status === "failed" ? (
             <button
               onClick={() => onQueue(chapter.id, true)}
