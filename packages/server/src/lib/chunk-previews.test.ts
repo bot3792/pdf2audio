@@ -87,6 +87,16 @@ describe("locateChunks", () => {
     expect(ranges[1]).toEqual({ start: 10, end: 19 });
   });
 
+  it("matches despite spaces the chunker inserted at sentence joins", () => {
+    const source = "Тя попитала: «Накъде сте се запътили?» «При Хер Корбес.» И тръгнали.";
+    const ranges = locateChunks(source, [
+      "Тя попитала: «Накъде сте се запътили? » «При Хер Корбес. »",
+      "И тръгнали.",
+    ]);
+    expect(source.slice(ranges[0]!.start, ranges[0]!.end)).toBe("Тя попитала: «Накъде сте се запътили?» «При Хер Корбес.»");
+    expect(source.slice(ranges[1]!.start, ranges[1]!.end)).toBe("И тръгнали.");
+  });
+
   it("returns null for a chunk absent from the source", () => {
     expect(locateChunks("Hello world.", ["Not present"])).toEqual([null]);
   });

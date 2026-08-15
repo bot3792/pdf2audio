@@ -95,26 +95,19 @@ export async function syncMapChunkPreviews(audioPath: string | null, audioUrl: s
 function normalizeWithMap(text: string): { norm: string; map: number[] } {
   let norm = "";
   const map: number[] = [];
-  let inSpace = false;
   for (let i = 0; i < text.length; i++) {
-    if (/\s/.test(text[i])) {
-      if (!inSpace) {
-        norm += " ";
-        map.push(i);
-        inSpace = true;
-      }
-    } else {
+    if (!/\s/.test(text[i])) {
       norm += text[i];
       map.push(i);
-      inSpace = false;
     }
   }
   return { norm, map };
 }
 
 /**
- * Locate each chunk's character range within `sourceText`. Matching is whitespace-tolerant
- * (runs of whitespace collapse to a single space) because the chunker normalizes whitespace.
+ * Locate each chunk's character range within `sourceText`. Matching ignores whitespace entirely:
+ * the chunker both collapses runs and inserts spaces at sentence joins (e.g. a closing » split
+ * off after «...?» becomes "? »"), so only the non-whitespace characters are reliable.
  * A running cursor ensures repeated/identical chunk texts resolve to sequential, non-overlapping
  * ranges. Returns `null` for any chunk text not found at/after the cursor.
  */
@@ -126,7 +119,7 @@ export function locateChunks(
   let cursor = 0;
 
   return chunkTexts.map((chunkText) => {
-    const needle = chunkText.replace(/\s+/g, " ").trim();
+    const needle = chunkText.replace(/\s+/g, "");
     if (!needle) return null;
 
     const at = norm.indexOf(needle, cursor);
