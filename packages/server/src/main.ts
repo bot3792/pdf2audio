@@ -182,7 +182,7 @@ async function main() {
       const wavPath = path.join(previewsDir, `${previewKey}.wav`);
 
       await synthesize({
-        inputText: getPreviewTextForVoice(voiceId),
+        inputText: await getPreviewTextForVoice(voiceId),
         outputPath: wavPath,
         voice: voiceId,
         speed: 1.0,

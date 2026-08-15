@@ -13,6 +13,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3034),
   CONDA_ENV_PATH: z.string().default(path.join(repoRoot, ".venv", "bin")),
   DEEPSEEK_API_KEY: z.string().optional(),
+  CARTESIA_API_KEY: z.string().optional(),
   READALOUD_DROP_DIR: z.string().optional(),
 });
 

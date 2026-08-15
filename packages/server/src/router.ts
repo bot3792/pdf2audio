@@ -8,6 +8,8 @@ import { notesRouter } from "./routes/notes.ts";
 import { foldersRouter } from "./routes/folders.ts";
 import { profilesRouter } from "./routes/profiles.ts";
 import { searchRouter } from "./routes/search.ts";
+import { sayVoicesRouter } from "./routes/say-voices.ts";
+import { cartesiaVoicesRouter } from "./routes/cartesia-voices.ts";
 
 export const appRouter = router({
   books: booksRouter,
@@ -18,6 +20,8 @@ export const appRouter = router({
   variants: variantsRouter,
   notes: notesRouter,
   search: searchRouter,
+  sayVoices: sayVoicesRouter,
+  cartesiaVoices: cartesiaVoicesRouter,
 });
 
 export type AppRouter = typeof appRouter;

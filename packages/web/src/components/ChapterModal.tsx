@@ -4,6 +4,7 @@ import { StatusBadge } from "./StatusBadge.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 import { ChapterAiModal } from "./ChapterAiModal.tsx";
 import { VariantModal } from "./VariantModal.tsx";
+import { VoicePicker } from "./VoicePicker.tsx";
 import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
@@ -23,6 +24,8 @@ type ChapterModalProps = {
   onSetSelected: (id: string, selected: boolean) => void;
   // Voice the next synthesis will use for this view (variant lane or book)
   synthVoice?: string;
+  // Changes the stored voice for the whole book (or the active variant lane)
+  onChangeSynthVoice?: (voice: string) => void;
 };
 
 type SourceBlock = {
@@ -49,6 +52,7 @@ export function ChapterModal({
   onQueue,
   onSetSelected,
   synthVoice,
+  onChangeSynthVoice,
 }: ChapterModalProps) {
   useBodyScrollLock();
   const chapter = chapters[chapterIndex];
@@ -368,7 +372,14 @@ export function ChapterModal({
           >
             Re-synthesize
           </button>
-          {synthVoice ? (
+          {synthVoice && onChangeSynthVoice ? (
+            <VoicePicker
+              value={synthVoice}
+              onChange={onChangeSynthVoice}
+              compact
+              title={`Voice for the next synthesis — changing it applies to the whole ${isVariant ? `${variantName} lane` : "book"}`}
+            />
+          ) : synthVoice ? (
             <span
               className="text-xs text-(--text-faint)"
               title={`Next synthesis uses this voice — change it via "Synthesize selected" above the chapter table`}

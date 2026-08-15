@@ -6,11 +6,14 @@ import path from "node:path";
 import { env } from "../env.ts";
 import { chunkTextForBulgarianNarrator } from "./tts-chunks.ts";
 import { synthesize as kokoroSynthesize, KokoroAbortedError } from "./kokoro.ts";
+import { resolveSayVoice } from "./say-voices.ts";
+import { cartesiaSynthesize, CartesiaAbortedError, findCartesiaVoice } from "./cartesia.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
 const BG_MLX_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_bg_tts_mlx.py");
 const BG_MMS_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_mms_tts.py");
 const KUGEL_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_kugel_tts.py");
+const SAY_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_say_tts.py");
 
 type LogFn = (message: string) => Promise<void>;
 type ProgressFn = (chunk: number, totalChunks: number) => Promise<void>;
@@ -28,7 +31,7 @@ type SynthesizeOptions = {
 };
 
 type ParsedTtsVoice = {
-  engine: "kokoro" | "bg-mlx" | "bg-mms" | "kugel";
+  engine: "kokoro" | "bg-mlx" | "bg-mms" | "kugel" | "say" | "cartesia";
   voice: string;
   raw: string;
 };
@@ -42,6 +45,12 @@ const BULGARIAN_PREVIEW_TEXT = "В тиха пролетна утрин свет
 const BG_MLX_VOICES = new Set(["narrator"]);
 const BG_MMS_VOICES = new Set(["bul"]);
 const KUGEL_VOICES = new Set(["default"]);
+// Installed system voices are discovered at synthesis time; ids only need to be safe slugs
+const SAY_VOICE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+// Cartesia voice ids are UUIDs from the live library
+const CARTESIA_VOICE_PATTERN = /^[A-Za-z0-9_-]{6,}$/;
+// macOS `say` default speaking rate, scaled by the user's speed multiplier
+const SAY_BASE_RATE_WPM = 175;
 const KOKORO_VOICE_PATTERN = /^[a-z]{2}_[a-z]+$/;
 
 export class TtsAbortedError extends Error {
@@ -84,6 +93,22 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
     return { engine: "kugel", voice, raw: rawVoice };
   }
 
+  if (rawVoice.startsWith("say:")) {
+    const voice = rawVoice.slice("say:".length);
+    if (!SAY_VOICE_PATTERN.test(voice)) {
+      throw new Error(`Unsupported voice ID: ${rawVoice}`);
+    }
+    return { engine: "say", voice, raw: rawVoice };
+  }
+
+  if (rawVoice.startsWith("cartesia:")) {
+    const voice = rawVoice.slice("cartesia:".length);
+    if (!CARTESIA_VOICE_PATTERN.test(voice)) {
+      throw new Error(`Unsupported voice ID: ${rawVoice}`);
+    }
+    return { engine: "cartesia", voice, raw: rawVoice };
+  }
+
   if (rawVoice.includes(":")) {
     throw new Error(`Unsupported voice ID: ${rawVoice}`);
   }
@@ -95,12 +120,23 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
   return { engine: "kokoro", voice: rawVoice, raw: rawVoice };
 }
 
-export function getPreviewTextForVoice(voice: string): string {
-  return parseTtsVoice(voice).engine === "kokoro" ? ENGLISH_PREVIEW_TEXT : BULGARIAN_PREVIEW_TEXT;
+export async function getPreviewTextForVoice(voice: string): Promise<string> {
+  const resolved = parseTtsVoice(voice);
+  if (resolved.engine === "kokoro") return ENGLISH_PREVIEW_TEXT;
+  if (resolved.engine === "say") {
+    const sayVoice = await resolveSayVoice(resolved.voice);
+    return sayVoice?.locale.toLowerCase().startsWith("bg") ? BULGARIAN_PREVIEW_TEXT : ENGLISH_PREVIEW_TEXT;
+  }
+  if (resolved.engine === "cartesia") {
+    const cartesiaVoice = await findCartesiaVoice(resolved.voice);
+    return cartesiaVoice?.language.toLowerCase().startsWith("bg") ? BULGARIAN_PREVIEW_TEXT : ENGLISH_PREVIEW_TEXT;
+  }
+  return BULGARIAN_PREVIEW_TEXT;
 }
 
 export function voiceSupportsSpeed(voice: string): boolean {
-  return parseTtsVoice(voice).engine === "kokoro";
+  const engine = parseTtsVoice(voice).engine;
+  return engine === "kokoro" || engine === "say" || engine === "cartesia";
 }
 
 export async function synthesize({ inputText, outputPath, voice, speed, chunkPreviewDir = null, chunkPreviewUrlBase = null, log = noopLog, onProgress = noopProgress, signal }: SynthesizeOptions): Promise<void> {
@@ -116,6 +152,51 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
       }
       throw error;
     }
+  }
+
+  if (resolved.engine === "cartesia") {
+    try {
+      await cartesiaSynthesize({
+        inputText,
+        outputPath,
+        voiceId: resolved.voice,
+        speed,
+        chunkPreviewDir,
+        chunkPreviewUrlBase,
+        log,
+        onProgress,
+        signal,
+      });
+      return;
+    } catch (error) {
+      if (error instanceof CartesiaAbortedError) {
+        throw new TtsAbortedError();
+      }
+      throw error;
+    }
+  }
+
+  if (resolved.engine === "say") {
+    const sayVoice = await resolveSayVoice(resolved.voice);
+    if (!sayVoice) {
+      throw new Error(`macOS voice "${resolved.voice}" is not installed — add it in System Settings → Accessibility → Spoken Content`);
+    }
+    await synthesizeChunkedBackend({
+      backendName: "macOS say",
+      scriptPath: SAY_SCRIPT,
+      inputText,
+      outputPath,
+      voice: sayVoice.name,
+      speed,
+      extraArgs: ["--rate", String(Math.round(SAY_BASE_RATE_WPM * speed))],
+      speedLabel: `speed ${speed}x`,
+      chunkPreviewDir,
+      chunkPreviewUrlBase,
+      log,
+      onProgress,
+      signal,
+    });
+    return;
   }
 
   if (resolved.engine === "bg-mlx" || resolved.engine === "kugel") {
@@ -172,6 +253,8 @@ async function synthesizeChunkedBackend({
   inputText,
   outputPath,
   voice,
+  extraArgs = [],
+  speedLabel = "fixed speed",
   chunkPreviewDir = null,
   chunkPreviewUrlBase = null,
   log = noopLog,
@@ -180,6 +263,8 @@ async function synthesizeChunkedBackend({
 }: SynthesizeOptions & {
   backendName: string;
   scriptPath: string;
+  extraArgs?: string[];
+  speedLabel?: string;
 }): Promise<void> {
   const chunks = chunkTextForBulgarianNarrator(inputText);
   if (chunks.length === 0) {
@@ -191,7 +276,7 @@ async function synthesizeChunkedBackend({
 
   const pythonBin = path.join(CONDA_BIN, "python");
   const wordCount = inputText.split(/\s+/).filter(Boolean).length;
-  await log(`Starting ${backendName} synthesis (${wordCount.toLocaleString()} words, voice: ${voice}, fixed speed)`);
+  await log(`Starting ${backendName} synthesis (${wordCount.toLocaleString()} words, voice: ${voice}, ${speedLabel})`);
   if (chunkPreviewUrlBase) {
     await log(`Chunk previews: ${chunkPreviewUrlBase}/chunk-001.wav`);
   }
@@ -209,6 +294,7 @@ async function synthesizeChunkedBackend({
         "--input", textPath,
         "--output", outputPath,
         "--voice", voice,
+        ...extraArgs,
         ...(chunkPreviewDir ? ["--chunks-dir", chunkPreviewDir] : []),
       ],
       {

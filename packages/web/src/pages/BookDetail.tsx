@@ -809,6 +809,11 @@ export function BookDetail() {
               variants={variantLanes.map((l) => ({ key: l.key, label: l.label, kind: l.kind }))}
               onSwitchVariant={setActiveVariant}
               synthVoice={(activeVariant && book.variantVoices?.[activeVariant]?.voice) || book.voice}
+              onChangeSynthVoice={(voice) =>
+                activeVariant
+                  ? setVariantVoiceMutation.mutate({ bookId: book.id, key: activeVariant, voice })
+                  : updateSettingsMutation.mutate({ id: book.id, voice })
+              }
             />
             </>
           )}
