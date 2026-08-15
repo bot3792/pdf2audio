@@ -110,6 +110,7 @@ export async function translate(
           title: chapter.title,
           language: row.key,
           translatedOpening: translated.slice(0, 1000),
+          thinking: row.params?.thinking ?? false,
         })
       : chapter.title);
 

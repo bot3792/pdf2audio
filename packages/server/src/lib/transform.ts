@@ -40,13 +40,14 @@ export type TransformChunkArgs = {
   prompt: string;
   temperature?: number;
   previousOutput?: string;
+  thinking?: boolean;
   onDelta?: (delta: string) => void;
   onThinking?: (delta: string) => void;
 };
 
 export type TransformChunkFn = (args: TransformChunkArgs) => Promise<string>;
 
-export const transformChunk: TransformChunkFn = async ({ text, prompt, temperature, previousOutput, onDelta, onThinking }) => {
+export const transformChunk: TransformChunkFn = async ({ text, prompt, temperature, previousOutput, thinking, onDelta, onThinking }) => {
   const system = [
     prompt,
     "The result will be read aloud by text-to-speech: write plain flowing prose — no markdown, no headings, no bullet points, no numbered lists.",
@@ -59,6 +60,7 @@ export const transformChunk: TransformChunkFn = async ({ text, prompt, temperatu
   // Reasoning can run long on dense chunks — the 120s default times out
   return deepseekChatStream(system, text, {
     temperature: temperature ?? 0.8,
+    thinking,
     timeoutMs: 600_000,
     onDelta,
     onReasoning: onThinking,
@@ -73,9 +75,10 @@ export type VariantChunkFn = (args: {
 }) => Promise<string>;
 
 export function variantChunkFn(variant: ChapterVariant): VariantChunkFn {
+  const thinking = variant.params?.thinking ?? false;
   if (variant.kind === "translation") {
     return ({ text, previousOutput, onDelta, onThinking }) =>
-      translateChunk({ text, language: variant.key, previousTranslation: previousOutput, onDelta, onThinking });
+      translateChunk({ text, language: variant.key, previousTranslation: previousOutput, thinking, onDelta, onThinking });
   }
   if (!variant.prompt) throw new Error(`Transform variant "${variant.key}" has no prompt`);
   return ({ text, previousOutput, onDelta, onThinking }) =>
@@ -84,6 +87,7 @@ export function variantChunkFn(variant: ChapterVariant): VariantChunkFn {
       prompt: variant.prompt!,
       temperature: variant.params?.temperature,
       previousOutput,
+      thinking,
       onDelta,
       onThinking,
     });

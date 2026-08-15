@@ -67,6 +67,7 @@ export type VariantParams = {
   temperature?: number;
   // "whole" sends the entire chapter as one chunk (for outputs much shorter than the source)
   mode?: "chunked" | "whole";
+  thinking?: boolean;
 };
 
 // Per-lane (variant key) voice/speed overrides; absent fields fall back to books.voice/speed

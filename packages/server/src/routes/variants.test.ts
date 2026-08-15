@@ -372,6 +372,18 @@ describe("variants router", () => {
     expect(row?.label).toBe("With Proofs");
   });
 
+  it("start stores the thinking flag in params and updates it on retry", async () => {
+    const db = getDb();
+    const { chapterId } = await insertFixture(db);
+
+    const row = await caller.start({ chapterId, key: "Bulgarian", thinking: true });
+    expect(row?.params?.thinking).toBe(true);
+
+    await db.update(chapterVariants).set({ status: "failed", updatedAt: new Date(0) }).where(eq(chapterVariants.id, row!.id));
+    const retried = await caller.start({ chapterId, key: "Bulgarian", thinking: false });
+    expect(retried?.params?.thinking).toBe(false);
+  });
+
   it("start on a preset key without siblings resolves the preset spec", async () => {
     const db = getDb();
     const { chapterId } = await insertFixture(db);

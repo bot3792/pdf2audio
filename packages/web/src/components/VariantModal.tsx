@@ -28,6 +28,7 @@ export function VariantModal({
   const utils = trpc.useUtils();
   const [activeKey, setActiveKey] = useState<string | null>(initialKey ?? "Bulgarian");
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(initialChapterId ?? chapters[0]?.id ?? null);
   const outputPane = useRef<HTMLDivElement>(null);
   const selectedChapterRef = useRef<HTMLButtonElement>(null);
@@ -193,12 +194,14 @@ export function VariantModal({
         presetId: draft.presetId,
         prompt: draft.prompt,
         label: draft.presetId ? undefined : draft.label.trim() || undefined,
+        thinking: thinkingEnabled,
       });
     } else if (activeKey) {
       startMutation.mutate({
         chapterId: selectedId,
         key: activeKey,
         restart: variant?.status === "done",
+        thinking: thinkingEnabled,
       });
     }
   };
@@ -238,6 +241,20 @@ export function VariantModal({
               <option value="custom">Custom prompt...</option>
             </optgroup>
           </select>
+
+          <label
+            className={`flex items-center gap-1.5 text-sm text-(--text-secondary) select-none ${running ? "opacity-50" : "cursor-pointer"}`}
+            title="Let the model reason before writing — can improve tricky passages but is several times slower"
+          >
+            <input
+              type="checkbox"
+              checked={thinkingEnabled}
+              onChange={(e) => setThinkingEnabled(e.target.checked)}
+              disabled={running}
+              data-testid="translation-thinking-toggle"
+            />
+            Reasoning
+          </label>
 
           <button
             onClick={handleStart}

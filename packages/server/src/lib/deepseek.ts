@@ -17,7 +17,13 @@ export type DeepseekChatOptions = {
   maxTokens?: number;
   timeoutMs?: number;
   allowEmpty?: boolean;
+  // undefined = API default (enabled, effort high); temperature is ignored while thinking is on
+  thinking?: boolean;
 };
+
+function thinkingBody(thinking: boolean | undefined) {
+  return thinking === undefined ? {} : { thinking: { type: thinking ? "enabled" : "disabled" } };
+}
 
 export async function deepseekChat(system: string, user: string, opts: DeepseekChatOptions = {}): Promise<string> {
   const apiKey = env.DEEPSEEK_API_KEY;
@@ -39,6 +45,7 @@ export async function deepseekChat(system: string, user: string, opts: DeepseekC
         temperature: opts.temperature ?? 1.0,
         ...(opts.responseFormat ? { response_format: { type: opts.responseFormat } } : {}),
         ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+        ...thinkingBody(opts.thinking),
         stream: false,
       }),
       signal,
@@ -86,6 +93,7 @@ export async function deepseekChatStream(
         ],
         temperature: opts.temperature ?? 1.0,
         ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+        ...thinkingBody(opts.thinking),
         stream: true,
       }),
       signal,

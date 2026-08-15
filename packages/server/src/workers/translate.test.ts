@@ -35,7 +35,7 @@ const SOURCE_HASH = createHash("sha256").update(SOURCE).digest("hex");
 
 async function insertFixture(
   db: ReturnType<typeof getDb>,
-  opts?: { status?: "pending" | "suspended"; text?: string; progress?: string; sourceHash?: string },
+  opts?: { status?: "pending" | "suspended"; text?: string; progress?: string; sourceHash?: string; params?: { thinking?: boolean } },
 ) {
   const bookId = crypto.randomUUID();
   await db.insert(books).values({ id: bookId, title: "Book", filename: "b.pdf", pdfPath: "/tmp/b.pdf" });
@@ -50,6 +50,7 @@ async function insertFixture(
       text: opts?.text ?? "",
       progress: opts?.progress,
       sourceHash: opts?.sourceHash,
+      params: opts?.params,
     })
     .returning();
   return { bookId, chapterId, translationId: row.id };
@@ -208,7 +209,19 @@ describe("translate worker", () => {
       title: "Ch",
       language: "Bulgarian",
       translatedOpening: expect.stringContaining("BG"),
+      thinking: false,
     });
+  });
+
+  it("passes the lane's thinking param to the chunk translator", async () => {
+    const db = getDb();
+    const { bookId, translationId } = await insertFixture(db, { params: { thinking: true } });
+    mockTranslateChunk.mockImplementation(async () => "BG");
+
+    await translate({ translationId, bookId }, helpers);
+
+    expect(mockTranslateChunk).toHaveBeenCalledWith(expect.objectContaining({ thinking: true }));
+    expect(mockTranslateTitle).toHaveBeenCalledWith(expect.objectContaining({ thinking: true }));
   });
 
   it("keeps an existing title when resuming", async () => {

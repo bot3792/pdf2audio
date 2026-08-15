@@ -184,6 +184,7 @@ export const variantsRouter = router({
       chapterId: z.string().uuid(),
       key: z.string().min(1),
       restart: z.boolean().optional(),
+      thinking: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.chapterId));
@@ -215,6 +216,7 @@ export const variantsRouter = router({
             error: null,
             updatedAt: new Date(),
             ...(reset ? { text: "", progress: null, title: null } : {}),
+            ...(input.thinking === undefined ? {} : { params: { ...existing.params, thinking: input.thinking } }),
           })
           .where(eq(chapterVariants.id, existing.id))
           .returning({ id: chapterVariants.id });
@@ -223,6 +225,7 @@ export const variantsRouter = router({
         await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] ${queuedLogLine(existing, input.key)}`);
       } else {
         const spec = await resolveSpec(chapter.bookId, input.key);
+        if (input.thinking !== undefined) spec.params = { ...spec.params, thinking: input.thinking };
         const [created] = await db
           .insert(chapterVariants)
           .values({ chapterId: input.chapterId, key: input.key, ...spec })
@@ -248,6 +251,7 @@ export const variantsRouter = router({
       presetId: z.string().optional(),
       prompt: z.string().min(1),
       label: z.string().optional(),
+      thinking: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.chapterId));
@@ -262,6 +266,7 @@ export const variantsRouter = router({
       const params: VariantParams = {
         temperature: preset?.temperature ?? 0.8,
         mode: preset?.mode ?? "chunked",
+        ...(input.thinking === undefined ? {} : { thinking: input.thinking }),
       };
       const spec: VariantSpec = { kind: "transform", label, prompt: input.prompt, params };
 
