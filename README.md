@@ -6,9 +6,9 @@ Built for local use on Apple Silicon Macs. Fully offline after the initial model
 
 ## Intro video
 
-[![The core idea — from PDF to audiobook](docs/media/intro-1-core-idea.jpg)](https://github.com/subev/pdf2audio/releases/download/media/pdf2audio-intro-1-the-core-idea.mp4)
+[![The core idea — from PDF to audiobook](https://img.youtube.com/vi/WafnEUHj7K8/maxresdefault.jpg)](https://youtu.be/WafnEUHj7K8)
 
-A 3½-minute tour of the core flow — import, chapters, synthesis, assembled MP3 — narrated by the app's own synthesized voice, playing on the right while the demo runs on the left. All videos live in the [media release](https://github.com/subev/pdf2audio/releases/tag/media).
+A 3½-minute tour of the core flow — import, chapters, synthesis, assembled MP3 — [narrated by the app's own synthesized voice](https://youtu.be/WafnEUHj7K8), playing on the right while the demo runs on the left.
 
 ## What it does
 
