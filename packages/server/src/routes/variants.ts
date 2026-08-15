@@ -108,7 +108,7 @@ export const variantsRouter = router({
           title: chapterVariants.title,
           progress: chapterVariants.progress,
           error: chapterVariants.error,
-          wordCount: sql<number>`coalesce(array_length(regexp_split_to_array(trim(${chapterVariants.text}), '\s+'), 1), 0)`,
+          wordCount: sql<number>`coalesce(array_length(regexp_split_to_array(nullif(trim(${chapterVariants.text}), ''), '\\s+'), 1), 0)`,
           audioStatus: chapterVariants.audioStatus,
           audioProgress: chapterVariants.audioProgress,
           audioError: chapterVariants.audioError,

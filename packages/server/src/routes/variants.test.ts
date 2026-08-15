@@ -320,6 +320,23 @@ describe("variants router", () => {
     expect(list[0].key).toBe("Bulgarian");
   });
 
+  it("listForBook counts words in the translated text", async () => {
+    const db = getDb();
+    const { bookId, chapterId } = await insertFixture(db);
+    const emptyId = crypto.randomUUID();
+    await db.insert(chapters).values({ id: emptyId, bookId, index: 1, title: "Ch2", rawText: "Second." });
+    await db.insert(chapterVariants).values([
+      { chapterId, key: "Bulgarian", status: "done", text: "Приятелството на котката и мишката" },
+      { chapterId: emptyId, key: "Bulgarian", status: "pending", text: "" },
+    ]);
+
+    const list = await caller.listForBook({ bookId, key: "Bulgarian" });
+
+    const byChapter = new Map(list.map((r) => [r.chapterId, r.wordCount]));
+    expect(byChapter.get(chapterId)).toBe(5);
+    expect(byChapter.get(emptyId)).toBe(0);
+  });
+
   it("createTransform snapshots the prompt and queues the translate job", async () => {
     const db = getDb();
     const { bookId, chapterId } = await insertFixture(db);
