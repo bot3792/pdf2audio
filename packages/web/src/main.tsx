@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink } from "@trpc/client";
+import { httpBatchStreamLink } from "@trpc/client";
 import { trpc } from "./trpc.ts";
 import { profileHeaders } from "./lib/profile.ts";
 import { Home } from "./pages/Home.tsx";
@@ -20,7 +20,7 @@ const queryClient = new QueryClient({
 
 const trpcClient = trpc.createClient({
   links: [
-    httpBatchLink({
+    httpBatchStreamLink({
       url: "/trpc",
       headers: () => profileHeaders(),
     }),
