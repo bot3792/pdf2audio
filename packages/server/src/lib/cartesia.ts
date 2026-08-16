@@ -41,11 +41,30 @@ function headers(): Record<string, string> {
 }
 
 let voiceCache: { at: number; voices: CartesiaVoice[] } | null = null;
+let voiceFetch: Promise<CartesiaVoice[]> | null = null;
 
 export async function listCartesiaVoices(): Promise<CartesiaVoice[]> {
   if (!env.CARTESIA_API_KEY) return [];
   if (voiceCache && Date.now() - voiceCache.at < VOICE_CACHE_TTL_MS) return voiceCache.voices;
 
+  voiceFetch ??= fetchAllCartesiaVoices()
+    .then((voices) => {
+      voiceCache = { at: Date.now(), voices };
+      return voices;
+    })
+    .finally(() => {
+      voiceFetch = null;
+    });
+
+  // Stale-while-revalidate: an expired cache is still served, the refresh runs in the background
+  if (voiceCache) {
+    voiceFetch.catch(() => {});
+    return voiceCache.voices;
+  }
+  return voiceFetch;
+}
+
+async function fetchAllCartesiaVoices(): Promise<CartesiaVoice[]> {
   const voices: CartesiaVoice[] = [];
   let startingAfter: string | null = null;
   for (let page = 0; page < 10; page++) {
@@ -70,8 +89,6 @@ export async function listCartesiaVoices(): Promise<CartesiaVoice[]> {
     if (!body.has_more || body.data.length === 0) break;
     startingAfter = body.data[body.data.length - 1].id;
   }
-
-  voiceCache = { at: Date.now(), voices };
   return voices;
 }
 
