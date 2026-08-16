@@ -350,7 +350,7 @@ export function ChapterModal({
           </button>
         </div>
 
-        <div className="flex items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
+        <div className="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
           {chapter.status === "done" && chapter.audioPath ? (
             <audio key={`${chapter.id}-${variant?.key ?? "original"}`} controls preload="none" className="h-8 mr-2">
               <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} type="audio/mpeg" />
