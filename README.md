@@ -11,6 +11,8 @@ Short standalone tours, narrated by the app's own synthesized voice — the scri
 | [![The core idea](https://img.youtube.com/vi/OKMiox3nxPY/hq720.jpg)](https://youtu.be/OKMiox3nxPY) | [![Smart features](https://img.youtube.com/vi/GhQW_Ma2qwI/hq720.jpg)](https://youtu.be/GhQW_Ma2qwI) |
 | :--: | :--: |
 | **[1 · The core idea](https://youtu.be/OKMiox3nxPY)**<br>PDF in, chapter-marked MP3 out | **[2 · Smart features](https://youtu.be/GhQW_Ma2qwI)**<br>Ask AI, chat with citations, translate & transform |
+| [![Scaling your library](https://img.youtube.com/vi/g9kX_cNFD6k/hq720.jpg)](https://youtu.be/g9kX_cNFD6k) | |
+| **[3 · Scaling your library](https://youtu.be/g9kX_cNFD6k)**<br>Instant indexing, library-wide chat, digests | |
 
 ## What it does
 
@@ -25,6 +27,10 @@ Short standalone tours, narrated by the app's own synthesized voice — the scri
 - **Read-along on iPhone**: a self-hosted [Storyteller](https://storyteller-platform.dev/) companion (see `storyteller/`) auto-imports synced EPUBs; the free Storyteller Reader app downloads them for fully offline listening with live text highlighting.
 - **Library organization**: nested folders with drag & drop, cross-folder search, lightweight profiles (workspaces) so different people keep separate libraries.
 - **Library chat**: an agentic assistant (`/chat`) that searches the *content* of every book — hybrid full-text + semantic search (local BGE-M3 embeddings, cross-language: ask in English, find the Bulgarian passage and vice versa) — and streams answers with verified citations. Click a source chip to open the PDF at that page, the chapter, or the translation view. Answers can be saved as notes.
+
+## How is this different from Ebook2Audiobook?
+
+[Ebook2Audiobook](https://github.com/DrewThomasson/ebook2audiobook) is a one-shot converter: file in, audiobook out, with voice cloning (XTTSv2) and huge language coverage. pdf2audio is a **library you live in**: books persist in a database with per-chapter editing, re-synthesis, AI cleanup, translations and rewrites, notes, digests, read-along export, and chat over the content of every book. PDFs are the first-class input (raw text instantly, OCR opt-in) rather than routed through an EPUB conversion, and the TTS stack is newer local models (Kokoro, KugelAudio) plus macOS and Cartesia voices instead of the Coqui-era engines. If you want "this EPUB as an m4b in a cloned voice", use Ebook2Audiobook; if you want to clean up, restructure, transform, and actually work with a messy PDF collection, that's this.
 
 ## How it works
 
