@@ -144,3 +144,7 @@ cd packages/server && pnpm test   # Server test suite (spins up template DB, run
 - KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm run setup --kugel` downloads and converts it. ~1.5x realtime on an M4 Pro.
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.
 - Best Kokoro voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md) — the source is public, and you're free to use, modify, and share pdf2audio for personal and any other noncommercial purpose. Commercial use of any kind requires permission — open a GitHub issue to ask.
