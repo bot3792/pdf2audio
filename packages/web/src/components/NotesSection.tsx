@@ -87,7 +87,7 @@ export function NotesSection({ bookId, noteJob }: { bookId: string; noteJob: Not
                   >
                     <path d="M6.22 3.22a.75.75 0 011.06 0l4.25 4.25a.75.75 0 010 1.06l-4.25 4.25a.75.75 0 01-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 010-1.06z" />
                   </svg>
-                  <span className="text-sm text-(--text-primary) truncate flex-1 group-hover:text-(--text-secondary)">
+                  <span className="text-sm text-(--text-primary) truncate flex-1 group-hover:text-(--text-secondary)" title={note.prompt}>
                     {note.prompt}
                   </span>
                   <span className="text-xs px-2 py-0.5 rounded-full bg-(--bg-subtle) text-(--text-muted) shrink-0" title={scopeTitle}>
