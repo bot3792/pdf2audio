@@ -11,8 +11,8 @@ Short standalone tours, narrated by the app's own synthesized voice — the scri
 | [![The core idea](https://img.youtube.com/vi/OKMiox3nxPY/hq720.jpg)](https://youtu.be/OKMiox3nxPY) | [![Smart features](https://img.youtube.com/vi/GhQW_Ma2qwI/hq720.jpg)](https://youtu.be/GhQW_Ma2qwI) |
 | :--: | :--: |
 | **[1 · The core idea](https://youtu.be/OKMiox3nxPY)**<br>PDF in, chapter-marked MP3 out | **[2 · Smart features](https://youtu.be/GhQW_Ma2qwI)**<br>Ask AI, chat with citations, translate & transform |
-| [![Scaling your library](https://img.youtube.com/vi/g9kX_cNFD6k/hq720.jpg)](https://youtu.be/g9kX_cNFD6k) | |
-| **[3 · Scaling your library](https://youtu.be/g9kX_cNFD6k)**<br>Instant indexing, library-wide chat, digests | |
+| [![Scaling your library](https://img.youtube.com/vi/g9kX_cNFD6k/hq720.jpg)](https://youtu.be/g9kX_cNFD6k) | [![Documents and read-along](https://img.youtube.com/vi/os3-bJxDhsM/hq720.jpg)](https://youtu.be/os3-bJxDhsM) |
+| **[3 · Scaling your library](https://youtu.be/g9kX_cNFD6k)**<br>Instant indexing, library-wide chat, digests | **[4 · Documents and read-along](https://youtu.be/os3-bJxDhsM)**<br>PDF/EPUB export, synced read-along for your phone |
 
 ## What it does
 
