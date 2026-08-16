@@ -3,7 +3,7 @@ import type { WorkerUtils } from "graphile-worker";
 import { and, asc, eq, isNotNull, ne, or, sql } from "drizzle-orm";
 import { db } from "../db.ts";
 import { books, bookFiles, bookChunks, chapters, chapterVariants, type Book, type SearchIndexJob, type NewBookChunk } from "../schema.ts";
-import { chunkPagedText, chunkPlainText, type ChunkDraft } from "../lib/search-chunks.ts";
+import { chunkPagedText, chunkPlainText, pageMapFromBlocks, type ChunkDraft, type PageBlock } from "../lib/search-chunks.ts";
 import { describeError } from "../lib/deepseek.ts";
 
 export type IndexBookPayload = { bookId: string };
@@ -32,11 +32,14 @@ type Unit = {
   source: "raw" | "chapter" | "translation";
   language: string | null;
   text: string;
+  // Distinguishes chunkings of the same text (e.g. block-mapped pages) so the
+  // unit reindexes once when the chunking gains information
+  hashSalt?: string;
   chunk: (text: string) => ChunkDraft[];
 };
 
 async function reindexUnit(book: Book, unit: Unit): Promise<boolean> {
-  const sourceHash = hash(unit.text);
+  const sourceHash = hash((unit.hashSalt ?? "") + unit.text);
   const [existing] = await db
     .select({ sourceHash: bookChunks.sourceHash })
     .from(bookChunks)
@@ -97,14 +100,18 @@ export async function indexBook({ bookId }: IndexBookPayload, { addJob }: { addJ
 
     const chapterRows = await db.select().from(chapters).where(eq(chapters.bookId, bookId)).orderBy(asc(chapters.index));
     for (const ch of chapterRows) {
+      const text = ch.customText ?? ch.cleanText ?? ch.rawText;
+      const blocks = Array.isArray(ch.sourceBlocks) ? (ch.sourceBlocks as PageBlock[]) : null;
+      const pageOf = blocks ? pageMapFromBlocks(text, blocks) : null;
       units.push({
         key: { chapterId: ch.id },
         keyColumn: bookChunks.chapterId,
         keyValue: ch.id,
         source: "chapter",
         language: null,
-        text: ch.customText ?? ch.cleanText ?? ch.rawText,
-        chunk: (text) => chunkPlainText(text, ch.pageStart, ch.pageEnd),
+        text,
+        hashSalt: pageOf ? "pages:v1\n" : undefined,
+        chunk: (t) => chunkPlainText(t, ch.pageStart, ch.pageEnd, pageOf),
       });
     }
 

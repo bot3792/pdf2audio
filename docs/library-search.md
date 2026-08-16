@@ -27,7 +27,7 @@ One table carries three retrieval systems (see `schema.ts`):
   - `source`: `raw` (a `book_files.raw_text`, the pdftotext output — the primary corpus; most books are raw-only), `chapter` (effective chapter text: `customText ?? cleanText ?? rawText` — same precedence rule as synthesis), or `translation` (`chapter_translations.text`, `status = 'done'` only).
   - Exactly one of `bookFileId` / `chapterId` / `translationId` matches `source` (translations also carry `chapterId` for grouping).
   - `seq` orders chunks within their unit; `charStart`/`charEnd` are **true offsets into the unit's original text** — this is what lets neighboring chunks be merged without duplicating their overlap.
-  - `pageStart`/`pageEnd`: for raw chunks, real PDF page numbers; for chapter/translation chunks, the chapter's page range.
+  - `pageStart`/`pageEnd`: for raw chunks, real PDF page numbers; for chapter chunks with marker `sourceBlocks`, real per-chunk pages from the block map; otherwise (blockless chapters, translations) the chapter's page range.
   - `profileId`/`folderId` are **denormalized** from `books` so scope filters hit an index instead of a join; refreshed whenever the book is re-indexed.
   - `sourceHash`: sha256 of the unit's full text at chunking time — the cheap "did anything change?" check.
 - **GIN index on `tsv`** — full-text search. `tsv` is a generated column (`to_tsvector('simple', text)`): Postgres maintains it automatically on every insert/update; we never write it. The GIN index is an inverted index — a map from each word to the chunks containing it, like the index at the back of a book.
@@ -42,7 +42,7 @@ Postgres has no Bulgarian stemmer, and the English stemmer mangles Cyrillic unpr
 
 - `chunkPagedText(rawText)` for pdftotext output: `\f` form feeds separate pages (they survive extraction — **do not strip `\f` in `lib/pdf-raw-text.ts`**, page citations depend on them). Builds an offset→page map, then packs paragraphs (`\n\s*\n` or `\f` separated) into ~1,400-char chunks, sentence-splitting oversized paragraphs.
 - ~15% **overlap**: each chunk's start is extended backward to a sentence boundary inside the previous chunk (≤250 chars), so a retrieval hit keeps its lead-in context. Overlap regions keep true offsets — the chunk text is always exactly `unitText.slice(charStart, charEnd)` with `\f→\n`.
-- `chunkPlainText(text, pageStart?, pageEnd?)` for chapters/translations: same packing, unit-level page range.
+- `chunkPlainText(text, pageStart?, pageEnd?, pageOf?)` for chapters/translations: same packing; unit-level page range, unless a `pageOf` offset→page map is given. For marker-extracted chapters, `pageMapFromBlocks` builds that map from `chapters.sourceBlocks` (each block carries its PDF page; blocks are located by 64-char prefix in order, unmatched ones skipped) — so chapter chunks get real pages too. The unit's `sourceHash` is salted (`pages:v1`) when a map exists, forcing a one-time re-chunk of previously indexed chapters.
 
 ## Embeddings (`lib/embeddings.ts` + `scripts/embed_bge_m3.py`)
 
@@ -62,7 +62,7 @@ Then `groupHits()` tidies in JS — the same passage can legitimately exist 3+ t
 
 - Group by `chapterId ?? bookFileId ?? bookId`; keep ≤2 passages per group, and a second one only if its char range doesn't overlap the first (a different passage, not the cleaned/translated twin).
 - **Language preference**: when a group's top hit and a close-scoring twin (≥80% of its score) differ in script, prefer the one matching the query's script (Cyrillic-ratio heuristic) — ask in Bulgarian, see the Bulgarian text.
-- **Raw-vs-chapter dedup**: a raw hit whose page range overlaps a chapter/translation hit from the same book is dropped (the chapter version is cleaner and titled).
+- **Raw-vs-chapter dedup**: a raw hit whose page range overlaps a chapter/translation hit from the same book is dropped (the chapter version is cleaner and titled), but the surviving hit inherits the raw chunk's precise `pageStart`/`pageEnd` — chapter chunks only carry the whole chapter's range, the raw twin pins the passage to its actual pages. Works in both score orders: chapter-first narrows in place, raw-first swaps in the chapter twin.
 - Cap 3 hits per book so one book can't monopolize results.
 
 `expandPassage(chunkId, before, after)` fetches adjacent `seq` rows of the same unit and merges them using char offsets (overlap regions appear once). This powers the chat's `read_passage` tool.
@@ -123,7 +123,7 @@ Common situations:
 - **A book stuck at `embedding` with no error** → its job died holding the lock before the sweep learned about index jobs, or the queue was manually cleared. Fix: `pnpm backfill:index` (re-queues non-done books only).
 - **`failed` with an embedding error** → usually the python env (FlagEmbedding missing, model not cached — `scripts/setup.sh` installs both). Chat still works FTS-only meanwhile.
 - **Chat says "Semantic search unavailable"** → the embedder timed out on that query (e.g. cold start >20s); the next query typically works.
-- **Wrong/no page on a citation** → check the chunk has `page_start` (raw chunks only get pages if `\f` survived; chapter chunks inherit the chapter's page range).
+- **Wrong/no page on a citation** → check the chunk has `page_start` (raw chunks only get pages if `\f` survived; chapter chunks get per-chunk pages only when `sourceBlocks` exist and still match the indexed text — cleaned/custom text can defeat the block prefixes, falling back to the chapter's range).
 
 Disk cost (at 527 books / 208K chunks): `book_chunks` data ~1.9GB, HNSW ~1.6GB (it stores a second copy of every vector plus graph links), GIN ~150MB — DB total ~3.8GB vs ~150MB of original tables. One-time; grows ~5–10MB per typical new book.
 

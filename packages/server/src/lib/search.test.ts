@@ -57,12 +57,25 @@ describe("groupHits", () => {
     expect(result[0].source).toBe("translation");
   });
 
-  it("drops raw hits whose pages duplicate an extracted chapter hit", () => {
+  it("drops raw hits whose pages duplicate an extracted chapter hit, keeping the raw pages", () => {
     const chapterHit = hit({ chapterId: "ch-1", source: "chapter", score: 0.05, pageStart: 10, pageEnd: 14 });
     const rawTwin = hit({ bookFileId: "file-1", source: "raw", score: 0.04, pageStart: 12, pageEnd: 13, charStart: 900, charEnd: 1000 });
     const result = groupHits([chapterHit, rawTwin], "wealth", 10);
     expect(result).toHaveLength(1);
     expect(result[0].source).toBe("chapter");
+    expect(result[0].pageStart).toBe(12);
+    expect(result[0].pageEnd).toBe(13);
+  });
+
+  it("swaps a raw hit for its lower-scored chapter twin, keeping the raw pages", () => {
+    const rawHit = hit({ bookFileId: "file-1", source: "raw", score: 0.05, pageStart: 12, pageEnd: 13, charStart: 900, charEnd: 1000 });
+    const chapterTwin = hit({ chapterId: "ch-1", source: "chapter", score: 0.04, pageStart: 10, pageEnd: 14 });
+    const result = groupHits([rawHit, chapterTwin], "wealth", 10);
+    expect(result).toHaveLength(1);
+    expect(result[0].source).toBe("chapter");
+    expect(result[0].chunkId).toBe(chapterTwin.chunkId);
+    expect(result[0].pageStart).toBe(12);
+    expect(result[0].pageEnd).toBe(13);
   });
 
   it("caps hits per book", () => {

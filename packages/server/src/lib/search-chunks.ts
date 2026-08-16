@@ -112,6 +112,44 @@ export function chunkPagedText(rawText: string): ChunkDraft[] {
   return finalize(rawText, pack(segments(rawText)), feeds.length > 0 ? pageOf : null);
 }
 
-export function chunkPlainText(text: string, pageStart: number | null = null, pageEnd: number | null = null): ChunkDraft[] {
-  return finalize(text, pack(segments(text)), null).map((c) => ({ ...c, pageStart, pageEnd }));
+export function chunkPlainText(
+  text: string,
+  pageStart: number | null = null,
+  pageEnd: number | null = null,
+  pageOf: ((offset: number) => number) | null = null,
+): ChunkDraft[] {
+  const drafts = finalize(text, pack(segments(text)), pageOf);
+  return pageOf ? drafts : drafts.map((c) => ({ ...c, pageStart, pageEnd }));
+}
+
+export type PageBlock = { text: string; page: number; included: boolean };
+
+// Marker source blocks → offset→page map over the chapter text they were joined
+// into. Blocks are located by prefix in order; ones that no longer match the
+// (possibly cleaned) text are skipped, so the map degrades instead of breaking.
+export function pageMapFromBlocks(text: string, blocks: PageBlock[]): ((offset: number) => number) | null {
+  const marks: Array<{ offset: number; page: number }> = [];
+  let cursor = 0;
+  for (const block of blocks) {
+    if (!block.included) continue;
+    const probe = block.text.trim().slice(0, 64);
+    if (!probe) continue;
+    const idx = text.indexOf(probe, cursor);
+    if (idx === -1) continue;
+    if (marks.length === 0 || block.page !== marks[marks.length - 1].page) {
+      marks.push({ offset: idx, page: block.page });
+    }
+    cursor = idx + probe.length;
+  }
+  if (marks.length === 0) return null;
+  return (offset: number): number => {
+    let lo = 0;
+    let hi = marks.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (marks[mid].offset <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return marks[lo].page;
+  };
 }

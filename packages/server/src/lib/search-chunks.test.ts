@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chunkPagedText, chunkPlainText } from "./search-chunks.ts";
+import { chunkPagedText, chunkPlainText, pageMapFromBlocks, type PageBlock } from "./search-chunks.ts";
 
 const para = (n: number, word = "word") => `${word} `.repeat(n).trim();
 
@@ -76,5 +76,49 @@ describe("chunkPlainText", () => {
     const [chunk] = chunkPlainText(para(20));
     expect(chunk.pageStart).toBeNull();
     expect(chunk.pageEnd).toBeNull();
+  });
+
+  it("uses the offset→page map over the static range when given", () => {
+    const p1 = para(300, "alpha");
+    const p2 = para(300, "beta");
+    const text = `${p1}\n\n${p2}`;
+    const pageOf = (offset: number) => (offset < p1.length ? 10 : 11);
+    const chunks = chunkPlainText(text, 5, 9, pageOf);
+    const betaChunk = chunks.find((c) => c.text.startsWith("beta"));
+    expect(chunks[0].pageStart).toBe(10);
+    expect(betaChunk!.pageStart).toBe(11);
+  });
+});
+
+describe("pageMapFromBlocks", () => {
+  const block = (page: number, text: string, included = true): PageBlock => ({ page, text, included });
+
+  it("maps offsets to the page of the preceding block", () => {
+    const a = para(50, "alpha");
+    const b = para(50, "beta");
+    const c = para(50, "gamma");
+    const text = [a, b, c].join("\n\n");
+    const pageOf = pageMapFromBlocks(text, [block(129, a), block(130, b), block(131, c)])!;
+    expect(pageOf(0)).toBe(129);
+    expect(pageOf(text.indexOf("beta"))).toBe(130);
+    expect(pageOf(text.length - 1)).toBe(131);
+  });
+
+  it("skips excluded and unmatched blocks", () => {
+    const a = para(50, "alpha");
+    const b = para(50, "beta");
+    const text = [a, b].join("\n\n");
+    const pageOf = pageMapFromBlocks(text, [
+      block(1, "header not in text", false),
+      block(2, a),
+      block(3, "cleaned away entirely"),
+      block(4, b),
+    ])!;
+    expect(pageOf(0)).toBe(2);
+    expect(pageOf(text.indexOf("beta"))).toBe(4);
+  });
+
+  it("returns null when no block matches", () => {
+    expect(pageMapFromBlocks(para(50), [block(1, "nothing here")])).toBeNull();
   });
 });

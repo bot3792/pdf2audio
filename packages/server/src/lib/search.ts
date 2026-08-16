@@ -101,16 +101,27 @@ export function groupHits(hits: SearchHit[], query: string, limit: number): Sear
 
   representatives.sort((a, b) => b.score - a.score);
 
-  // Raw-text hits duplicating an extracted chapter's pages lose to the chapter hit
+  // Raw-text hits duplicating an extracted chapter's pages lose to the chapter
+  // hit — which inherits the raw chunk's precise pages, since chapter chunks
+  // only carry the whole chapter's range
   const out: SearchHit[] = [];
   const perBook = new Map<string, number>();
   for (const hit of representatives) {
     const count = perBook.get(hit.bookId) ?? 0;
     if (count >= PER_BOOK) continue;
-    if (hit.source === "raw" && out.some((o) => o.bookId === hit.bookId && o.source !== "raw" && pagesOverlap(o, hit))) continue;
-    if (hit.source !== "raw") {
+    if (hit.source === "raw") {
+      const twinIdx = out.findIndex((o) => o.bookId === hit.bookId && o.source !== "raw" && pagesOverlap(o, hit));
+      if (twinIdx !== -1) {
+        out[twinIdx] = { ...out[twinIdx], pageStart: hit.pageStart, pageEnd: hit.pageEnd };
+        continue;
+      }
+    } else {
       const rawTwinIdx = out.findIndex((o) => o.bookId === hit.bookId && o.source === "raw" && pagesOverlap(o, hit));
-      if (rawTwinIdx !== -1) continue;
+      if (rawTwinIdx !== -1) {
+        const raw = out[rawTwinIdx];
+        out[rawTwinIdx] = { ...hit, pageStart: raw.pageStart, pageEnd: raw.pageEnd, score: raw.score };
+        continue;
+      }
     }
     out.push(hit);
     perBook.set(hit.bookId, count + 1);
