@@ -3,9 +3,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import { parseFile } from "music-metadata";
 import { listChunkPreviewsIn } from "./chunk-previews.ts";
 
-// Text↔audio timing map for a chapter MP3, written next to it as ch000.sync.json.
+// Text↔audio timing map for a chapter audio file, written next to it as ch000.sync.json.
 // Once it exists, the chunk WAVs are disposable: the map is all that's needed to
-// rebuild read-along exports (EPUB media overlays) from the MP3.
+// rebuild read-along exports (EPUB media overlays) from the chapter audio.
 export type SyncChunk = { text: string; startMs: number; endMs: number };
 export type SyncMap = { version: 1; totalMs: number; chunks: SyncChunk[] };
 
@@ -30,7 +30,7 @@ export async function writeSyncMap(audioPath: string, map: SyncMap): Promise<voi
 
 // Chunk WAVs hold the narration without inter-chunk pauses; the encoded chapter is the
 // chunks plus a per-script pause after each one. Spreading the measured remainder evenly
-// recovers offsets exact to within MP3 encoder padding.
+// recovers offsets exact to within encoder priming/padding.
 export async function buildSyncMapFromChunks(chunkDir: string, totalMs: number): Promise<SyncMap | null> {
   if (totalMs <= 0) return null;
   const previews = await listChunkPreviewsIn(chunkDir, "");

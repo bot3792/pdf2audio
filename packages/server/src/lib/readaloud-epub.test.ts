@@ -40,17 +40,18 @@ describe("buildReadaloudEpub", () => {
 
   it("produces a valid EPUB skeleton with media overlays", async () => {
     await mkdir(baseDir, { recursive: true });
+    // One legacy MP3 chapter and one AAC chapter — both must carry their own media type
     const mp3a = path.join(baseDir, "ch000-src.mp3");
-    const mp3b = path.join(baseDir, "ch001-src.mp3");
+    const m4ab = path.join(baseDir, "ch001-src.m4a");
     await writeFile(mp3a, "fake-mp3-a");
-    await writeFile(mp3b, "fake-mp3-b");
+    await writeFile(m4ab, "fake-m4a-b");
 
     await buildReadaloudEpub({
       title: "Fish & Chips",
       language: "Bulgarian",
       chapters: [
         { index: 0, title: "Intro <1>", audioPath: mp3a, sync: sync(["Здравей & добре дошъл.", "Втора част."], 1500) },
-        { index: 1, title: "Chapter Two", audioPath: mp3b, sync: sync(["More text."], 2000) },
+        { index: 1, title: "Chapter Two", audioPath: m4ab, sync: sync(["More text."], 2000) },
       ],
       stagingDir: path.join(baseDir, "staging"),
       outputPath,
@@ -91,8 +92,14 @@ describe("buildReadaloudEpub", () => {
     expect(smil).toContain('clipBegin="0:00:01.500" clipEnd="0:00:03.000"');
     expect(smil).not.toContain("../");
 
+    expect(opf).toContain('<item id="audio_ch000" href="audio/ch000.mp3" media-type="audio/mpeg"/>');
+    expect(opf).toContain('<item id="audio_ch001" href="audio/ch001.m4a" media-type="audio/mp4"/>');
+
+    const smilB = await zipEntry(outputPath, "OEBPS/ch001_overlay.smil");
+    expect(smilB).toContain('<audio src="audio/ch001.m4a"');
+
     expect(await zipEntry(outputPath, "OEBPS/audio/ch000.mp3")).toBe("fake-mp3-a");
-    expect(await zipEntry(outputPath, "OEBPS/audio/ch001.mp3")).toBe("fake-mp3-b");
+    expect(await zipEntry(outputPath, "OEBPS/audio/ch001.m4a")).toBe("fake-m4a-b");
 
     const nav = await zipEntry(outputPath, "OEBPS/nav.xhtml");
     expect(nav).toContain('<a href="ch000.xhtml">Intro &lt;1&gt;</a>');

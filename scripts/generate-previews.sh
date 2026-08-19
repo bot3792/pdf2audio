@@ -27,9 +27,9 @@ DONE=0
 
 for VOICE in "${VOICES[@]}"; do
   DONE=$((DONE + 1))
-  MP3="$PREVIEWS_DIR/$VOICE.mp3"
+  M4A="$PREVIEWS_DIR/$VOICE.m4a"
 
-  if [ -f "$MP3" ]; then
+  if [ -f "$M4A" ]; then
     echo "[$DONE/$TOTAL] $VOICE — already exists, skipping"
     continue
   fi
@@ -46,7 +46,8 @@ for VOICE in "${VOICES[@]}"; do
     --input "$TXT" --output "$WAV" --voice "$VOICE" --speed 1.0 --lang "$LANG_CODE" \
     2>&1 | tail -1
 
-  ffmpeg -y -i "$WAV" -codec:a libmp3lame -qscale:a 2 "$MP3" -loglevel error
+  ffmpeg -y -i "$WAV" -codec:a aac_at -b:a 64k -ar 44100 -ac 1 -movflags +faststart "$M4A" -loglevel error \
+    || ffmpeg -y -i "$WAV" -codec:a aac -b:a 64k -ar 44100 -ac 1 -movflags +faststart "$M4A" -loglevel error
   rm -f "$WAV" "$TXT"
 done
 

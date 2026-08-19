@@ -29,9 +29,11 @@ type ChapterModalProps = {
 };
 
 export function chapterAudioDownload(chapter: ChapterRow, variant?: VariantRef | null) {
+  // Legacy chapters synthesized before the AAC switch are still .mp3 on disk
+  const ext = chapter.audioPath?.match(/\.\w+$/)?.[0] ?? ".m4a";
   return {
     href: chapter.audioUrl ?? `/audio/chapter/${chapter.id}`,
-    filename: `${chapter.index + 1} ${chapter.title}${variant ? ` (${variant.label ?? variant.key})` : ""}.mp3`.replace(/[\\/]/g, "-"),
+    filename: `${chapter.index + 1} ${chapter.title}${variant ? ` (${variant.label ?? variant.key})` : ""}${ext}`.replace(/[\\/]/g, "-"),
   };
 }
 
@@ -353,14 +355,14 @@ export function ChapterModal({
         <div className="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
           {chapter.status === "done" && chapter.audioPath ? (
             <audio key={`${chapter.id}-${variant?.key ?? "original"}`} controls preload="none" className="h-8 mr-2">
-              <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} type="audio/mpeg" />
+              <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} />
             </audio>
           ) : null}
           {chapter.status === "done" && chapter.audioPath ? (
             <a
               href={chapterAudioDownload(chapter, variant).href}
               download={chapterAudioDownload(chapter, variant).filename}
-              title={`Download the ${variantName ?? "chapter"} MP3`}
+              title={`Download the ${variantName ?? "chapter"} audio`}
               className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium no-underline"
             >
               Download
@@ -717,7 +719,7 @@ function ChunkPreviewPanel({
   const [playbackRate, setPlaybackRate] = useState(1);
 
   // After cleanup the chunk WAVs are gone: entries carry sync-map timings instead, and the
-  // panel plays the chapter MP3, seeking to each chunk's startMs.
+  // panel plays the chapter audio, seeking to each chunk's startMs.
   const syncMode = typeof chunkPreviews[0]?.startMs === "number";
   const audioSrc = syncMode ? activeUrl?.split("#")[0] ?? null : activeUrl;
   const pendingSeekRef = useRef<number | null>(null);
@@ -779,7 +781,7 @@ function ChunkPreviewPanel({
 
   // When a chunk finishes, roll on to the next one (audiobook-style). Selecting it bumps playNonce,
   // which auto-plays it. Pausing stops the chain since a paused chunk never fires "ended".
-  // Sync mode plays one continuous MP3, so "ended" only fires at the end of the chapter.
+  // Sync mode plays one continuous file, so "ended" only fires at the end of the chapter.
   function handleEnded() {
     if (syncMode) {
       setIsPlaying(false);

@@ -21,7 +21,7 @@ export function DiskUsageButton({ bookId }: { bookId: string }) {
     ? [
         { label: "Source PDFs", bytes: usage.uploads },
         { label: "Extraction cache", bytes: usage.extractionCache, hint: "Marker JSON in data/tmp — needed for re-detect, structure view, and proposals" },
-        { label: "Chapter audio (MP3)", bytes: usage.chapterAudio, hint: "Original and translated chapter MP3s" },
+        { label: "Chapter audio", bytes: usage.chapterAudio, hint: "Original and translated chapter audio files" },
         { label: "WAV chunks", bytes: usage.chunkWavs, hint: "Per-chunk synthesis output — only needed to resume unfinished chapters and for chunk previews" },
         { label: "Assemblies", bytes: usage.assemblies },
         { label: "Documents", bytes: usage.documents },
@@ -86,7 +86,7 @@ export function DiskUsageButton({ bookId }: { bookId: string }) {
                   title={
                     usage.cleanableChunkWavs === 0
                       ? "No finished chapters have leftover WAV chunks"
-                      : "Delete the WAV chunks of chapters whose MP3 is done — chapters, text, and MP3s are kept. Chunks of unfinished chapters stay so they can resume."
+                      : "Delete the WAV chunks of chapters whose audio is done — chapters, text, and audio files are kept. Chunks of unfinished chapters stay so they can resume."
                   }
                   className="w-full px-4 py-2 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50 disabled:cursor-not-allowed"
                   data-testid="cleanup-chunks"

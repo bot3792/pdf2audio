@@ -1,11 +1,12 @@
 import { db } from "../db.ts";
 import { chapters, books, assemblies, chapterVariants } from "../schema.ts";
 import { eq, asc, and } from "drizzle-orm";
-import { concatMp3s } from "../lib/ffmpeg.ts";
-import { writeChapterMarkers } from "../lib/id3-chapters.ts";
+import { concatToM4b, encodeToM4a } from "../lib/ffmpeg.ts";
+import { generateCover } from "../lib/cover.ts";
 import { bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { languageSlug } from "./synthesize-translation.ts";
+import { unlink } from "node:fs/promises";
 import path from "node:path";
 
 export type AssemblePayload = {
@@ -69,20 +70,27 @@ export async function assemble(payload: AssemblePayload) {
 
     await log(`${chaptersWithAudio.length} of ${selectedCount} selected chapter${selectedCount !== 1 ? "s" : ""} have audio`);
 
-    const mp3Paths = chaptersWithAudio.map((ch) => ch.audioPath);
-
     const outDir = bookOutputDir(bookId);
     const timestamp = formatTimestamp(new Date());
     const suffix = language ? `_${languageSlug(language)}` : "";
-    const outputPath = path.join(outDir, `${sanitizeFilename(book.title)}${suffix}_${timestamp}.mp3`);
+    const outputPath = path.join(outDir, `${sanitizeFilename(book.title)}${suffix}_${timestamp}.m4b`);
 
-    if (mp3Paths.length === 1) {
-      await log("Single chapter — copying to output");
-      const { copyFile } = await import("node:fs/promises");
-      await copyFile(mp3Paths[0], outputPath);
-    } else {
-      await log(`Concatenating ${mp3Paths.length} chapter MP3s`);
-      await concatMp3s(mp3Paths, outputPath);
+    // Chapters synthesized before the AAC switch are MP3 — re-encode those to the
+    // pinned stream shape so the whole book can be stitched without transcoding
+    const tempPaths: string[] = [];
+    const m4aPaths: string[] = [];
+    for (const ch of chaptersWithAudio) {
+      if (ch.audioPath.endsWith(".m4a")) {
+        m4aPaths.push(ch.audioPath);
+        continue;
+      }
+      const tempPath = ch.audioPath.replace(/\.[^./]+$/, "") + ".assemble.m4a";
+      await encodeToM4a(ch.audioPath, tempPath);
+      m4aPaths.push(tempPath);
+      tempPaths.push(tempPath);
+    }
+    if (tempPaths.length > 0) {
+      await log(`Re-encoded ${tempPaths.length} legacy MP3 chapter(s) to AAC`);
     }
 
     let offsetMs = 0;
@@ -93,12 +101,23 @@ export async function assemble(payload: AssemblePayload) {
       return { title: ch.title, startMs, endMs };
     });
 
-    await log("Writing ID3v2 chapter markers");
-    writeChapterMarkers(outputPath, {
-      title: book.title,
-      artist: "pdf2audio",
-      chapters: chapterMetas,
-    });
+    const coverPath = outputPath + ".cover.jpg";
+    const hasCover = await generateCover(coverPath, book.title);
+
+    try {
+      await log(`Assembling ${m4aPaths.length} chapter(s) into M4B with chapter markers`);
+      await concatToM4b(m4aPaths, outputPath, {
+        title: book.title,
+        artist: "pdf2audio",
+        chapters: chapterMetas,
+        ...(hasCover ? { coverPath } : {}),
+      });
+    } finally {
+      await unlink(coverPath).catch(() => {});
+      for (const p of tempPaths) {
+        await unlink(p).catch(() => {});
+      }
+    }
 
     const durationMs = offsetMs;
     const totalSec = Math.round(durationMs / 1000);

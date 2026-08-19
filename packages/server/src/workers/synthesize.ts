@@ -2,7 +2,7 @@ import { db } from "../db.ts";
 import { chapters, books } from "../schema.ts";
 import { eq, and, ne, notInArray } from "drizzle-orm";
 import { synthesize as ttsSynthesize, TtsAbortedError, voiceSupportsSpeed } from "../lib/tts.ts";
-import { wavToMp3 } from "../lib/ffmpeg.ts";
+import { encodeToM4a } from "../lib/ffmpeg.ts";
 import { bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { parseFile } from "music-metadata";
@@ -67,7 +67,7 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
     await mkdir(outDir, { recursive: true });
 
     const wavPath = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.wav`);
-    const mp3Path = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.mp3`);
+    const m4aPath = path.join(outDir, `ch${String(chapter.index).padStart(3, "0")}.m4a`);
     const chunkPreviewDir = chapterChunkPreviewDir(bookId, chapter.index);
     const chunkPreviewUrlBase = chapterChunkPreviewUrlBase(bookId, chapter.index);
     if (resume) {
@@ -135,27 +135,27 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
       return;
     }
 
-    await chLog(`Converting WAV to MP3`);
-    await wavToMp3(wavPath, mp3Path);
+    await chLog(`Converting WAV to M4A`);
+    await encodeToM4a(wavPath, m4aPath);
 
     await unlink(wavPath).catch(() => {});
     await unlink(wavPath.replace(/\.wav$/, ".txt")).catch(() => {});
 
-    const metadata = await parseFile(mp3Path, { duration: true });
+    const metadata = await parseFile(m4aPath, { duration: true });
     const durationMs = Math.round((metadata.format.duration ?? 0) * 1000);
 
     // Persist text↔audio timings so read-along exports survive chunk-WAV cleanup;
     // if the sync map can't be built, keep the chunks so it can be rebuilt later
     const syncMap = await buildSyncMapFromChunks(chunkPreviewDir, durationMs).catch(() => null);
     if (syncMap) {
-      await writeSyncMap(mp3Path, syncMap);
+      await writeSyncMap(m4aPath, syncMap);
       await rm(chunkPreviewDir, { recursive: true, force: true }).catch(() => {});
     }
 
     await db
       .update(chapters)
       .set({
-        audioPath: mp3Path,
+        audioPath: m4aPath,
         durationMs,
         status: "done",
         progress: null,

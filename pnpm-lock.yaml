@@ -57,9 +57,6 @@ importers:
       music-metadata:
         specifier: ^11.12.0
         version: 11.12.0
-      node-id3:
-        specifier: ^0.2.9
-        version: 0.2.9
       postgres:
         specifier: ^3.4.5
         version: 3.4.8
@@ -2396,10 +2393,6 @@ packages:
   i18next@3.5.2:
     resolution: {integrity: sha512-42eGG1b56O5NR01Gudod1R3LzPugN6tZ3ZmYtAqOJSmx4V3vD07hLtkkFrv/qu1mRecW1woezyXFZBFnNAgRXw==}
 
-  iconv-lite@0.6.2:
-    resolution: {integrity: sha512-2y91h5OpQlolefMPmUlivelittSWy0rP+oYVpn6A7GwVHNE8AWzoYOBNmlwks3LobaJxgHCYZAnyNo2GgpNRNQ==}
-    engines: {node: '>=0.10.0'}
-
   iconv-lite@0.6.3:
     resolution: {integrity: sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==}
     engines: {node: '>=0.10.0'}
@@ -2952,9 +2945,6 @@ packages:
     resolution: {integrity: sha512-OMcPNvqTCFUnNaBlmdgq+lfNqY7gTiSmNRDjY3uAXRyudeKZEZxu3CLtjMQrx4zZxCX2b/mpNqTtwuCJgXhHkw==}
     engines: {node: ^20.17.0 || >=22.9.0}
     hasBin: true
-
-  node-id3@0.2.9:
-    resolution: {integrity: sha512-dSxhuxrkkGVRgUhDHFxdY0pilzOREcodO01HcZWfaRkCaPWGmo0dOgD8ygyL6ln4Iv4cmfRxAWn1WD9bIB9Bhw==}
 
   node-stream-zip@1.15.0:
     resolution: {integrity: sha512-LN4fydt9TqhZhThkZIVQnF9cwjU3qmUH9h78Mx/K7d3VvfRqqwthLwJEUOEL0QPZ0XQmNN7be5Ggit5+4dq3Bw==}
@@ -6451,10 +6441,6 @@ snapshots:
 
   i18next@3.5.2: {}
 
-  iconv-lite@0.6.2:
-    dependencies:
-      safer-buffer: 2.1.2
-
   iconv-lite@0.6.3:
     dependencies:
       safer-buffer: 2.1.2
@@ -7102,10 +7088,6 @@ snapshots:
       tinyglobby: 0.2.15
       undici: 6.28.0
       which: 6.0.1
-
-  node-id3@0.2.9:
-    dependencies:
-      iconv-lite: 0.6.2
 
   node-stream-zip@1.15.0: {}
 

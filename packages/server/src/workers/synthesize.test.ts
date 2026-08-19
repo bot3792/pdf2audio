@@ -21,7 +21,7 @@ vi.mock("../lib/tts.ts", () => {
 });
 
 vi.mock("../lib/ffmpeg.ts", () => ({
-  wavToMp3: vi.fn(async () => {}),
+  encodeToM4a: vi.fn(async () => {}),
 }));
 
 vi.mock("../lib/paths.ts", () => ({
@@ -92,7 +92,7 @@ describe("synthesize worker", () => {
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
     expect(chapter.status).toBe("done");
     expect(chapter.progress).toBeNull();
-    expect(chapter.audioPath).toContain("ch000.mp3");
+    expect(chapter.audioPath).toContain("ch000.m4a");
     expect(chapter.durationMs).toBe(12400);
     expect(chapter.synthesizedWith).toEqual({ voice: "bg-mlx:narrator", speed: null });
   });

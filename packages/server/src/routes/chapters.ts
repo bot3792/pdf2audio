@@ -331,7 +331,7 @@ export const chaptersRouter = router({
         throw new Error(`Cannot delete audio of ${active.length} chapter(s) that are actively processing`);
       }
 
-      // Partial chapters count too: their chunk WAVs are audio data even without a final MP3
+      // Partial chapters count too: their chunk WAVs are audio data even without a final encode
       const targets = selected.filter((c) => c.audioPath || c.progress);
       for (const ch of targets) {
         await removeChapterArtifacts({ bookId: ch.bookId, index: ch.index, audioPath: ch.audioPath });

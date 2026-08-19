@@ -4,8 +4,19 @@ import { mkdir, writeFile, copyFile, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { SyncMap } from "./sync-map.ts";
+import { generateCover } from "./cover.ts";
 
 const execFileAsync = promisify(execFile);
+
+// Chapters synthesized before the AAC switch are .mp3; both are EPUB 3 core media types
+const AUDIO_MEDIA_TYPES: Record<string, string> = {
+  ".m4a": "audio/mp4",
+  ".mp3": "audio/mpeg",
+};
+
+function audioMediaType(ext: string): string {
+  return AUDIO_MEDIA_TYPES[ext] ?? "audio/mpeg";
+}
 
 export type ReadaloudChapter = {
   index: number;
@@ -67,11 +78,11 @@ ${paragraphs}
 `;
 }
 
-function chapterSmil(base: string, sync: SyncMap): string {
+function chapterSmil(base: string, audioExt: string, sync: SyncMap): string {
   const pars = sync.chunks
     .map((c, i) => `      <par id="${base}-s${i}">
         <text src="${base}.xhtml#${base}-s${i}"/>
-        <audio src="audio/${base}.mp3" clipBegin="${clock(c.startMs)}" clipEnd="${clock(c.endMs)}"/>
+        <audio src="audio/${base}${audioExt}" clipBegin="${clock(c.startMs)}" clipEnd="${clock(c.endMs)}"/>
       </par>`)
     .join("\n");
   return `<?xml version="1.0" encoding="utf-8"?>
@@ -130,34 +141,11 @@ p { margin: 0 0 0.9em 0; }
 }
 `;
 
-// Solid-color cover with the title; skipped silently if ffmpeg drawtext is unavailable
-async function generateCover(coverPath: string, title: string): Promise<boolean> {
-  const text = title.replace(/[\\':]/g, " ").slice(0, 80);
-  try {
-    await execFileAsync("ffmpeg", [
-      "-y", "-f", "lavfi",
-      "-i", "color=c=0x1f3a5f:s=600x900",
-      "-vf", `drawtext=text='${text}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=(h-text_h)/2:font=Georgia`,
-      "-frames:v", "1", coverPath,
-    ], { timeout: 60_000 });
-    return true;
-  } catch {
-    try {
-      await execFileAsync("ffmpeg", [
-        "-y", "-f", "lavfi", "-i", "color=c=0x1f3a5f:s=600x900", "-frames:v", "1", coverPath,
-      ], { timeout: 60_000 });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
 function packageOpf(opts: {
   title: string;
   lang: string;
   hasCover: boolean;
-  chapters: { base: string; title: string; sync: SyncMap }[];
+  chapters: { base: string; title: string; audioExt: string; sync: SyncMap }[];
 }): string {
   const { title, lang, hasCover, chapters } = opts;
   const totalMs = chapters.reduce((sum, ch) => sum + ch.sync.totalMs, 0);
@@ -166,7 +154,7 @@ function packageOpf(opts: {
   const manifest = chapters
     .map((ch) => `    <item id="${ch.base}" href="${ch.base}.xhtml" media-type="application/xhtml+xml" media-overlay="${ch.base}_overlay"/>
     <item id="${ch.base}_overlay" href="${ch.base}_overlay.smil" media-type="application/smil+xml"/>
-    <item id="audio_${ch.base}" href="audio/${ch.base}.mp3" media-type="audio/mpeg"/>`)
+    <item id="audio_${ch.base}" href="audio/${ch.base}${ch.audioExt}" media-type="${audioMediaType(ch.audioExt)}"/>`)
     .join("\n");
   const durations = chapters
     .map((ch) => `    <meta property="media:duration" refines="#${ch.base}_overlay">${clock(ch.sync.totalMs)}</meta>`)
@@ -213,7 +201,11 @@ export async function buildReadaloudEpub(opts: {
   const lang = languageCode(language);
 
   const ordered = [...chapters].sort((a, b) => a.index - b.index);
-  const named = ordered.map((ch, seq) => ({ ...ch, base: chapterBase(seq) }));
+  const named = ordered.map((ch, seq) => ({
+    ...ch,
+    base: chapterBase(seq),
+    audioExt: path.extname(ch.audioPath).toLowerCase(),
+  }));
 
   await rm(stagingDir, { recursive: true, force: true });
   await mkdir(path.join(stagingDir, "META-INF"), { recursive: true });
@@ -242,8 +234,8 @@ export async function buildReadaloudEpub(opts: {
 
   for (const ch of named) {
     await writeFile(path.join(stagingDir, "OEBPS", `${ch.base}.xhtml`), chapterXhtml(ch.base, ch.title, ch.sync, lang));
-    await writeFile(path.join(stagingDir, "OEBPS", `${ch.base}_overlay.smil`), chapterSmil(ch.base, ch.sync));
-    await copyFile(ch.audioPath, path.join(stagingDir, "OEBPS", "audio", `${ch.base}.mp3`));
+    await writeFile(path.join(stagingDir, "OEBPS", `${ch.base}_overlay.smil`), chapterSmil(ch.base, ch.audioExt, ch.sync));
+    await copyFile(ch.audioPath, path.join(stagingDir, "OEBPS", "audio", `${ch.base}${ch.audioExt}`));
   }
 
   // EPUB OCF: mimetype must be first and stored; audio is already compressed, so store it too

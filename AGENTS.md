@@ -1,12 +1,12 @@
 # pdf2audio — Agent Context
 
-Personal tool that converts PDF books to MP3 audiobooks with chapter markers. Runs locally on Apple Silicon Macs. Fully offline after initial model download.
+Personal tool that converts PDF books to M4B audiobooks with chapter markers. Runs locally on Apple Silicon Macs. Fully offline after initial model download.
 
 ## Product Vision
 
 This is a personal power-user tool, not a polished consumer product. The design priorities are:
 
-**Assembly is a first-class repeatable action, not a terminal state.** The user can assemble an MP3 from selected chapters at any time — mid-synthesis, after tweaking voices, after editing text, after excluding garbage chapters. "Done" just means "there's an assembled MP3 file," not "nothing more can be done."
+**Assembly is a first-class repeatable action, not a terminal state.** The user can assemble an M4B from selected chapters at any time — mid-synthesis, after tweaking voices, after editing text, after excluding garbage chapters. "Done" just means "there's an assembled M4B file," not "nothing more can be done."
 
 **Per-chapter control is central.** Each chapter can be independently:
 - Synthesized with a different voice or speed
@@ -46,7 +46,7 @@ Environment variables are managed via `.env` at the repo root (gitignored), with
 
 ```
 PDF Upload → rawExtract (seconds, always) [→ bookNote (optional AI answer → notes)]
-           → extract (opt-in, slow) → normalize (per chapter) → synthesize (per chapter) → assemble → MP3 with chapters
+           → extract (opt-in, slow) → normalize (per chapter) → synthesize (per chapter) → assemble → M4B with chapters
 ```
 
 Every upload extracts raw text with `pdftotext` in seconds (stored per file in `book_files.raw_text`); the slow Marker extraction is **opt-in** ("Extract chapters now" checkbox, default off) and can be run later via `books.extractChapters` from the book page. Raw-only files carry `book_files.status = "raw"` and are skipped by the extract worker until flipped to `pending`. Whole-book Ask AI (`books.aiPromptRaw`) and the upload-time AI prompt run against the concatenated raw text; every AI answer is auto-saved to the `notes` table.
@@ -67,15 +67,15 @@ Every upload extracts raw text with `pdftotext` in seconds (stored per file in `
 
 2. **normalize** (`workers/normalize.ts`, per chapter, parallel) — Strips markdown, reference markers, URLs, rejoins hyphenated line breaks. Saves clean text. Queues synthesize job.
 
-3. **synthesize** (`workers/synthesize.ts`, per chapter, 4 concurrent) — Runs `scripts/synthesize.py` (Kokoro TTS with MPS/Metal GPU acceleration). Uses `customText ?? cleanText ?? rawText` fallback chain for input text. Two-step process: G2P + phoneme chunking upfront (for accurate progress), then synthesis loop. Produces WAV at 24kHz, FFmpeg converts to MP3. Skips suspended chapters. Writes chunk progress to DB.
+3. **synthesize** (`workers/synthesize.ts`, per chapter, 4 concurrent) — Runs `scripts/synthesize.py` (Kokoro TTS with MPS/Metal GPU acceleration). Uses `customText ?? cleanText ?? rawText` fallback chain for input text. Two-step process: G2P + phoneme chunking upfront (for accurate progress), then synthesis loop. Produces WAV at 24kHz, FFmpeg converts to M4A (AAC 64k, 44.1kHz mono — pinned so assemblies can concat without re-encoding). Skips suspended chapters. Writes chunk progress to DB.
 
-4. **assemble** (`workers/assemble.ts`, user-triggered) — FFmpeg concatenates selected chapter MP3s into one (or copies directly for single-chapter books). node-id3 writes ID3v2 CHAP/CTOC frames for chapter markers. Assembly is an explicit user action, not auto-queued. Each assembly is recorded in the `assemblies` table with metadata (duration, chapter count, summary).
+4. **assemble** (`workers/assemble.ts`, user-triggered) — FFmpeg stream-copies selected chapter M4As into one M4B with native chapter markers (ffmetadata), generated cover art, and the audiobook media-type atom; legacy MP3 chapters are re-encoded to the pinned AAC shape first. Assembly is an explicit user action, not auto-queued. Each assembly is recorded in the `assemblies` table with metadata (duration, chapter count, summary).
 
 5. **translate / translateTitles** (`workers/translate.ts`, `translate-titles.ts`, translate pool) — Per-chapter DeepSeek generation of a *variant* into `chapter_translations` (TS export `chapterVariants`): either a translation (kind `translation`, key = language) or a prompt-driven rewrite (kind `transform`, key = preset id like `eli5` or `custom-<slug>`; the prompt is snapshotted on the row, presets live in `lib/transform-presets.ts`). Chunked via `lib/transform.ts` (`runToken` fencing, `sourceHash` staleness detection; transforms can run whole-chapter via `params.mode`); translateTitles backfills translated chapter titles (translation lanes only — transforms keep the original title). Chunks stream token-by-token: the worker publishes deltas (including the model's hidden reasoning as `thinking` events) through the in-process channel in `lib/translate-live.ts`, relayed to the modal by `GET /translations/:id/stream` SSE; the DB row stays the source of truth, written once per completed chunk. DeepSeek thinking mode is OFF by default for variants (`params.thinking`, toggled by the modal's "Reasoning" checkbox and passed to `variants.start`/`createTransform`; bulk runs inherit the lane's stored flag) — v4-flash otherwise reasons at high effort on every chunk, several times slower, and ignores `temperature` while thinking.
 
 6. **synthesizeTranslation** (`workers/synthesize-translation.ts`, tts pool) — TTS for a finished variant (audio state on the `chapter_translations` row, per-variant-slug output dir + chunk previews + sync map). Voice/speed resolve from `books.variantVoices[key]`, falling back to the book's; the Synthesize modal on a variant tab edits the lane, not the book. Auto-queues a variant assembly when every selected chapter of that variant has audio.
 
-7. **assembleDocument** (`workers/assemble-document.ts`, assembly pool) — Renders selected chapters to `pdf`/`epub` via Vivliostyle CLI, or builds the `epub-sync` read-along EPUB from chapter MP3s + sync maps (`lib/readaloud-epub.ts`); records a `documents` row; optionally copies epub-sync output to `READALOUD_DROP_DIR`.
+7. **assembleDocument** (`workers/assemble-document.ts`, assembly pool) — Renders selected chapters to `pdf`/`epub` via Vivliostyle CLI, or builds the `epub-sync` read-along EPUB from chapter audio + sync maps (`lib/readaloud-epub.ts`); records a `documents` row; optionally copies epub-sync output to `READALOUD_DROP_DIR`.
 
 8. **propose / redetect** (`workers/propose.ts`, `redetect.ts`, extraction pool) — LLM chapter-boundary proposals (structure modal) and full chapter re-detection without re-running marker.
 
@@ -109,9 +109,8 @@ Chapters can be individually queued (creates Graphile job) or suspended (no job,
 | **Kokoro TTS** (`pip install kokoro`) | Text → speech via MPS GPU | `scripts/synthesize.py`, called by `lib/kokoro.ts` |
 | **KugelAudio** (`kugelaudio/kugelaudio-0-open` via `pip install mlx-audio`, local 4-bit MLX quant at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit`) | Multilingual TTS narrator (24 EU languages incl. Bulgarian) | `scripts/synthesize_kugel_tts.py`, called by `lib/tts.ts` |
 | **macOS `say`** (system binary; ALL installed system voices exposed as `say:<name-slug>` — discovered via `say -v '?'` in `lib/say-voices.ts`, listed by tRPC `sayVoices.list`, shown as a dynamic picker group; install more in System Settings → Accessibility → Spoken Content) | Free offline TTS in any installed system voice (~25x realtime, supports speed via `-r`) | `scripts/synthesize_say_tts.py`, called by `lib/tts.ts` |
-| **FFmpeg** (system binary) | WAV→MP3, MP3 concatenation | `lib/ffmpeg.ts` |
-| **node-id3** (npm) | ID3v2 chapter markers | `lib/id3-chapters.ts` |
-| **music-metadata** (npm) | Read MP3/WAV duration | `workers/synthesize.ts`, `lib/sync-map.ts` |
+| **FFmpeg** (system binary) | WAV→M4A (AAC), M4B concat + chapters + cover | `lib/ffmpeg.ts` |
+| **music-metadata** (npm) | Read M4A/WAV duration | `workers/synthesize.ts`, `lib/sync-map.ts` |
 | **pdftotext** (poppler, system binary) | Fast raw text extraction at upload | `lib/pdf-raw-text.ts` |
 | **DeepSeek API** (`DEEPSEEK_API_KEY`) | Translation, cleanup, TOC detection, digests, Ask AI | `lib/deepseek.ts` |
 | **Cartesia API** (`CARTESIA_API_KEY`; voices `cartesia:<uuid>` from the live library via tRPC `cartesiaVoices.list`, "Cartesia" picker tab) | Neural cloud TTS (Sonic 3.5, 44.1kHz, speed 0.6–1.5x); TS-native chunked client, no Python | `lib/cartesia.ts`, dispatched by `lib/tts.ts` |
@@ -140,7 +139,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **documents** — id (uuid), bookId (FK, cascade delete), language (null = original), format (`pdf` | `epub` | `epub-sync`), outputPath, chapterCount, chapterSummary, chapterIds (json array), createdAt. Written by the `assembleDocument` worker: `pdf`/`epub` render text via Vivliostyle CLI (first run downloads a rendering browser into the Vivliostyle cache); `epub-sync` is a read-along EPUB 3 with Media Overlays (audio + SMIL-highlighted text, built by `lib/readaloud-epub.ts` + system `zip`, playable in Storyteller/media-overlay readers). Layout mirrors the IDPF moby-dick sample (flat OEBPS, no `../` in SMIL refs). If `READALOUD_DROP_DIR` env is set, finished exports are also copied there (pointed at `storyteller/data/import`, a Storyteller watch folder → books auto-import).
 
-**Sync maps** — `ch000.sync.json` next to each chapter/translation MP3: per-chunk `{text, startMs, endMs}` (`lib/sync-map.ts`). Written by the synthesize workers after MP3 encode; backfilled on demand from chunk WAV durations (`ensureSyncMap`) during `epub-sync` export. Once the WAVs are cleaned, `chapters.get`/`variants.detail` derive chunk previews from the sync map (`syncMapChunkPreviews`) and the chapter modal plays them by seeking the chapter MP3 (`startMs`/`endMs`) instead of loading per-chunk files. Once the sync map exists, the chunk WAVs are disposable — the map + MP3 can rebuild read-along exports forever, so the synthesize workers delete the chapter's chunk dir right after writing it (kept only if the map couldn't be built). `scripts/cleanup-chunk-wavs.ts` (`pnpm cleanup:chunks`, `--apply` to delete) sweeps chunk dirs of finished chapters plus orphans from older chapter splits, ensuring sync maps first.
+**Sync maps** — `ch000.sync.json` next to each chapter/translation audio file: per-chunk `{text, startMs, endMs}` (`lib/sync-map.ts`). Written by the synthesize workers after the M4A encode; backfilled on demand from chunk WAV durations (`ensureSyncMap`) during `epub-sync` export. Once the WAVs are cleaned, `chapters.get`/`variants.detail` derive chunk previews from the sync map (`syncMapChunkPreviews`) and the chapter modal plays them by seeking the chapter audio (`startMs`/`endMs`) instead of loading per-chunk files. Once the sync map exists, the chunk WAVs are disposable — the map + chapter audio can rebuild read-along exports forever, so the synthesize workers delete the chapter's chunk dir right after writing it (kept only if the map couldn't be built). `scripts/cleanup-chunk-wavs.ts` (`pnpm cleanup:chunks`, `--apply` to delete) sweeps chunk dirs of finished chapters plus orphans from older chapter splits, ensuring sync maps first.
 
 **bookLogs** — id (uuid), bookId (FK, cascade delete), message (text), createdAt
 
@@ -159,13 +158,13 @@ All data lives in `./data/` (gitignored):
 ```
 data/uploads/{bookId}/               Uploaded PDFs
 data/tmp/{bookId}/                   Marker output (JSON inside a subdirectory named after the PDF)
-data/output/{bookId}/                Chapter MP3s (ch000.mp3, ...), ch000.sync.json sync maps,
-                                     timestamped assembly MP3s and exported PDF/EPUB/readaloud files
-data/output/{bookId}/{langSlug}/     Translation audio (per-language chNNN.mp3 + sync maps)
+data/output/{bookId}/                Chapter M4As (ch000.m4a, ...; pre-switch books have .mp3), ch000.sync.json sync maps,
+                                     timestamped assembly M4Bs and exported PDF/EPUB/readaloud files
+data/output/{bookId}/{langSlug}/     Translation audio (per-language chNNN.m4a + sync maps)
 data/output/{bookId}/chunks/         Per-chapter chunk WAV previews + chunks.json manifest
                                      (chunks/{variantSlug}/chNNN/ for variants); disposable once
                                      the sync map exists
-data/previews/                       Voice preview MP3s (global, shared)
+data/previews/                       Voice preview M4As (global, shared)
 ```
 
 Path helpers are in `lib/paths.ts`. The `DATA_DIR` env var defaults to `./data`.
@@ -208,7 +207,7 @@ packages/server/src/
     cleanup.ts          DeepSeek OCR-artifact cleanup (writes customText)
     propose.ts          LLM chapter-boundary proposals (structure modal)
     redetect.ts         Chapter re-detection without re-running marker
-    assemble.ts         Audio assembly + ID3 chapter markers
+    assemble.ts         M4B assembly with chapter markers + cover
     assemble-document.ts PDF/EPUB (Vivliostyle) and epub-sync (readaloud) exports
     sweep.ts            Startup sweep for stranded jobs
   lib/
@@ -232,8 +231,7 @@ packages/server/src/
     tts.ts              Voice registry + synthesis dispatch (kokoro / bg-mlx / mms / kugel)
     tts-chunks.ts       Bulgarian narrator text chunking (250-320 chars)
     kokoro.ts           Kokoro TTS subprocess wrapper with onProgress callback
-    ffmpeg.ts           FFmpeg WAV→MP3 and concat helpers
-    id3-chapters.ts     MP3 chapter marker writing
+    ffmpeg.ts           FFmpeg WAV→M4A encode and M4B concat/chapter helpers
     normalizer.ts       Text cleanup rules for TTS input
     sync-map.ts         Text↔audio timing maps (chNNN.sync.json) built from chunk WAV durations
     readaloud-epub.ts   EPUB 3 Media Overlays builder for epub-sync exports (flat layout)
@@ -333,14 +331,14 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 - `POST /upload` — Multipart file upload (PDFs + settings fields; `x-profile-id` header assigns the profile). Creates book + book_files rows, queues rawExtract (+ extract when fullExtract).
 - `POST /upload/:bookId` — Append PDFs to an existing book
 - `GET /pdf/:fileId` — Serve a source PDF (inline preview)
-- `GET /download/:bookId` — Serve final assembled MP3
-- `GET /download/assembly/:assemblyId` — Serve a specific assembly MP3
+- `GET /download/:bookId` — Serve final assembled audiobook
+- `GET /download/assembly/:assemblyId` — Serve a specific assembly
 - `GET /download/document/:documentId` — Serve an exported PDF/EPUB/synced-EPUB document
-- `GET /audio/chapter/:chapterId` — Serve individual chapter MP3
-- `GET /audio/translation/:translationId` — Serve translated chapter MP3
-- `GET /audio/assembly/:assemblyId` — Stream an assembly MP3
+- `GET /audio/chapter/:chapterId` — Serve individual chapter audio
+- `GET /audio/translation/:translationId` — Serve translated chapter audio
+- `GET /audio/assembly/:assemblyId` — Stream an assembly
 - `GET /read/:chapterId` — Print-friendly chapter reader (source blocks HTML)
-- `GET /preview/:voiceId` — Voice preview MP3 (generated on demand, cached in data/previews)
+- `GET /preview/:voiceId` — Voice preview M4A (generated on demand, cached in data/previews)
 - `GET /files/*` — Static mount of the whole output dir (chunk WAV previews, direct file access)
 - `POST /api/books` / `POST /api/books/:bookId/chapters` / `GET /api/books/:bookId` — External JSON API for scripts and other projects (`api-routes.ts` + `lib/api-books.ts`, full reference in `docs/synthetic-books-api.md`): create synthetic `kind:"api"` books, append source-tagged chapters to any book (rebuild-safe), poll synthesis status. Optional `synthesize: true` queues TTS per chapter (text is normalized inline at insert); optional `x-profile-id` scopes like the web app.
 - `GET /scripts/hn-top10/stream` — Runs `scripts/hn-top10.mjs` as a subprocess and streams its output as SSE (`script-run-routes.ts`); backs the "HN digest" button/modal on the home page. Validated query params (date/count/synthesize/folder/profile), single-flight lock, child survives client disconnect.
@@ -405,7 +403,7 @@ Intentionally minimal — Kokoro handles numbers/dates/abbreviations natively. W
 - Uses MPS (Metal Performance Shaders) for Apple Silicon GPU acceleration
 - Subprocess timeout: **3 hours** (configurable in `lib/kokoro.ts`)
 - Env vars: `PYTORCH_ENABLE_MPS_FALLBACK=1`, `HF_HUB_OFFLINE=1`, Python env path via `CONDA_ENV_PATH`
-- Outputs WAV at 24kHz, FFmpeg converts to MP3
+- Outputs WAV at 24kHz (Kokoro's native rate); FFmpeg resamples to the pinned 44.1kHz mono during the M4A encode so chapters from any engine concat losslessly
 - 54 voices across 9 languages. Best: af_heart (A), af_bella (A-), bf_emma (B-)
 - Emits JSON progress per chunk to stdout: `{"type": "chunks", "total": N}` then `{"type": "progress", "chunk": 1, "totalChunks": N, "audioSeconds": 3.2}`
 

@@ -462,7 +462,7 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
               book.activity.synthesizing === 0 && book.activity.translating === 0 && book.activity.cleaning === 0;
             const noText = !book.hasText && book.kind === "pdf" && !book.activity.extracting;
             const outputParts = [
-              book.outputs.assemblies > 0 ? `${book.outputs.assemblies} MP3` : null,
+              book.outputs.assemblies > 0 ? `${book.outputs.assemblies} M4B` : null,
               book.outputs.pdfs > 0 ? `${book.outputs.pdfs} PDF` : null,
               book.outputs.epubs > 0 ? `${book.outputs.epubs} EPUB` : null,
             ].filter(Boolean);

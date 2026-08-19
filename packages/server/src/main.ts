@@ -47,6 +47,14 @@ async function main() {
   registerApiRoutes(fastify);
   registerScriptRunRoutes(fastify);
 
+  // Names what the browser saves from extensionless audio URLs (e.g. the <audio>
+  // player's own download menu, which ignores the <a download> attribute)
+  const contentDisposition = (type: "inline" | "attachment", filename: string): string => {
+    const fallback = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+    const utf8 = encodeURIComponent(filename).replace(/['()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+    return `${type}; filename="${fallback}"; filename*=UTF-8''${utf8}`;
+  };
+
   fastify.get("/pdf/:fileId", async (request, reply) => {
     const { fileId } = request.params as { fileId: string };
     const [file] = await db.select().from(bookFiles).where(eq(bookFiles.id, fileId));
@@ -64,7 +72,9 @@ async function main() {
       return reply.code(404).send({ error: "Book not found or not ready" });
     }
 
-    return reply.sendFile(path.relative(outputDir, book.outputPath), outputDir);
+    return reply
+      .header("content-disposition", contentDisposition("attachment", path.basename(book.outputPath)))
+      .sendFile(path.relative(outputDir, book.outputPath), outputDir);
   });
 
   fastify.get("/download/assembly/:assemblyId", async (request, reply) => {
@@ -75,7 +85,9 @@ async function main() {
       return reply.code(404).send({ error: "Assembly not found" });
     }
 
-    return reply.sendFile(path.relative(outputDir, assembly.outputPath), outputDir);
+    return reply
+      .header("content-disposition", contentDisposition("attachment", path.basename(assembly.outputPath)))
+      .sendFile(path.relative(outputDir, assembly.outputPath), outputDir);
   });
 
   fastify.get("/download/document/:documentId", async (request, reply) => {
@@ -98,7 +110,10 @@ async function main() {
       return reply.code(404).send({ error: "Chapter audio not found" });
     }
 
-    return reply.sendFile(path.relative(outputDir, chapter.audioPath), outputDir);
+    const filename = `${chapter.index + 1} ${chapter.title}${path.extname(chapter.audioPath)}`.replace(/[\\/]/g, "-");
+    return reply
+      .header("content-disposition", contentDisposition("inline", filename))
+      .sendFile(path.relative(outputDir, chapter.audioPath), outputDir);
   });
 
   fastify.get("/audio/translation/:translationId", async (request, reply) => {
@@ -109,7 +124,13 @@ async function main() {
       return reply.code(404).send({ error: "Translation audio not found" });
     }
 
-    return reply.sendFile(path.relative(outputDir, row.audioPath), outputDir);
+    const [chapter] = await db.select().from(chapters).where(eq(chapters.id, row.chapterId));
+    const filename = chapter
+      ? `${chapter.index + 1} ${row.title ?? chapter.title} (${row.label ?? row.key})${path.extname(row.audioPath)}`.replace(/[\\/]/g, "-")
+      : path.basename(row.audioPath);
+    return reply
+      .header("content-disposition", contentDisposition("inline", filename))
+      .sendFile(path.relative(outputDir, row.audioPath), outputDir);
   });
 
   fastify.get("/audio/assembly/:assemblyId", async (request, reply) => {
@@ -120,7 +141,9 @@ async function main() {
       return reply.code(404).send({ error: "Assembly not found" });
     }
 
-    return reply.sendFile(path.relative(outputDir, assembly.outputPath), outputDir);
+    return reply
+      .header("content-disposition", contentDisposition("inline", path.basename(assembly.outputPath)))
+      .sendFile(path.relative(outputDir, assembly.outputPath), outputDir);
   });
 
   registerChapterReaderRoute(fastify, async (chapterId): Promise<ChapterReaderLookupResult> => {
@@ -163,11 +186,11 @@ async function main() {
       return reply.code(400).send({ error: "Invalid voice ID" });
     }
 
-    const mp3Path = path.join(previewsDir, `${previewKey}.mp3`);
+    const m4aPath = path.join(previewsDir, `${previewKey}.m4a`);
 
     try {
-      await access(mp3Path);
-      return reply.sendFile(`${previewKey}.mp3`, previewsDir);
+      await access(m4aPath);
+      return reply.sendFile(`${previewKey}.m4a`, previewsDir);
     } catch {}
 
     if (previewGenerating.has(voiceId)) {
@@ -178,7 +201,7 @@ async function main() {
 
     try {
       const { synthesize, getPreviewTextForVoice } = await import("./lib/tts.ts");
-      const { wavToMp3 } = await import("./lib/ffmpeg.ts");
+      const { encodeToM4a } = await import("./lib/ffmpeg.ts");
       const wavPath = path.join(previewsDir, `${previewKey}.wav`);
 
       await synthesize({
@@ -188,14 +211,14 @@ async function main() {
         speed: 1.0,
       });
 
-      await wavToMp3(wavPath, mp3Path);
+      await encodeToM4a(wavPath, m4aPath);
       const txtPath = wavPath.replace(/\.wav$/, ".txt");
       await import("node:fs/promises").then((fs) => Promise.all([
         fs.unlink(wavPath).catch(() => {}),
         fs.unlink(txtPath).catch(() => {}),
       ]));
 
-      return reply.sendFile(`${previewKey}.mp3`, previewsDir);
+      return reply.sendFile(`${previewKey}.m4a`, previewsDir);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(500).send({ error: `Preview generation failed: ${message}` });

@@ -590,7 +590,7 @@ export function ChapterTable({
                         <a
                           href={chapterAudioDownload(chapter, variant).href}
                           download={chapterAudioDownload(chapter, variant).filename}
-                          title={`Download the ${variant ? variant.label ?? variant.key : "chapter"} MP3`}
+                          title={`Download the ${variant ? variant.label ?? variant.key : "chapter"} audio`}
                           className={`${ACTION_PILL} no-underline`}
                         >
                           Download

@@ -59,7 +59,7 @@ export async function measureBookDiskUsage(
     if (p.startsWith(chunksRoot)) chunkWavs += size;
     else if (assemblyPaths.has(p) || p.endsWith(".filelist.txt")) assemblies += size;
     else if (documentPaths.has(p)) documents += size;
-    else if (p.endsWith(".mp3")) chapterAudio += size;
+    else if (p.endsWith(".mp3") || p.endsWith(".m4a")) chapterAudio += size;
     else other += size;
   });
 
