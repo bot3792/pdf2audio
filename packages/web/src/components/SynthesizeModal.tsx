@@ -10,6 +10,7 @@ import { SpeedSlider } from "./SpeedSlider.tsx";
 export function SynthesizeModal({
   count,
   language,
+  bookLanguage,
   voice,
   speed,
   onChangeVoice,
@@ -20,7 +21,10 @@ export function SynthesizeModal({
   onClose,
 }: {
   count: number;
+  /** Variant being synthesized, by display name ("Russian"); null for the original. */
   language: string | null;
+  /** The book's own language code, so an original book opens on its language, not English. */
+  bookLanguage?: string | null;
   voice: string;
   speed: number;
   onChangeVoice: (voice: string) => void;
@@ -32,9 +36,9 @@ export function SynthesizeModal({
 }) {
   // "Russian" is the variant's key; the picker works in codes. Stable identity — it feeds memos.
   const priorityLanguages = useMemo(() => {
-    const code = language ? languageCodeFromName(language) : null;
-    return code ? [code] : [];
-  }, [language]);
+    const variantCode = language ? languageCodeFromName(language) : null;
+    return [...new Set([variantCode, bookLanguage].filter((c): c is string => !!c))];
+  }, [language, bookLanguage]);
 
   return (
     <VoicePickerProvider selectedId={normalizeVoiceId(voice)} onSelect={onChangeVoice}>

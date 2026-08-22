@@ -33,3 +33,13 @@ export const TRANSLATION_LANGUAGES = [
   "Ukrainian",
   "Vietnamese",
 ] as const;
+
+// The book's own language, offered as codes because voices are keyed by code. Derived from the
+// translation list so the two stay in step.
+import { languageCodeFromName } from "./voices.ts";
+
+export const BOOK_LANGUAGE_OPTIONS: { code: string; label: string }[] = TRANSLATION_LANGUAGES
+  .map((label) => ({ code: languageCodeFromName(label), label: label as string }))
+  .filter((entry) => entry.code !== null)
+  .map((entry) => ({ code: entry.code!, label: entry.label }))
+  .sort((a, b) => a.label.localeCompare(b.label));

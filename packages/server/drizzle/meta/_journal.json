@@ -204,6 +204,13 @@
       "when": 1786602146549,
       "tag": "0028_slow_thing",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1787402646818,
+      "tag": "0029_heavy_warstar",
+      "breakpoints": true
     }
   ]
 }

@@ -118,6 +118,7 @@ export const books = pgTable("books", {
   chapterDetection: text("chapter_detection").$type<"llm" | "numbered-headings" | "heading-levels" | "word-split" | "manual">(),
   chapterProposal: jsonb("chapter_proposal").$type<ChapterProposal>(),
   translationLanguage: text("translation_language"),
+  language: text("language"),
   skipSynthesis: boolean("skip_synthesis").notNull().default(false),
   totalChapters: integer("total_chapters").notNull().default(0),
   noteJob: jsonb("note_job").$type<NoteJob>(),

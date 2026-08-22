@@ -183,6 +183,19 @@ cd packages/server && pnpm test   # Server test suite (spins up template DB, run
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.
 - Best Kokoro voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).
 
+### Book language
+
+Books carry an optional language, set from the extraction settings row (**Language**). It's a plain
+field you pick yourself — nothing infers it — and it decides which voices the picker offers first, so
+a Russian PDF opens on Russian voices instead of English ones. Leave it unset and the picker falls
+back to the language of whatever voice is currently selected.
+
+If you have `DEEPSEEK_API_KEY` configured, **Detect** next to it will read a sample of the extracted
+text and fill it in. That's a convenience, not a requirement — every part of this works without
+DeepSeek, and the detector only ever writes a value you could have picked by hand. It samples the
+longest chapter rather than the first, because title pages are mostly OCR noise and short garbled
+samples get misread (a pre-reform Russian book detected as Ukrainian until that was fixed).
+
 ### Cloning your own voice
 
 Pocket TTS can clone a voice from a short sample. In the voice picker, open **Pocket TTS → Add your own voice**, then either record ~20 seconds in the browser or upload a file (anything ffmpeg can read). The sample is encoded locally into a small voice file and the recording is discarded — it never leaves the machine running pdf2audio.
