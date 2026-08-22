@@ -545,6 +545,11 @@ export function BookDetail() {
               <div className="flex items-center gap-2 ml-auto" data-testid="language-switcher">
                 <button
                   onClick={() => setActiveVariant(null)}
+                  title={
+                    book.language
+                      ? `The book's own text (${book.language.toUpperCase()}) — change the language in Re-extract...`
+                      : "The book's own text — set its language in Re-extract... to get matching voices"
+                  }
                   className={`text-xs px-3 py-1 rounded-full border font-medium ${
                     !activeVariant
                       ? "bg-blue-600 border-blue-600 text-white"
@@ -552,6 +557,11 @@ export function BookDetail() {
                   }`}
                 >
                   Original
+                  {book.language && (
+                    <span className={`ml-1.5 ${!activeVariant ? "text-white/70" : "text-(--text-faint)"}`}>
+                      {book.language.toUpperCase()}
+                    </span>
+                  )}
                 </button>
                 {variantLanes.map((l) => (
                   <button
