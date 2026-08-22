@@ -13,6 +13,20 @@ export type Voice = {
 
 export const MULTILINGUAL = "multi";
 
+// Display grouping in the picker. Finer than `engine`: the narrator bucket holds two Bulgarian
+// models and KugelAudio, which is a different beast and deserves its own name.
+export function providerOfVoice(voice: Voice): string {
+  if (voice.id.startsWith("kugel:")) return "KugelAudio";
+  if (voice.id.startsWith("bg-")) return "Bulgarian narrators";
+  if (voice.id.startsWith("pocket:")) return "Pocket TTS";
+  if (voice.id.startsWith("say:")) return "macOS system";
+  if (voice.id.startsWith("cartesia:")) return "Cartesia";
+  return "Kokoro";
+}
+
+export const PROVIDER_ORDER = ["Kokoro", "Pocket TTS", "KugelAudio", "Bulgarian narrators", "macOS system", "Cartesia"];
+
+
 export const LANGUAGE_LABELS: Record<string, string> = {
   en: "English",
   bg: "Bulgarian",

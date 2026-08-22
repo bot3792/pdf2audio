@@ -6,10 +6,11 @@ import {
   MULTILINGUAL,
   pocketCustomVoiceToEntry,
   pocketVoiceToEntry,
+  providerOfVoice,
+  PROVIDER_ORDER,
   sayVoiceToEntry,
   staticVoices,
   type Voice,
-  type VoiceEngine,
 } from "../../lib/voices.ts";
 import { trpc } from "../../trpc.ts";
 import { useBodyScrollLock } from "../../lib/use-body-scroll-lock.ts";
@@ -21,15 +22,9 @@ import { useVoicePicker } from "./context.tsx";
 
 const CLONED = "cloned";
 
-const ENGINE_LABELS: Record<VoiceEngine, string> = {
-  kokoro: "Kokoro",
-  pocket: "Pocket TTS",
-  narrators: "Other local models",
-  say: "macOS system voices",
-  cartesia: "Cartesia (cloud)",
-};
-
-const ENGINE_ORDER: VoiceEngine[] = ["kokoro", "pocket", "narrators", "say", "cartesia"];
+const ALL = "all";
+// Showing 500 Cartesia voices at once answers nothing; a taste of each provider does.
+const PREVIEW_PER_PROVIDER = 6;
 
 // English first, then Bulgarian (the library's other main language), multilingual last, rest by size.
 function orderLanguages(counts: Map<string, number>): string[] {
@@ -126,23 +121,42 @@ export function VoiceLibraryModal({
 
   const pocketLanguage = pocketLanguages.find((l) => l.code === language) ?? null;
 
+  useEffect(() => {
+    setProvider(null);
+    setExpanded(new Set());
+  }, [language]);
+
   const visible = useMemo(() => {
     const pool =
       language === CLONED
         ? clonedVoices
         // A multilingual model reads any language, so it belongs in every list.
         : allVoices.filter((v) => (v.language ?? "en") === language || v.language === MULTILINGUAL);
-    return pool.filter((v) => matches(v.label, v.note, ENGINE_LABELS[v.engine ?? "kokoro"]));
+    return pool.filter((v) => matches(v.label, v.note, providerOfVoice(v)));
   }, [allVoices, clonedVoices, language, matches]);
 
-  const byEngine = useMemo(() => {
-    const groups = new Map<VoiceEngine, Voice[]>();
+  const byProvider = useMemo(() => {
+    const groups = new Map<string, Voice[]>();
     for (const voice of visible) {
-      const engine = voice.engine ?? "kokoro";
-      groups.set(engine, [...(groups.get(engine) ?? []), voice]);
+      const provider = providerOfVoice(voice);
+      groups.set(provider, [...(groups.get(provider) ?? []), voice]);
     }
-    return ENGINE_ORDER.filter((e) => groups.has(e)).map((engine) => ({ engine, voices: groups.get(engine)! }));
+    const ordered = [...groups.keys()].sort(
+      (a, b) => (PROVIDER_ORDER.indexOf(a) + 1 || 99) - (PROVIDER_ORDER.indexOf(b) + 1 || 99),
+    );
+    return ordered.map((provider) => ({ provider, voices: groups.get(provider)! }));
   }, [visible]);
+
+  // Open on the provider of the current voice so the selection is visible without hunting.
+  const selectedProvider = useMemo(() => {
+    const current = visible.find((v) => v.id === state.selectedId);
+    return current ? providerOfVoice(current) : ALL;
+  }, [visible, state.selectedId]);
+  const [provider, setProvider] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const activeProvider = query ? ALL : (provider ?? selectedProvider);
+
+  const shown = activeProvider === ALL ? byProvider : byProvider.filter((g) => g.provider === activeProvider);
 
   return (
     <div
@@ -258,12 +272,47 @@ export function VoiceLibraryModal({
                 <>
                   {pocketLanguage && !pocketLanguage.installed && <PocketLanguageNotice language={pocketLanguage} />}
 
-                  {byEngine.length > 0
-                    ? byEngine.map(({ engine, voices }) => (
-                        <Section key={engine} label={`${ENGINE_LABELS[engine]} · ${voices.length}`}>
-                          {voices.map((voice) => <VoiceRow key={voice.id} voice={voice} />)}
-                        </Section>
-                      ))
+                  {byProvider.length > 1 && (
+                    <div className="flex flex-wrap gap-1 px-1 pb-2" role="group" aria-label="Providers">
+                      <ProviderChip
+                        label="All"
+                        count={visible.length}
+                        active={activeProvider === ALL}
+                        onClick={() => setProvider(ALL)}
+                      />
+                      {byProvider.map(({ provider: name, voices }) => (
+                        <ProviderChip
+                          key={name}
+                          label={name}
+                          count={voices.length}
+                          active={activeProvider === name}
+                          onClick={() => setProvider(name)}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {shown.length > 0
+                    ? shown.map(({ provider: name, voices }) => {
+                        // In the combined view each provider shows a taste; one provider shows all.
+                        const capped = activeProvider === ALL && !expanded.has(name) && voices.length > PREVIEW_PER_PROVIDER;
+                        const rows = capped ? voices.slice(0, PREVIEW_PER_PROVIDER) : voices;
+                        return (
+                          <Section key={name} label={`${name} · ${voices.length}`}>
+                            {rows.map((voice) => <VoiceRow key={voice.id} voice={voice} />)}
+                            {capped && (
+                              <button
+                                type="button"
+                                onClick={() => setExpanded((prev) => new Set(prev).add(name))}
+                                className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none rounded"
+                                data-testid={`voice-show-all-${name}`}
+                              >
+                                Show all {voices.length} {name} voices
+                              </button>
+                            )}
+                          </Section>
+                        );
+                      })
                     : !pocketLanguage && (
                         <Empty>
                           {query ? (
@@ -312,4 +361,32 @@ function allVoicesLanguageOf(voiceId: string): string | null {
     return separator === -1 ? "en" : rest.slice(0, separator);
   }
   return null;
+}
+
+function ProviderChip({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`px-2 py-1 text-xs rounded-full border focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
+        active
+          ? "border-blue-500 text-blue-600 bg-(--bg-selected)"
+          : "border-(--border) text-(--text-muted) hover:bg-(--bg-subtle)"
+      }`}
+      data-testid={`voice-provider-${label}`}
+    >
+      {label} <span className="tabular-nums text-(--text-faint)">{count}</span>
+    </button>
+  );
 }
