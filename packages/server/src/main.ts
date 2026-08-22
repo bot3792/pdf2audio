@@ -177,11 +177,12 @@ async function main() {
 
   fastify.get("/preview/:voiceId", async (request, reply) => {
     const { voiceId } = request.params as { voiceId: string };
-    const previewKey = encodeURIComponent(voiceId);
 
+    let previewKey: string;
     try {
-      const { parseTtsVoice } = await import("./lib/tts.ts");
+      const { parseTtsVoice, PREVIEW_TEXT_VERSION } = await import("./lib/tts.ts");
       parseTtsVoice(voiceId);
+      previewKey = `${encodeURIComponent(voiceId)}-${PREVIEW_TEXT_VERSION}`;
     } catch {
       return reply.code(400).send({ error: "Invalid voice ID" });
     }

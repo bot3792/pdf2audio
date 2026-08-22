@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -63,6 +64,13 @@ const PREVIEW_TEXT_BY_LANGUAGE: Record<string, string> = {
 const KOKORO_LANGUAGE_BY_PREFIX: Record<string, string> = {
   a: "en", b: "en", e: "es", f: "fr", h: "hi", i: "it", p: "pt", z: "zh",
 };
+
+// Previews are cached on disk by voice id, so editing any string above would otherwise be invisible
+// forever. Folding this into the cache key retires every stale file the moment the table changes.
+export const PREVIEW_TEXT_VERSION = createHash("sha1")
+  .update(JSON.stringify(PREVIEW_TEXT_BY_LANGUAGE))
+  .digest("hex")
+  .slice(0, 8);
 
 function previewTextFor(languageCode: string): string {
   return PREVIEW_TEXT_BY_LANGUAGE[languageCode] ?? ENGLISH_PREVIEW_TEXT;
