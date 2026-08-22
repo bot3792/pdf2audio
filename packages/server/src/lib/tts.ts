@@ -66,11 +66,15 @@ const KOKORO_LANGUAGE_BY_PREFIX: Record<string, string> = {
 };
 
 // Previews are cached on disk by voice id, so editing any string above would otherwise be invisible
-// forever. Folding this into the cache key retires every stale file the moment the table changes.
+// forever. Stamping the key means old files stop being read; sweepStalePreviews deletes them.
 export const PREVIEW_TEXT_VERSION = createHash("sha1")
   .update(JSON.stringify(PREVIEW_TEXT_BY_LANGUAGE))
   .digest("hex")
   .slice(0, 8);
+
+export function previewFileBase(voice: string): string {
+  return `${encodeURIComponent(voice)}-${PREVIEW_TEXT_VERSION}`;
+}
 
 function previewTextFor(languageCode: string): string {
   return PREVIEW_TEXT_BY_LANGUAGE[languageCode] ?? ENGLISH_PREVIEW_TEXT;

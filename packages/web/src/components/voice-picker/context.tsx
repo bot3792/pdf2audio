@@ -1,4 +1,4 @@
-import { createContext, use, useCallback, useMemo, useRef, useState } from "react";
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type VoicePickerContextValue = {
   state: {
@@ -67,7 +67,7 @@ export function VoicePickerProvider({
     abortRef.current = null;
     if (audioRef.current) {
       audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+      audioRef.current.remove();
       audioRef.current = null;
     }
     if (objectUrlRef.current) {
@@ -80,17 +80,18 @@ export function VoicePickerProvider({
     teardown();
     setPlayingId(null);
     setPendingId(null);
+    setFailedId(null);
   }, [teardown]);
+
+  // Abandoning the modal mid-generation would otherwise leave the poll loop running for good.
+  useEffect(() => teardown, [teardown]);
 
   const play = useCallback((voiceId: string) => {
     // Generation is already under way; further clicks would only restart the wait.
     if (pendingId === voiceId) return;
 
     const wasPlaying = playingId === voiceId;
-    teardown();
-    setPlayingId(null);
-    setPendingId(null);
-    setFailedId(null);
+    stop();
     if (wasPlaying) return;
 
     const controller = new AbortController();
@@ -104,7 +105,11 @@ export function VoicePickerProvider({
           return;
         }
         objectUrlRef.current = url;
+        // Attached so the app-wide exclusive-audio listener sees it; a detached element's
+        // "play" never reaches the document, leaving previews to talk over the chapter player.
         const audio = new Audio(url);
+        audio.hidden = true;
+        document.body.append(audio);
         audioRef.current = audio;
         audio.addEventListener("ended", () => setPlayingId(null));
         audio.addEventListener("error", () => {
@@ -123,7 +128,7 @@ export function VoicePickerProvider({
         setPendingId(null);
         setFailedId(voiceId);
       });
-  }, [playingId, pendingId, teardown]);
+  }, [playingId, pendingId, stop]);
 
   const select = useCallback((voiceId: string) => {
     onSelect(voiceId);

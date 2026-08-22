@@ -18,13 +18,27 @@ import { db } from "./db.ts";
 import { books, bookFiles, assemblies, documents, chapters, chapterVariants } from "./schema.ts";
 import { eq } from "drizzle-orm";
 import path from "node:path";
-import { access } from "node:fs/promises";
+import { access, readdir, unlink } from "node:fs/promises";
 import { createFastifyOptions } from "./fastify-config.ts";
 
 const { PORT } = env;
 
+// Changing any preview sentence re-keys every cached file; without this they would sit in the
+// previews dir forever, unreadable and uncollected. Also clears WAV/TXT left by a failed run.
+async function sweepStalePreviews() {
+  const { PREVIEW_TEXT_VERSION } = await import("./lib/tts.ts");
+  const suffix = `-${PREVIEW_TEXT_VERSION}.m4a`;
+  const names = await readdir(previewsDir).catch(() => [] as string[]);
+  await Promise.all(
+    names
+      .filter((name) => !name.endsWith(suffix))
+      .map((name) => unlink(path.join(previewsDir, name)).catch(() => {})),
+  );
+}
+
 async function main() {
   await ensureDataDirs();
+  await sweepStalePreviews();
 
   const fastify = Fastify(createFastifyOptions());
 
@@ -178,14 +192,13 @@ async function main() {
   fastify.get("/preview/:voiceId", async (request, reply) => {
     const { voiceId } = request.params as { voiceId: string };
 
-    let previewKey: string;
+    const { parseTtsVoice, previewFileBase } = await import("./lib/tts.ts");
     try {
-      const { parseTtsVoice, PREVIEW_TEXT_VERSION } = await import("./lib/tts.ts");
       parseTtsVoice(voiceId);
-      previewKey = `${encodeURIComponent(voiceId)}-${PREVIEW_TEXT_VERSION}`;
     } catch {
       return reply.code(400).send({ error: "Invalid voice ID" });
     }
+    const previewKey = previewFileBase(voiceId);
 
     const m4aPath = path.join(previewsDir, `${previewKey}.m4a`);
 

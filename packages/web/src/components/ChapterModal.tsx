@@ -5,6 +5,7 @@ import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 import { ChapterAiModal } from "./ChapterAiModal.tsx";
 import { VariantModal } from "./VariantModal.tsx";
 import { VoicePickerChip } from "./VoicePicker.tsx";
+import { TOOLBAR_BUTTON } from "../lib/button-classes.ts";
 import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
@@ -142,6 +143,7 @@ export function ChapterModal({
     : chapter.status === "synthesizing";
   // Partial audio exists, so "start over" and "carry on" are genuinely different actions here.
   const canContinueSynthesis = chapter.status === "suspended" || chapter.status === "failed";
+  const withVoice = synthVoice ? ` with ${getVoiceLabel(synthVoice)}` : "";
   const wasAudioBusyRef = useRef(audioBusy);
   useEffect(() => {
     const was = wasAudioBusyRef.current;
@@ -377,7 +379,7 @@ export function ChapterModal({
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
+        <div className="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
           {chapter.status === "done" && chapter.audioPath ? (
             <div className="flex items-center gap-2 mr-1">
               {/* Named because the chunk scrubber further down is an identical-looking control. */}
@@ -392,7 +394,7 @@ export function ChapterModal({
               href={chapterAudioDownload(chapter, variant).href}
               download={chapterAudioDownload(chapter, variant).filename}
               title={`Download the ${variantName ?? "chapter"} audio`}
-              className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed no-underline"
+              className={`${TOOLBAR_BUTTON} no-underline`}
             >
               Download
             </a>
@@ -400,7 +402,7 @@ export function ChapterModal({
             <button
               disabled
               title={`No ${variantName ?? "chapter"} audio to download yet`}
-              className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+              className={TOOLBAR_BUTTON}
             >
               Download
             </button>
@@ -442,10 +444,10 @@ export function ChapterModal({
                 : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
                   ? "Can't re-synthesize while it's being processed"
                   : canContinueSynthesis
-                    ? `Discard the ${chapter.progress ?? "already-synthesized"} chunks and synthesize the whole chapter again${synthVoice ? ` with ${getVoiceLabel(synthVoice)}` : ""}`
-                    : `Re-synthesize this chapter's audio from text (from scratch)${synthVoice ? ` with ${getVoiceLabel(synthVoice)}` : ""}`
+                    ? `Discard the ${chapter.progress ?? "already-synthesized"} chunks and synthesize the whole chapter again${withVoice}`
+                    : `Re-synthesize this chapter's audio from text (from scratch)${withVoice}`
             }
-            className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+            className={TOOLBAR_BUTTON}
           >
             {canContinueSynthesis ? "Start over" : "Re-synthesize"}
           </button>
@@ -455,7 +457,7 @@ export function ChapterModal({
           <button
             onClick={() => setShowAi(true)}
             title="Summarize, question, or run any prompt against this chapter's text"
-            className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+            className={TOOLBAR_BUTTON}
             data-testid="chapter-ask-ai"
           >
             Ask AI
@@ -471,7 +473,7 @@ export function ChapterModal({
                   cleanupStatus === "done" ? "Run the AI cleanup again on the current text" :
                   "Ask DeepSeek to strip OCR artifacts from this chapter without altering the prose"
                 }
-                className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                className={TOOLBAR_BUTTON}
                 data-testid="chapter-cleanup"
               >
                 {cleanupLabel}
@@ -480,7 +482,7 @@ export function ChapterModal({
                 onClick={() => stopCleanupMutation.mutate({ id: chapter.id })}
                 disabled={!cleanupRunning || stopCleanupMutation.isPending}
                 title={cleanupRunning ? "Stop the cleanup — the chapter text stays unchanged" : "Nothing is running"}
-                className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                className={TOOLBAR_BUTTON}
                 data-testid="chapter-cleanup-stop"
               >
                 Stop cleanup
@@ -522,7 +524,7 @@ export function ChapterModal({
                 onClick={() => stopVariantMutation.mutate({ chapterId: chapter.id, key: variant!.key })}
                 disabled={!variantRunning || stopVariantMutation.isPending}
                 title={variantRunning ? "Stop and keep everything generated so far" : "Nothing is running"}
-                className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                className={TOOLBAR_BUTTON}
                 data-testid="chapter-translate-stop"
               >
                 Stop {isTranslationKind ? "translation" : "rewrite"}
@@ -530,7 +532,7 @@ export function ChapterModal({
               <button
                 onClick={() => setShowCompare(true)}
                 title="Review the original and this variant side by side"
-                className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                className={TOOLBAR_BUTTON}
                 data-testid="chapter-compare"
               >
                 Compare
@@ -751,6 +753,8 @@ function ChunkPreviewPanel({
   onOpenPdf: (page: number) => void;
 }) {
   const activeUrl = selectedUrl ?? chunkPreviews.at(-1)?.url ?? null;
+  const activeIndex = chunkPreviews.findIndex((preview) => preview.url === activeUrl);
+  const activeChunk = activeIndex >= 0 ? chunkPreviews[activeIndex] : undefined;
   const audioRef = useRef<HTMLAudioElement>(null);
   const activeButtonRef = useRef<HTMLButtonElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -825,8 +829,7 @@ function ChunkPreviewPanel({
       setIsPlaying(false);
       return;
     }
-    const idx = chunkPreviews.findIndex((preview) => preview.url === activeUrl);
-    const next = idx >= 0 ? chunkPreviews[idx + 1] : undefined;
+    const next = activeIndex >= 0 ? chunkPreviews[activeIndex + 1] : undefined;
     if (next) onSelect(next.url);
     else setIsPlaying(false);
   }
@@ -924,28 +927,26 @@ function ChunkPreviewPanel({
 
       {audioSrc ? (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-(--text-faint) shrink-0">
-            Chunk {chunkPreviews.find((preview) => preview.url === activeUrl)?.index ?? "—"}
-          </span>
-        <audio
-          ref={audioRef}
-          src={audioSrc}
-          controls
-          preload={syncMode ? "metadata" : "none"}
-          className="h-8 w-full max-w-xl"
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          // Scrubbing can reset the rate to 1x; re-assert the chosen speed after a seek.
-          onSeeked={(e) => { e.currentTarget.playbackRate = playbackRateRef.current; }}
-          onLoadedMetadata={(e) => {
-            if (pendingSeekRef.current !== null) {
-              e.currentTarget.currentTime = pendingSeekRef.current;
-              pendingSeekRef.current = null;
-            }
-          }}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={handleEnded}
-        />
+          <span className="text-xs text-(--text-faint) shrink-0">Chunk {activeChunk?.index ?? "—"}</span>
+          <audio
+            ref={audioRef}
+            src={audioSrc}
+            controls
+            preload={syncMode ? "metadata" : "none"}
+            className="h-8 w-full max-w-xl"
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            // Scrubbing can reset the rate to 1x; re-assert the chosen speed after a seek.
+            onSeeked={(e) => { e.currentTarget.playbackRate = playbackRateRef.current; }}
+            onLoadedMetadata={(e) => {
+              if (pendingSeekRef.current !== null) {
+                e.currentTarget.currentTime = pendingSeekRef.current;
+                pendingSeekRef.current = null;
+              }
+            }}
+            onTimeUpdate={handleTimeUpdate}
+            onEnded={handleEnded}
+          />
         </div>
       ) : null}
     </div>

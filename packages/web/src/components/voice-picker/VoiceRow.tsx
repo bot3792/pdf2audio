@@ -34,7 +34,7 @@ export const VoiceRow = memo(function VoiceRow({ voice, action }: { voice: Voice
         className={`shrink-0 h-8 w-8 rounded-full flex items-center justify-center border border-(--border) transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
           isPending ? "cursor-progress" : "hover:border-blue-400 hover:bg-(--bg-selected)"
         }`}
-        title={isPending ? status! : isPlaying ? `Stop preview` : `Preview ${voice.label}`}
+        title={status ?? (isPlaying ? "Stop preview" : `Preview ${voice.label}`)}
         aria-label={isPending ? `Generating preview of ${voice.label}` : isPlaying ? `Stop preview of ${voice.label}` : `Preview ${voice.label}`}
         data-testid={`voice-preview-${voice.id}`}
       >

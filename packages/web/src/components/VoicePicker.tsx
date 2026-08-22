@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
+import { TOOLBAR_BUTTON } from "../lib/button-classes.ts";
 import {
   cartesiaVoiceToEntry,
   engineForVoiceId,
@@ -69,7 +70,6 @@ function useVoiceLibrary(value: string, onChange: (voice: string) => void) {
   return { open: () => setIsOpen(true), triggerRef, label, library };
 }
 
-
 export function VoicePicker({ value, onChange, title }: VoicePickerProps) {
   const { open, triggerRef, label, library } = useVoiceLibrary(value, onChange);
 
@@ -106,7 +106,7 @@ export function VoicePickerChip({ value, onChange, title }: VoicePickerProps) {
         title={title}
         aria-haspopup="dialog"
         aria-label={`Voice: ${label}`}
-        className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) font-medium hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+        className={`${TOOLBAR_BUTTON} flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none`}
         data-testid="voice-picker-trigger"
       >
         {/* A chevron promised a dropdown; this opens a modal, so it reads as a button instead. */}
