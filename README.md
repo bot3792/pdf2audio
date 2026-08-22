@@ -196,9 +196,9 @@ language of whatever voice is currently selected.
 
 ### Cloning your own voice
 
-Pocket TTS can clone a voice from a short sample. In the voice picker, open **Pocket TTS → Add your own voice**, then either record ~20 seconds in the browser or upload a file (anything ffmpeg can read). The sample is encoded locally into a small voice file and the recording is discarded — it never leaves the machine running pdf2audio.
+Pocket TTS can clone a voice from a short sample. In the voice picker, open **Your voices**, then either record ~20 seconds in the browser or upload a file (anything ffmpeg can read). The sample is encoded locally into a small voice file and the recording is discarded — it never leaves the machine running pdf2audio.
 
-![Adding a cloned voice from the Pocket TTS tab of the voice picker](docs/images/voice-cloning.png)
+![The Your voices tab of the voice picker, listing cloned voices above the recording controls](docs/images/voice-cloning.png)
 
 **Set your expectations accordingly.** Pocket TTS is a 100M-parameter model built to run on a CPU, and a clone inherits that ceiling — it lands somewhere between recognisable and convincing, and it is not as easy to listen to across a whole book as Kokoro's built-in voices. It also reproduces the *recording* faithfully, so room echo and mic hiss get cloned along with the voice. A quiet room and a headset mic help; on iPhone, Voice Memos set to **Studio** quality gives a noticeably cleaner sample. It's a fun extra rather than the voice you'd pick for a long listen.
 

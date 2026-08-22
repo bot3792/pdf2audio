@@ -265,7 +265,7 @@ export function VoiceLibraryModal({
                 name="voice-search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${language === CLONED ? "your voices" : languageLabel(language)} voices…`}
+                placeholder={language === CLONED ? "Search your voices…" : `Search ${languageLabel(language)} voices…`}
                 aria-label="Search voices"
                 className="w-full rounded-md border border-(--border-input) bg-(--bg-input) px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 data-testid="voice-search"
