@@ -39,7 +39,17 @@ function orderLanguages(counts: Map<string, number>): string[] {
   );
 }
 
-export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
+// `footer`/`title` let a caller host the picker for its own action (synthesis) instead of stacking
+// a second modal on top of it — the whole reason SynthesizeModal is a thin wrapper, not a dialog.
+export function VoiceLibraryModal({
+  onClose,
+  title = "Choose a voice",
+  footer,
+}: {
+  onClose: () => void;
+  title?: string;
+  footer?: React.ReactNode;
+}) {
   const { state } = useVoicePicker();
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -150,7 +160,7 @@ export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
         data-testid="voice-library-modal"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-(--border) shrink-0">
-          <h2 id="voice-library-title" className="text-sm font-medium text-(--text-primary)">Choose a voice</h2>
+          <h2 id="voice-library-title" className="text-sm font-medium text-(--text-primary)">{title}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -272,15 +282,19 @@ export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-(--border) shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-md text-sm font-medium border border-(--border-input) text-(--text-secondary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-            data-testid="voice-library-done"
-          >
-            Done
-          </button>
+        <div className="border-t border-(--border) shrink-0">
+          {footer ?? (
+            <div className="flex items-center justify-end gap-2 px-4 py-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-md text-sm font-medium border border-(--border-input) text-(--text-secondary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                data-testid="voice-library-done"
+              >
+                Done
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
