@@ -145,12 +145,20 @@ cd packages/server && pnpm test   # Server test suite (spins up template DB, run
 - The first PDF/EPUB export downloads a rendering browser (~350 MB) into the Vivliostyle cache.
 - **Pocket TTS** runs in its own Python env (`.venv-pocket`) because it needs numpy 2.x while the marker/kokoro stack is pinned to 1.26. `pnpm run setup` builds both. It is CPU-only by design — it leaves the GPU free for the MLX engines — and has no speed parameter, so the UI disables the slider.
 - **Pocket TTS voice licensing is mixed.** The built-in voices are embeddings of real recordings under different licenses: most are CC0 or CC BY 4.0, but `cosette` and `jean` are **CC BY-NC 4.0 (non-commercial only)** and `estelle`'s provenance is unverified. Each voice shows its license in the picker. This is irrelevant while pdf2audio is noncommercial (see [LICENSE](LICENSE)) — it matters if you ever sell audio made with it. Details in [docs/tts-licensing.md](docs/tts-licensing.md).
-- **Cloning your own voice** (voice picker → Pocket TTS → *Add your own voice*): record ~20s in the browser or upload a file. For the best result use a quiet room and a headset mic, read with normal expression, and remember the sample's audio quality is reproduced — room echo and hiss get cloned too. On iPhone, Voice Memos set to **Studio** quality gives a noticeably cleaner sample. Any format ffmpeg reads works; browser recording needs localhost or HTTPS.
-- Kyutai's terms prohibit **cloning a voice without that person's consent**, plus deception and impersonation generally. If you enable cloning you accept those terms on your own HuggingFace account; if you host pdf2audio for other people, enforcing them becomes your responsibility.
 - The Bulgarian-capable narrators are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, `KugelAudio (7B, 24 EU languages)`, the macOS `Daria` system voice, and Cartesia's Bulgarian voices. The local model narrators run at fixed speed (UI disables the slider); macOS and Cartesia voices support the speed control.
 - KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm run setup --kugel` downloads and converts it. ~1.5x realtime on an M4 Pro.
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.
 - Best Kokoro voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).
+
+### Cloning your own voice
+
+Pocket TTS can clone a voice from a short sample. In the voice picker, open **Pocket TTS → Add your own voice**, then either record ~20 seconds in the browser or upload a file (anything ffmpeg can read). The sample is encoded locally into a small voice file and the recording is discarded — it never leaves the machine running pdf2audio.
+
+![Adding a cloned voice from the Pocket TTS tab of the voice picker](docs/images/voice-cloning.png)
+
+**Set your expectations accordingly.** Pocket TTS is a 100M-parameter model built to run on a CPU, and a clone inherits that ceiling — it lands somewhere between recognisable and convincing, and it is not as easy to listen to across a whole book as Kokoro's built-in voices. It also reproduces the *recording* faithfully, so room echo and mic hiss get cloned along with the voice. A quiet room and a headset mic help; on iPhone, Voice Memos set to **Studio** quality gives a noticeably cleaner sample. It's a fun extra rather than the voice you'd pick for a long listen.
+
+Kyutai's terms prohibit cloning a voice without that person's consent, along with deception and impersonation generally — hence the confirmation checkbox, which the server enforces rather than takes on trust. Enabling cloning means accepting those terms on your own HuggingFace account, and if you host pdf2audio for other people, enforcing them becomes your responsibility.
 
 ## License
 
