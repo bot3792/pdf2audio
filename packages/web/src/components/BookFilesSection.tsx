@@ -26,8 +26,6 @@ export function BookFilesSection({
   forceOcr,
   llmChapterDetection,
   language,
-  onDetectLanguage,
-  detectingLanguage,
   onUpdateExtractionSettings,
   onSetSelected,
   onSetAllSelected,
@@ -49,8 +47,6 @@ export function BookFilesSection({
   forceOcr: boolean;
   llmChapterDetection: boolean;
   language: string | null;
-  onDetectLanguage: () => void;
-  detectingLanguage: boolean;
   onUpdateExtractionSettings: (settings: { forceOcr?: boolean; llmChapterDetection?: boolean; language?: string | null }) => void;
   onSetSelected: (id: string, selected: boolean) => void;
   onSetAllSelected: (selected: boolean) => void;
@@ -171,6 +167,23 @@ export function BookFilesSection({
         <span className="text-xs text-(--text-faint) uppercase tracking-wider">Extraction settings</span>
         <label
           className="flex items-center gap-1.5 text-xs text-(--text-muted)"
+          title="The language this book is written in — decides which voices the picker offers first."
+        >
+          Language
+          <select
+            value={language ?? ""}
+            onChange={(e) => onUpdateExtractionSettings({ language: e.target.value || null })}
+            className="rounded border border-(--border-input) bg-(--bg-input) px-1.5 py-0.5 text-xs"
+            data-testid="book-language"
+          >
+            <option value="">Not set</option>
+            {BOOK_LANGUAGE_OPTIONS.map(({ code, label }) => (
+              <option key={code} value={code}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label
+          className="flex items-center gap-1.5 text-xs text-(--text-muted)"
           title="Only needed for scanned PDFs without selectable text. Applies to every extraction of this book, including per-file re-extracts. The original PDF is kept as-is — OCR output is stored as extracted text."
         >
           <input
@@ -194,33 +207,6 @@ export function BookFilesSection({
           LLM chapters
         </label>
 
-        <label
-          className="flex items-center gap-1.5 text-xs text-(--text-muted)"
-          title="The language this book is written in. Used to pick sensible voices — set it by hand, or detect it if you have DeepSeek configured."
-        >
-          Language
-          <select
-            value={language ?? ""}
-            onChange={(e) => onUpdateExtractionSettings({ language: e.target.value || null })}
-            className="rounded border border-(--border-input) bg-(--bg-input) px-1.5 py-0.5 text-xs"
-            data-testid="book-language"
-          >
-            <option value="">Not set</option>
-            {BOOK_LANGUAGE_OPTIONS.map(({ code, label }) => (
-              <option key={code} value={code}>{label}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={onDetectLanguage}
-          disabled={detectingLanguage}
-          title="Ask DeepSeek to identify the language from the extracted text"
-          className="text-xs text-(--text-muted) hover:text-(--text-secondary) underline disabled:opacity-50"
-          data-testid="book-language-detect"
-        >
-          {detectingLanguage ? "Detecting..." : "Detect"}
-        </button>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-(--border)">

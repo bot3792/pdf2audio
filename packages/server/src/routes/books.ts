@@ -9,7 +9,6 @@ import { deleteBook } from "../lib/delete-book.ts";
 import { folderAncestors } from "../lib/folders.ts";
 import { appendLog } from "../lib/log.ts";
 import { parseTtsVoice } from "../lib/tts.ts";
-import { deepseekChat } from "../lib/deepseek.ts";
 import { collectBlocksFromMarkerOutput, sliceChaptersAtIndices, type ExtractedChapter } from "../lib/marker.ts";
 import { listMarkerSources } from "../lib/marker-sources.ts";
 import { abortExtract } from "../lib/extract-registry.ts";
@@ -434,39 +433,6 @@ export const booksRouter = router({
       if (input.language !== undefined) updates.language = input.language || null;
       await db.update(books).set(updates).where(eq(books.id, input.id));
       return { success: true };
-    }),
-
-  // Opt-in convenience only — the language is a plain field the user can set by hand, and
-  // everything downstream works with DEEPSEEK_API_KEY absent.
-  detectLanguage: publicProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ input }) => {
-      if (!env.DEEPSEEK_API_KEY) throw new Error("Language detection needs DEEPSEEK_API_KEY — or pick the language yourself");
-
-      const [chapter] = await db
-        .select({ text: sql<string>`coalesce(${chapters.customText}, ${chapters.cleanText}, ${chapters.rawText})` })
-        .from(chapters)
-        .where(eq(chapters.bookId, input.id))
-        .orderBy(desc(sql`length(coalesce(${chapters.customText}, ${chapters.cleanText}, ${chapters.rawText}))`))
-        .limit(1);
-      const sample = (chapter?.text ?? "")
-        .replace(/\s+/g, " ")
-        // OCR noise skews short samples toward whichever alphabet the artefacts resemble
-        .replace(/[^\p{L}\p{N}\p{P}\s]/gu, " ")
-        .trim()
-        .slice(0, 1500);
-      if (sample.length < 40) throw new Error("Not enough extracted text to detect the language yet");
-
-      const answer = await deepseekChat(
-        "You identify the language of a text. Reply with the ISO 639-1 two-letter code only, lowercase, nothing else.",
-        sample,
-        { thinking: false },
-      );
-      const code = answer.trim().toLowerCase().match(/^[a-z]{2}$/)?.[0];
-      if (!code) throw new Error(`Could not read a language code from the model (got "${answer.trim().slice(0, 40)}")`);
-
-      await db.update(books).set({ language: code, updatedAt: new Date() }).where(eq(books.id, input.id));
-      return { language: code };
     }),
 
   upload: publicProcedure

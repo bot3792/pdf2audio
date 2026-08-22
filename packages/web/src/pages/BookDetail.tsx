@@ -222,10 +222,6 @@ export function BookDetail() {
   const assembleVariantMutation = trpc.variants.assemble.useMutation({ onSuccess: invalidateVariants });
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
-  const detectLanguageMutation = trpc.books.detectLanguage.useMutation({
-    onSuccess: invalidate,
-    onError: (error) => window.alert(error.message),
-  });
   const setVariantVoiceMutation = trpc.variants.setVoice.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
   const invalidateAudioSizes = () => {
@@ -454,8 +450,6 @@ export function BookDetail() {
             forceOcr={book.forceOcr}
             llmChapterDetection={book.llmChapterDetection}
             language={book.language ?? null}
-            onDetectLanguage={() => detectLanguageMutation.mutate({ id: book.id })}
-            detectingLanguage={detectLanguageMutation.isPending}
             onUpdateExtractionSettings={(settings) => updateSettingsMutation.mutate({ id: book.id, ...settings })}
             onSetSelected={(fid, selected) => setFileSelectedMutation.mutate({ id: fid, selected })}
             onSetAllSelected={(selected) => setAllFilesSelectedMutation.mutate({ bookId: book.id, selected })}
