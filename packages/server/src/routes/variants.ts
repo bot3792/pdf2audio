@@ -7,7 +7,7 @@ import { eq, and, inArray, sql, asc } from "drizzle-orm";
 import { quickAddJob } from "graphile-worker";
 import { appendLog } from "../lib/log.ts";
 import { env } from "../env.ts";
-import { listChunkPreviewsIn, locateChunks, pageAtOffset, syncMapChunkPreviews } from "../lib/chunk-previews.ts";
+import { listChunkPreviewsIn, locateChunks, pageAtOffset, syncMapChunkPreviews, audioCacheKey } from "../lib/chunk-previews.ts";
 import { languageSlug, translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
 import { getTransformPreset, TRANSFORM_PRESETS } from "../lib/transform-presets.ts";
 import { inferVariantLabel, variantKeySlug, variantLabel } from "../lib/transform.ts";
@@ -114,6 +114,7 @@ export const variantsRouter = router({
           audioError: chapterVariants.audioError,
           audioDurationMs: chapterVariants.audioDurationMs,
           hasAudio: sql<boolean>`${chapterVariants.audioPath} is not null`,
+          updatedAt: chapterVariants.updatedAt,
         })
         .from(chapterVariants)
         .where(and(
@@ -144,7 +145,8 @@ export const variantsRouter = router({
         `/files/${chapter.bookId}/chunks/${slug}/${base}`,
       );
       if (previews.length === 0) {
-        previews = await syncMapChunkPreviews(row.audioPath, `/audio/translation/${row.id}`);
+        const cacheKey = await audioCacheKey(row.audioPath);
+        previews = await syncMapChunkPreviews(row.audioPath, `/audio/translation/${row.id}${cacheKey}`);
       }
       const ranges = locateChunks(row.text, previews.map((p) => p.text ?? ""));
       const blocks = Array.isArray(chapter.sourceBlocks) ? (chapter.sourceBlocks as SourceBlock[]) : [];

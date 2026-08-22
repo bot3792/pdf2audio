@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 
 import { bookOutputDir } from "./paths.ts";
 import { readSyncMap } from "./sync-map.ts";
@@ -73,6 +73,18 @@ export async function listChunkPreviewsIn(dir: string, urlBase: string): Promise
     })
     .filter((entry): entry is ChunkPreview => entry !== null)
     .sort((a, b) => a.index - b.index);
+}
+
+// Re-synthesis overwrites the same file at the same URL. Without a changing query the <audio>
+// src string is identical, so the element never reloads and keeps playing the previous take.
+export async function audioCacheKey(audioPath: string | null): Promise<string> {
+  if (!audioPath) return "";
+  try {
+    const { mtimeMs } = await stat(audioPath);
+    return `?v=${Math.round(mtimeMs)}`;
+  } catch {
+    return "";
+  }
 }
 
 export async function syncMapChunkPreviews(audioPath: string | null, audioUrl: string): Promise<ChunkPreview[]> {

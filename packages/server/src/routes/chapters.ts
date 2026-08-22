@@ -6,7 +6,7 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import { appendLog } from "../lib/log.ts";
 import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
-import { chapterChunkPreviewDir, listChapterChunkPreviews, locateChunks, pageAtOffset, syncMapChunkPreviews } from "../lib/chunk-previews.ts";
+import { chapterChunkPreviewDir, listChapterChunkPreviews, locateChunks, pageAtOffset, syncMapChunkPreviews, audioCacheKey } from "../lib/chunk-previews.ts";
 import { dirSize } from "../lib/disk-usage.ts";
 import { stat } from "node:fs/promises";
 import type { SourceBlock } from "../lib/marker.ts";
@@ -60,7 +60,8 @@ export const chaptersRouter = router({
 
       let previews = await listChapterChunkPreviews(chapter.bookId, chapter.index);
       if (previews.length === 0) {
-        previews = await syncMapChunkPreviews(chapter.audioPath, `/audio/chapter/${chapter.id}`);
+        const cacheKey = await audioCacheKey(chapter.audioPath);
+        previews = await syncMapChunkPreviews(chapter.audioPath, `/audio/chapter/${chapter.id}${cacheKey}`);
       }
       const ranges = locateChunks(sourceText, previews.map((p) => p.text ?? ""));
       const blocks = Array.isArray(chapter.sourceBlocks) ? (chapter.sourceBlocks as SourceBlock[]) : [];

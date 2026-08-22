@@ -107,9 +107,17 @@ export function ChapterModal({
     {
       enabled: isVariant,
       retry: false,
+      // A variant's audio run only moves audioStatus — chapters.status and the variant's own
+      // text status both stay "done" — so polling has to watch that field or it never runs.
       refetchInterval: (query) => {
-        const s = query.state.data?.status;
-        return s === "pending" || s === "translating" || chapter.status === "synthesizing" ? 1000 : false;
+        const d = query.state.data;
+        const busy =
+          d?.status === "pending" ||
+          d?.status === "translating" ||
+          d?.audioStatus === "pending" ||
+          d?.audioStatus === "synthesizing" ||
+          chapter.status === "synthesizing";
+        return busy ? 1000 : false;
       },
     },
   );
@@ -125,6 +133,21 @@ export function ChapterModal({
     : originalChapter;
   const isLoading = isVariant ? variantLoading : originalLoading;
   const utils = trpc.useUtils();
+
+  // Polling stops the instant synthesis ends, but the worker deletes the chunk WAVs when it builds
+  // the sync map — so without one final fetch the panel keeps pointing at files that no longer
+  // exist and play() fails silently until a page reload. Variants track their own audioStatus.
+  const audioBusy = isVariant
+    ? variantDetail?.audioStatus === "synthesizing" || variantDetail?.audioStatus === "pending"
+    : chapter.status === "synthesizing";
+  const wasAudioBusyRef = useRef(audioBusy);
+  useEffect(() => {
+    const was = wasAudioBusyRef.current;
+    wasAudioBusyRef.current = audioBusy;
+    if (!was || audioBusy) return;
+    utils.chapters.get.invalidate({ id: chapter.id });
+    if (variant?.key) utils.variants.detail.invalidate({ chapterId: chapter.id, key: variant.key });
+  }, [audioBusy, chapter.id, variant?.key, utils]);
 
   useEffect(() => {
     const previews = fullChapter?.chunkPreviews ?? [];

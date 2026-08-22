@@ -297,7 +297,7 @@ export function BookDetail() {
           hasCleanText: false,
           hasSourceBlocks: false,
           synthesizedWith: null,
-          audioUrl: t && translated ? `/audio/translation/${t.id}` : undefined,
+          audioUrl: t && translated ? `/audio/translation/${t.id}?v=${new Date(t.updatedAt).getTime()}` : undefined,
         };
       });
 
