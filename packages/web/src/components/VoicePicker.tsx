@@ -31,10 +31,22 @@ function useSelectedVoiceLabel(selectedId: string): string {
     const candidates: Voice[] =
       engine === "say" ? sayVoices.map(sayVoiceToEntry)
       : engine === "cartesia" ? cartesiaVoices.map(cartesiaVoiceToEntry)
-      : engine === "pocket" ? [...(pocket?.custom ?? []).map(pocketCustomVoiceToEntry), ...(pocket?.voices ?? []).map(pocketVoiceToEntry)]
+      : engine === "pocket" ? [
+          ...(pocket?.custom ?? []).map(pocketCustomVoiceToEntry),
+          ...(pocket?.voices ?? []).map((voice) => pocketVoiceToEntry(voice, pocketLanguageOf(selectedId))),
+        ]
       : [];
     return candidates.find((voice) => voice.id === selectedId)?.label ?? getVoiceLabel(selectedId);
   }, [selectedId, engine, sayVoices, cartesiaVoices, pocket]);
+}
+
+// `pocket:it:giovanni` — the middle segment is the language; bare and `custom:` ids are English.
+function pocketLanguageOf(voiceId: string): string {
+  const rest = voiceId.slice("pocket:".length);
+  const separator = rest.indexOf(":");
+  if (separator === -1) return "en";
+  const code = rest.slice(0, separator);
+  return code === "custom" ? "en" : code;
 }
 
 function useVoiceLibrary(value: string, onChange: (voice: string) => void) {

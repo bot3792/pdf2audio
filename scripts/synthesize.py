@@ -67,10 +67,18 @@ def main():
             continue
         try:
             ps, tokens = pipeline.g2p(segment)
-            for gs, ps, tks in pipeline.en_tokenize(tokens):
+            if tokens is None:
+                # espeak-backed languages (fr/es/it/pt/hi) return phonemes with no token
+                # structure; en_tokenize is English-only, so chunk the segment as-is and let
+                # the MAX_PHONEMES splitter below cut it to size.
                 if ps.strip():
                     phoneme_chunks.append(ps)
-                    chunk_texts.append(gs.strip())
+                    chunk_texts.append(segment)
+            else:
+                for gs, chunk_ps, tks in pipeline.en_tokenize(tokens):
+                    if chunk_ps.strip():
+                        phoneme_chunks.append(chunk_ps)
+                        chunk_texts.append(gs.strip())
         except Exception as e:
             print(f"G2P error on segment: {e}", file=sys.stderr)
             continue

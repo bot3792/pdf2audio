@@ -87,6 +87,18 @@ describe("parseTtsVoice", () => {
     });
   });
 
+  it("parses language-scoped Pocket TTS voices", () => {
+    expect(parseTtsVoice("pocket:it:giovanni")).toEqual({
+      engine: "pocket",
+      voice: "it:giovanni",
+      raw: "pocket:it:giovanni",
+    });
+    // bare ids predate languages and must keep resolving as English
+    expect(parseTtsVoice("pocket:alba").voice).toBe("alba");
+    expect(() => parseTtsVoice("pocket:xx:alba")).toThrow(/unsupported voice/i);
+    expect(() => parseTtsVoice("pocket:it:nope")).toThrow(/unsupported voice/i);
+  });
+
   it("parses cloned Pocket TTS voices", () => {
     expect(parseTtsVoice("pocket:custom:5e509238-95e1-41a0-9818-ec49f27e1bf3")).toEqual({
       engine: "pocket",

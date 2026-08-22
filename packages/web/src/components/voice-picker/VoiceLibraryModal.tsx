@@ -103,8 +103,10 @@ export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
 
   const renderGroups = (groups: VoiceGroup[], { loading = false, empty }: { loading?: boolean; empty: React.ReactNode }) => {
     if (loading) return <Empty>Loading voices…</Empty>;
+    // Group labels are language names — searching "french" has to find the French section, not just
+    // voices that happen to have "french" in their own name.
     const filtered = groups
-      .map((group) => ({ ...group, voices: group.voices.filter((v) => matches(v.label, v.note)) }))
+      .map((group) => (matches(group.label) ? group : { ...group, voices: group.voices.filter((v) => matches(v.label, v.note)) }))
       .filter((group) => group.voices.length > 0);
     if (filtered.length === 0) return <Empty>{query ? `No voices match “${query}”.` : empty}</Empty>;
     return filtered.map((group) => (

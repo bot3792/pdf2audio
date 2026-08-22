@@ -8,7 +8,7 @@ import { chunkTextForBulgarianNarrator } from "./tts-chunks.ts";
 import { synthesize as kokoroSynthesize, KokoroAbortedError } from "./kokoro.ts";
 import { resolveSayVoice } from "./say-voices.ts";
 import { cartesiaSynthesize, CartesiaAbortedError, findCartesiaVoice } from "./cartesia.ts";
-import { POCKET_SCRIPT, isPocketCatalogVoice, isPocketCustomVoice, pocketPython, resolvePocketVoiceArg } from "./pocket.ts";
+import { POCKET_SCRIPT, parsePocketVoice, pocketLanguageArgs, pocketPython, resolvePocketVoiceArg } from "./pocket.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
 const BG_MLX_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_bg_tts_mlx.py");
@@ -43,6 +43,30 @@ let mlxSynthesisQueue: Promise<void> = Promise.resolve();
 
 const ENGLISH_PREVIEW_TEXT = "The quick brown fox jumps over the lazy dog. A wonderful serenity has taken possession of my entire soul, like these sweet mornings of spring which I enjoy with my whole heart.";
 const BULGARIAN_PREVIEW_TEXT = "В тиха пролетна утрин светът изглеждаше мек и ясен, а гласът на разказвача трябваше да носи спокойствие, ритъм и увереност през всяка страница.";
+
+// A preview that reads English in a German voice tells you nothing about how German will sound —
+// and sounds plausible enough to be mistaken for working. One sentence per language instead.
+const PREVIEW_TEXT_BY_LANGUAGE: Record<string, string> = {
+  en: ENGLISH_PREVIEW_TEXT,
+  bg: BULGARIAN_PREVIEW_TEXT,
+  de: "Eine wunderbare Heiterkeit hat meine ganze Seele eingenommen, gleich den süßen Frühlingsmorgen, die ich mit ganzem Herzen genieße.",
+  es: "Una maravillosa serenidad se ha apoderado de mi alma entera, como estas dulces mañanas de primavera que disfruto con todo el corazón.",
+  fr: "Une merveilleuse sérénité s'est emparée de mon âme entière, comme ces douces matinées de printemps dont je jouis de tout mon cœur.",
+  it: "Una meravigliosa serenità si è impossessata della mia anima intera, come queste dolci mattine di primavera che godo con tutto il cuore.",
+  pt: "Uma serenidade maravilhosa apoderou-se de toda a minha alma, como estas doces manhãs de primavera que desfruto de todo o coração.",
+  hi: "एक अद्भुत शांति ने मेरी पूरी आत्मा को अपने वश में कर लिया है, इन मीठी वसंत सुबहों की तरह जिनका मैं पूरे मन से आनंद लेता हूँ।",
+  zh: "一种奇妙的宁静占据了我的整个灵魂，就像我全心享受的这些甜美的春日清晨。",
+};
+
+// Kokoro encodes the language in the voice prefix: a/b English, e Spanish, f French, h Hindi,
+// i Italian, p Portuguese, z Mandarin.
+const KOKORO_LANGUAGE_BY_PREFIX: Record<string, string> = {
+  a: "en", b: "en", e: "es", f: "fr", h: "hi", i: "it", p: "pt", z: "zh",
+};
+
+function previewTextFor(languageCode: string): string {
+  return PREVIEW_TEXT_BY_LANGUAGE[languageCode] ?? ENGLISH_PREVIEW_TEXT;
+}
 const BG_MLX_VOICES = new Set(["narrator"]);
 const BG_MMS_VOICES = new Set(["bul"]);
 const KUGEL_VOICES = new Set(["default"]);
@@ -112,7 +136,7 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
 
   if (rawVoice.startsWith("pocket:")) {
     const voice = rawVoice.slice("pocket:".length);
-    if (!isPocketCatalogVoice(voice) && !isPocketCustomVoice(voice)) {
+    if (!parsePocketVoice(voice)) {
       throw new Error(`Unsupported voice ID: ${rawVoice}`);
     }
     return { engine: "pocket", voice, raw: rawVoice };
@@ -131,7 +155,13 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
 
 export async function getPreviewTextForVoice(voice: string): Promise<string> {
   const resolved = parseTtsVoice(voice);
-  if (resolved.engine === "kokoro" || resolved.engine === "pocket") return ENGLISH_PREVIEW_TEXT;
+  if (resolved.engine === "kokoro") {
+    return previewTextFor(KOKORO_LANGUAGE_BY_PREFIX[resolved.voice[0]] ?? "en");
+  }
+  if (resolved.engine === "pocket") {
+    const parsed = parsePocketVoice(resolved.voice);
+    return previewTextFor(parsed?.kind === "catalog" ? parsed.language.code : "en");
+  }
   if (resolved.engine === "say") {
     const sayVoice = await resolveSayVoice(resolved.voice);
     return sayVoice?.locale.toLowerCase().startsWith("bg") ? BULGARIAN_PREVIEW_TEXT : ENGLISH_PREVIEW_TEXT;
@@ -216,6 +246,7 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
       inputText,
       outputPath,
       voice: await resolvePocketVoiceArg(resolved.voice),
+      extraArgs: pocketLanguageArgs(resolved.voice),
       speed,
       chunkPreviewDir,
       chunkPreviewUrlBase,

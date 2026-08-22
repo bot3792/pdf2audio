@@ -62,13 +62,26 @@ export const kokoroVoiceGroups: VoiceGroup[] = [
     ],
   },
   {
-    label: "Japanese",
+    label: "Italian",
     voices: [
-      { id: "kokoro:jf_alpha", label: "Alpha", gender: "F", grade: "C+", supportsSpeed: true },
-      { id: "kokoro:jf_gongitsune", label: "Gongitsune", gender: "F", grade: "C", supportsSpeed: true },
-      { id: "kokoro:jf_tebukuro", label: "Tebukuro", gender: "F", grade: "C", supportsSpeed: true },
-      { id: "kokoro:jf_nezumi", label: "Nezumi", gender: "F", grade: "C-", supportsSpeed: true },
-      { id: "kokoro:jm_kumo", label: "Kumo", gender: "M", grade: "C-", supportsSpeed: true },
+      { id: "kokoro:if_sara", label: "Sara", gender: "F", grade: "B", supportsSpeed: true },
+      { id: "kokoro:im_nicola", label: "Nicola", gender: "M", grade: "B", supportsSpeed: true },
+    ],
+  },
+  {
+    label: "Brazilian Portuguese",
+    voices: [
+      { id: "kokoro:pf_dora", label: "Dora", gender: "F", grade: "C", supportsSpeed: true },
+      { id: "kokoro:pm_alex", label: "Alex", gender: "M", grade: "C", supportsSpeed: true },
+    ],
+  },
+  {
+    label: "Hindi",
+    voices: [
+      { id: "kokoro:hf_alpha", label: "Alpha", gender: "F", grade: "B", supportsSpeed: true },
+      { id: "kokoro:hf_beta", label: "Beta", gender: "F", grade: "B", supportsSpeed: true },
+      { id: "kokoro:hm_omega", label: "Omega", gender: "M", grade: "B", supportsSpeed: true },
+      { id: "kokoro:hm_psi", label: "Psi", gender: "M", grade: "B", supportsSpeed: true },
     ],
   },
   {
@@ -161,9 +174,13 @@ export function cartesiaVoiceToEntry(voice: { id: string; name: string; language
   };
 }
 
-export function pocketVoiceToEntry(voice: { id: string; name: string; license: string; note: string }): Voice {
+// English keeps the bare `pocket:<voice>` form so ids stored before languages existed still resolve.
+export function pocketVoiceToEntry(
+  voice: { id: string; name: string; license: string; note: string },
+  languageCode = "en",
+): Voice {
   return {
-    id: `pocket:${voice.id}`,
+    id: languageCode === "en" ? `pocket:${voice.id}` : `pocket:${languageCode}:${voice.id}`,
     label: voice.name,
     gender: null,
     grade: "CPU",

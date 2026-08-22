@@ -45,9 +45,42 @@ Upload → rawExtract (pdftotext, seconds, always)
 
 Jobs run through [Graphile Worker](https://github.com/graphile/worker) in six pools (TTS, raw text, extraction, assembly, AI/translation, search indexing) with `maxAttempts: 1` — nothing retries silently; the user reviews failures and decides. Chapter text falls back `customText ?? cleanText ?? rawText` at synthesis time.
 
-TTS engines: [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English + 8 more languages), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal. Plus [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) from Kyutai (100M params, **CPU-only** at ~12x realtime, 26 built-in voices, optional voice cloning from a ~20s sample), every installed macOS system voice (via `say`, free and ~25x realtime), and optional [Cartesia](https://cartesia.ai) Sonic cloud TTS (`CARTESIA_API_KEY`).
+TTS engines (see [Languages](#languages) for what covers what): [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English, French, Spanish, Italian, Brazilian Portuguese, Hindi, Mandarin), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal. Plus [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) from Kyutai (100M params, **CPU-only** at ~12x realtime, 26 built-in voices, optional voice cloning from a ~20s sample), every installed macOS system voice (via `say`, free and ~25x realtime), and optional [Cartesia](https://cartesia.ai) Sonic cloud TTS (`CARTESIA_API_KEY`).
 
 During synthesis the server keeps a per-chunk text↔audio timing map (`chNNN.sync.json`) next to each chapter's M4A. That map powers the web UI's read-along player and the synced EPUB export — and once it is written, the worker deletes the intermediate chunk WAVs to reclaim disk (`pnpm --filter server cleanup:chunks` sweeps leftovers from older runs).
+
+### Languages
+
+Every engine covers a different set, so the answer to "does it do language X" depends on which one you pick. Local engines, unless noted:
+
+| Language | Voices | Engine |
+| --- | --- | --- |
+| English | 27 + 26 | Kokoro, Pocket TTS |
+| Spanish, Italian, German, Portuguese, French | 26 each | Pocket TTS (downloadable from the picker) |
+| Bulgarian | 3 + system | BG-TTS V5 MLX, MMS Bulgarian, KugelAudio, macOS `Daria` |
+| French, Spanish, Italian, Brazilian Portuguese | 2 each | Kokoro |
+| Hindi | 4 | Kokoro |
+| Mandarin Chinese | 8 | Kokoro |
+| 24 EU languages | 1 multilingual narrator | KugelAudio (opt-in ~5 GB download) |
+| Most others | many | [Cartesia](https://cartesia.ai) (cloud, needs an API key), plus any macOS system voice you have installed |
+
+Notes on the edges:
+
+- **Japanese is not supported**, even though Kokoro ships Japanese voices. They need a MeCab/`fugashi`
+  native stack plus a ~700 MB dictionary, and the extra downgrades a package the Marker/spaCy side
+  depends on. Not worth it for five voices — so they aren't listed in the picker.
+- **Pocket TTS ships one checkpoint per language**, and only English is installed by `pnpm run setup`.
+  The others download on demand: open the picker's Pocket TTS tab, pick a language, and press
+  Download — it shows the size first (~370 MB each, **~800 MB for French**, which has no distilled
+  build yet and runs ~2.5x slower). Downloads land in the shared HuggingFace cache and go live
+  immediately; no server restart.
+- **Pick the matching language.** The English model will happily read French or Italian text and
+  produce something that sounds plausible, because the voices include non-English *speakers*
+  (Giovanni, Lola, Juergen, Rafael, Estelle). It mispronounces silent letters and liaisons — the
+  same French sentence runs 25% longer on the English model than the French one. Selecting the
+  language is what makes it correct, not selecting a native-sounding voice.
+- Mandarin needs the `misaki[zh]` G2P chain, which `scripts/requirements.txt` pins and
+  `pnpm run setup` installs.
 
 ## Project structure
 

@@ -23,3 +23,12 @@ tqdm==4.67.3
 protobuf==7.34.0
 PyYAML==6.0.3
 Jinja2==3.1.6
+
+# misaki[zh] G2P chain for Kokoro's Mandarin voices — pure Python, no effect on the pins above.
+# Kokoro's Japanese voices are deliberately unsupported: misaki[ja] needs a MeCab/fugashi native
+# stack, a ~700 MB unidic dictionary, and downgrades wasabi under spacy.
+cn2an==0.5.24
+jieba==0.42.1
+ordered-set==4.1.0
+proces==0.1.7
+pypinyin==0.55.0
