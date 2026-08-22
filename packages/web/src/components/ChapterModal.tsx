@@ -140,6 +140,8 @@ export function ChapterModal({
   const audioBusy = isVariant
     ? variantDetail?.audioStatus === "synthesizing" || variantDetail?.audioStatus === "pending"
     : chapter.status === "synthesizing";
+  // Partial audio exists, so "start over" and "carry on" are genuinely different actions here.
+  const canContinueSynthesis = chapter.status === "suspended" || chapter.status === "failed";
   const wasAudioBusyRef = useRef(audioBusy);
   useEffect(() => {
     const was = wasAudioBusyRef.current;
@@ -375,18 +377,22 @@ export function ChapterModal({
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
           {chapter.status === "done" && chapter.audioPath ? (
-            <audio key={`${chapter.id}-${variant?.key ?? "original"}`} controls preload="none" className="h-8 mr-2">
-              <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} />
-            </audio>
+            <div className="flex items-center gap-2 mr-1">
+              {/* Named because the chunk scrubber further down is an identical-looking control. */}
+              <span className="text-xs text-(--text-faint) shrink-0">Whole chapter</span>
+              <audio key={`${chapter.id}-${variant?.key ?? "original"}`} controls preload="none" className="h-8">
+                <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} />
+              </audio>
+            </div>
           ) : null}
           {chapter.status === "done" && chapter.audioPath ? (
             <a
               href={chapterAudioDownload(chapter, variant).href}
               download={chapterAudioDownload(chapter, variant).filename}
               title={`Download the ${variantName ?? "chapter"} audio`}
-              className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium no-underline"
+              className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed no-underline"
             >
               Download
             </a>
@@ -394,34 +400,16 @@ export function ChapterModal({
             <button
               disabled
               title={`No ${variantName ?? "chapter"} audio to download yet`}
-              className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) font-medium opacity-30 cursor-not-allowed"
+              className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Download
             </button>
           )}
-          {chapter.status === "suspended" || chapter.status === "failed" ? (
-            <button
-              onClick={() => onQueue(chapter.id, true)}
-              title="Continue synthesis from where it stopped — reuses already-synthesized chunks"
-              className="text-xs px-2.5 py-1 rounded bg-green-600 text-white hover:bg-green-700 font-medium"
-            >
-              Continue
-            </button>
-          ) : null}
-          <button
-            onClick={() => onQueue(chapter.id)}
-            disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status) || chapter.synthesizable === false}
-            title={
-              chapter.synthesizable === false
-                ? `No finished ${variantName} text for this chapter`
-                : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
-                  ? "Can't re-synthesize while it's being processed"
-                  : `Re-synthesize this chapter's audio from text (from scratch)${synthVoice ? ` with ${getVoiceLabel(synthVoice)}` : ""}`
-            }
-            className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            Re-synthesize
-          </button>
+
+          <Divider />
+
+          {/* The voice is the input to the buttons beside it, so it leads the group rather than
+              trailing it — and it opens a modal, so it must not read as a <select>. */}
           {synthVoice && onChangeSynthVoice ? (
             <VoicePickerChip
               value={synthVoice}
@@ -436,10 +424,38 @@ export function ChapterModal({
               {getVoiceLabel(synthVoice)}
             </span>
           ) : null}
+          {canContinueSynthesis ? (
+            <button
+              onClick={() => onQueue(chapter.id, true)}
+              title="Continue synthesis from where it stopped — keeps the chunks already synthesized"
+              className="text-xs px-2.5 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 font-medium"
+            >
+              Continue{chapter.progress ? ` (${chapter.progress})` : ""}
+            </button>
+          ) : null}
+          <button
+            onClick={() => onQueue(chapter.id)}
+            disabled={["pending", "normalizing", "synthesizing"].includes(chapter.status) || chapter.synthesizable === false}
+            title={
+              chapter.synthesizable === false
+                ? `No finished ${variantName} text for this chapter`
+                : ["pending", "normalizing", "synthesizing"].includes(chapter.status)
+                  ? "Can't re-synthesize while it's being processed"
+                  : canContinueSynthesis
+                    ? `Discard the ${chapter.progress ?? "already-synthesized"} chunks and synthesize the whole chapter again${synthVoice ? ` with ${getVoiceLabel(synthVoice)}` : ""}`
+                    : `Re-synthesize this chapter's audio from text (from scratch)${synthVoice ? ` with ${getVoiceLabel(synthVoice)}` : ""}`
+            }
+            className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            {canContinueSynthesis ? "Start over" : "Re-synthesize"}
+          </button>
+
+          <Divider />
+
           <button
             onClick={() => setShowAi(true)}
             title="Summarize, question, or run any prompt against this chapter's text"
-            className="text-xs px-2.5 py-1 rounded bg-teal-600 text-white hover:bg-teal-700 font-medium"
+            className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
             data-testid="chapter-ask-ai"
           >
             Ask AI
@@ -455,7 +471,7 @@ export function ChapterModal({
                   cleanupStatus === "done" ? "Run the AI cleanup again on the current text" :
                   "Ask DeepSeek to strip OCR artifacts from this chapter without altering the prose"
                 }
-                className="text-xs px-2.5 py-1 rounded bg-purple-600 text-white hover:bg-purple-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
                 data-testid="chapter-cleanup"
               >
                 {cleanupLabel}
@@ -464,10 +480,10 @@ export function ChapterModal({
                 onClick={() => stopCleanupMutation.mutate({ id: chapter.id })}
                 disabled={!cleanupRunning || stopCleanupMutation.isPending}
                 title={cleanupRunning ? "Stop the cleanup — the chapter text stays unchanged" : "Nothing is running"}
-                className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
                 data-testid="chapter-cleanup-stop"
               >
-                Stop
+                Stop cleanup
               </button>
               {cleanupRunning ? (
                 <span className="text-xs text-purple-600" data-testid="chapter-cleanup-progress">
@@ -506,15 +522,15 @@ export function ChapterModal({
                 onClick={() => stopVariantMutation.mutate({ chapterId: chapter.id, key: variant!.key })}
                 disabled={!variantRunning || stopVariantMutation.isPending}
                 title={variantRunning ? "Stop and keep everything generated so far" : "Nothing is running"}
-                className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
+                className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
                 data-testid="chapter-translate-stop"
               >
-                Stop
+                Stop {isTranslationKind ? "translation" : "rewrite"}
               </button>
               <button
                 onClick={() => setShowCompare(true)}
                 title="Review the original and this variant side by side"
-                className="text-xs px-2.5 py-1 rounded bg-(--bg-subtle) text-(--text-tertiary) hover:bg-(--border) font-medium"
+                className="text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) hover:bg-(--bg-subtle) font-medium disabled:opacity-30 disabled:cursor-not-allowed"
                 data-testid="chapter-compare"
               >
                 Compare
@@ -907,6 +923,10 @@ function ChunkPreviewPanel({
       </div>
 
       {audioSrc ? (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-(--text-faint) shrink-0">
+            Chunk {chunkPreviews.find((preview) => preview.url === activeUrl)?.index ?? "—"}
+          </span>
         <audio
           ref={audioRef}
           src={audioSrc}
@@ -926,9 +946,14 @@ function ChunkPreviewPanel({
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
         />
+        </div>
       ) : null}
     </div>
   );
+}
+
+function Divider() {
+  return <span className="h-4 w-px bg-(--border) shrink-0" aria-hidden="true" />;
 }
 
 function ViewModeTabs({

@@ -69,11 +69,6 @@ function useVoiceLibrary(value: string, onChange: (voice: string) => void) {
   return { open: () => setIsOpen(true), triggerRef, label, library };
 }
 
-const CHEVRON = (
-  <svg className="h-4 w-4 text-(--text-faint) shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-    <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-  </svg>
-);
 
 export function VoicePicker({ value, onChange, title }: VoicePickerProps) {
   const { open, triggerRef, label, library } = useVoiceLibrary(value, onChange);
@@ -92,7 +87,7 @@ export function VoicePicker({ value, onChange, title }: VoicePickerProps) {
         data-testid="voice-picker-trigger"
       >
         <span className="truncate">{label}</span>
-        {CHEVRON}
+        <span className="shrink-0 text-xs font-medium text-blue-600">Change</span>
       </button>
       {library}
     </div>
@@ -111,11 +106,16 @@ export function VoicePickerChip({ value, onChange, title }: VoicePickerProps) {
         title={title}
         aria-haspopup="dialog"
         aria-label={`Voice: ${label}`}
-        className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-(--border) text-(--text-tertiary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+        className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded bg-(--bg-card) border border-(--border) text-(--text-secondary) font-medium hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
         data-testid="voice-picker-trigger"
       >
+        {/* A chevron promised a dropdown; this opens a modal, so it reads as a button instead. */}
+        <svg className="h-3.5 w-3.5 shrink-0 text-(--text-faint)" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path d="M10 2.75a1.25 1.25 0 00-1.25 1.25v6a1.25 1.25 0 002.5 0v-6A1.25 1.25 0 0010 2.75z" />
+          <path d="M5.5 9.25a.75.75 0 00-1.5 0 6 6 0 005.25 5.954V17h-2a.75.75 0 000 1.5h5.5a.75.75 0 000-1.5h-2v-1.796A6 6 0 0016 9.25a.75.75 0 00-1.5 0 4.5 4.5 0 01-9 0z" />
+        </svg>
+        <span className="text-(--text-faint)">Voice</span>
         <span className="truncate max-w-56">{label}</span>
-        {CHEVRON}
       </button>
       {library}
     </div>
