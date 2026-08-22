@@ -2,65 +2,45 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   cartesiaVoiceToEntry,
-  engineForVoiceId,
-  kokoroVoiceGroups,
-  narratorVoices,
+  languageLabel,
+  MULTILINGUAL,
+  pocketCustomVoiceToEntry,
+  pocketVoiceToEntry,
   sayVoiceToEntry,
+  staticVoices,
   type Voice,
   type VoiceEngine,
-  type VoiceGroup,
 } from "../../lib/voices.ts";
 import { trpc } from "../../trpc.ts";
 import { useBodyScrollLock } from "../../lib/use-body-scroll-lock.ts";
-import { PocketTab } from "./PocketTab.tsx";
+import { PocketLanguageNotice } from "./PocketLanguageNotice.tsx";
+import { PocketVoiceCloner } from "./PocketVoiceCloner.tsx";
 import { VoiceRow } from "./VoiceRow.tsx";
 import { Empty, Section } from "./layout.tsx";
 import { useVoicePicker } from "./context.tsx";
 
-const TABS: { id: VoiceEngine; label: string; hint: string }[] = [
-  { id: "kokoro", label: "Kokoro", hint: "Local · 9 languages" },
-  { id: "narrators", label: "Other models", hint: "Local · Bulgarian" },
-  { id: "say", label: "macOS", hint: "System voices" },
-  { id: "cartesia", label: "Cartesia", hint: "Cloud API" },
-  { id: "pocket", label: "Pocket TTS", hint: "Local · cloning" },
-];
+const CLONED = "cloned";
 
-const LANGUAGE_NAMES = new Intl.DisplayNames(["en"], { type: "language" });
-const REGION_NAMES = new Intl.DisplayNames(["en"], { type: "region" });
+const ENGINE_LABELS: Record<VoiceEngine, string> = {
+  kokoro: "Kokoro",
+  pocket: "Pocket TTS",
+  narrators: "Other local models",
+  say: "macOS system voices",
+  cartesia: "Cartesia (cloud)",
+};
 
-function groupByLanguage(entries: { label: string; voice: Voice }[]): VoiceGroup[] {
-  const byLanguage = new Map<string, Voice[]>();
-  for (const { label, voice } of entries) {
-    const bucket = byLanguage.get(label);
-    if (bucket) bucket.push(voice);
-    else byLanguage.set(label, [voice]);
-  }
-  return [...byLanguage.entries()]
-    .map(([label, voices]) => ({ label, voices: voices.sort((a, b) => a.label.localeCompare(b.label)) }))
-    .sort((a, b) => {
-      const aBg = a.label.startsWith("Bulgarian") ? 0 : 1;
-      const bBg = b.label.startsWith("Bulgarian") ? 0 : 1;
-      return aBg - bBg || a.label.localeCompare(b.label);
-    });
-}
+const ENGINE_ORDER: VoiceEngine[] = ["kokoro", "pocket", "narrators", "say", "cartesia"];
 
-function localeDisplayName(locale: string): string {
-  const [lang, region] = locale.split(/[_-]/);
-  try {
-    const langName = LANGUAGE_NAMES.of(lang) ?? lang;
-    if (!region) return langName;
-    const regionName = /^[A-Za-z]{2}$/.test(region)
-      ? REGION_NAMES.of(region.toUpperCase()) ?? region
-      : region[0].toUpperCase() + region.slice(1);
-    return `${langName} (${regionName})`;
-  } catch {
-    return locale;
-  }
+// English first, then Bulgarian (the library's other main language), multilingual last, rest by size.
+function orderLanguages(counts: Map<string, number>): string[] {
+  const rank = (c: string) => (c === "en" ? 0 : c === "bg" ? 1 : c === MULTILINGUAL ? 3 : 2);
+  return [...counts.keys()].sort(
+    (a, b) => rank(a) - rank(b) || counts.get(b)! - counts.get(a)! || languageLabel(a).localeCompare(languageLabel(b)),
+  );
 }
 
 export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
   const { state } = useVoicePicker();
-  const [tab, setTab] = useState<VoiceEngine>(() => engineForVoiceId(state.selectedId));
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -84,37 +64,75 @@ export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener("keydown", onKeyDown, true);
   }, [onClose]);
 
-  const matches = useCallback((label: string, note?: string) => {
-    const needle = query.trim().toLowerCase();
-    return !needle || `${label} ${note ?? ""}`.toLowerCase().includes(needle);
-  }, [query]);
+  const { data: sayVoices = [] } = trpc.sayVoices.list.useQuery(undefined, { staleTime: Infinity });
+  const { data: cartesiaVoices = [] } = trpc.cartesiaVoices.list.useQuery(undefined, { staleTime: Infinity });
+  const { data: pocket, refetch: refetchPocket } = trpc.pocketVoices.list.useQuery(undefined, { staleTime: Infinity });
+  const { data: pocketLanguages = [] } = trpc.pocketVoices.languages.useQuery(undefined, {
+    refetchInterval: (q) => (q.state.data?.some((l) => l.downloading) ? 1500 : false),
+  });
+  const deleteCustomVoice = trpc.pocketVoices.deleteCustom.useMutation({ onSuccess: () => void refetchPocket() });
 
-  const { data: sayVoices = [], isLoading: sayLoading } = trpc.sayVoices.list.useQuery(undefined, { staleTime: Infinity, enabled: tab === "say" });
-  const { data: cartesiaVoices = [], isLoading: cartesiaLoading } = trpc.cartesiaVoices.list.useQuery(undefined, { staleTime: Infinity, enabled: tab === "cartesia" });
+  const clonedVoices = useMemo(() => (pocket?.custom ?? []).map(pocketCustomVoiceToEntry), [pocket]);
 
-  const sayGroups = useMemo(
-    () => groupByLanguage(sayVoices.map((v) => ({ label: localeDisplayName(v.locale), voice: sayVoiceToEntry(v) }))),
-    [sayVoices],
+  // Pocket ships one checkpoint per language, so its catalogue repeats under each installed one.
+  const pocketVoices = useMemo(
+    () =>
+      pocketLanguages
+        .filter((language) => language.installed)
+        .flatMap((language) => (pocket?.voices ?? []).map((voice) => pocketVoiceToEntry(voice, language.code))),
+    [pocket, pocketLanguages],
   );
-  const cartesiaGroups = useMemo(
-    () => groupByLanguage(cartesiaVoices.map((v) => ({ label: localeDisplayName(v.language), voice: cartesiaVoiceToEntry(v) }))),
-    [cartesiaVoices],
+
+  const allVoices = useMemo<Voice[]>(
+    () => [...staticVoices, ...sayVoices.map(sayVoiceToEntry), ...cartesiaVoices.map(cartesiaVoiceToEntry), ...pocketVoices],
+    [sayVoices, cartesiaVoices, pocketVoices],
   );
 
-  const renderGroups = (groups: VoiceGroup[], { loading = false, empty }: { loading?: boolean; empty: React.ReactNode }) => {
-    if (loading) return <Empty>Loading voices…</Empty>;
-    // Group labels are language names — searching "french" has to find the French section, not just
-    // voices that happen to have "french" in their own name.
-    const filtered = groups
-      .map((group) => (matches(group.label) ? group : { ...group, voices: group.voices.filter((v) => matches(v.label, v.note)) }))
-      .filter((group) => group.voices.length > 0);
-    if (filtered.length === 0) return <Empty>{query ? `No voices match “${query}”.` : empty}</Empty>;
-    return filtered.map((group) => (
-      <Section key={group.label} label={group.label ? `${group.label} · ${group.voices.length}` : `${group.voices.length} voices`}>
-        {group.voices.map((voice) => <VoiceRow key={voice.id} voice={voice} />)}
-      </Section>
-    ));
-  };
+  const languageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const voice of allVoices) {
+      const code = voice.language ?? "en";
+      counts.set(code, (counts.get(code) ?? 0) + 1);
+    }
+    // Pocket languages that aren't downloaded still get a row, so they can be requested from here.
+    for (const language of pocketLanguages) if (!counts.has(language.code)) counts.set(language.code, 0);
+    return counts;
+  }, [allVoices, pocketLanguages]);
+
+  const languages = useMemo(() => orderLanguages(languageCounts), [languageCounts]);
+
+  const [chosen, setChosen] = useState<string>(
+    () => allVoicesLanguageOf(state.selectedId) ?? "en",
+  );
+  const language = chosen === CLONED || languages.includes(chosen) ? chosen : (languages[0] ?? "en");
+
+  const matches = useCallback(
+    (...fields: (string | undefined)[]) => {
+      const needle = query.trim().toLowerCase();
+      return !needle || fields.filter(Boolean).join(" ").toLowerCase().includes(needle);
+    },
+    [query],
+  );
+
+  const pocketLanguage = pocketLanguages.find((l) => l.code === language) ?? null;
+
+  const visible = useMemo(() => {
+    const pool =
+      language === CLONED
+        ? clonedVoices
+        // A multilingual model reads any language, so it belongs in every list.
+        : allVoices.filter((v) => (v.language ?? "en") === language || v.language === MULTILINGUAL);
+    return pool.filter((v) => matches(v.label, v.note, ENGINE_LABELS[v.engine ?? "kokoro"]));
+  }, [allVoices, clonedVoices, language, matches]);
+
+  const byEngine = useMemo(() => {
+    const groups = new Map<VoiceEngine, Voice[]>();
+    for (const voice of visible) {
+      const engine = voice.engine ?? "kokoro";
+      groups.set(engine, [...(groups.get(engine) ?? []), voice]);
+    }
+    return ENGINE_ORDER.filter((e) => groups.has(e)).map((engine) => ({ engine, voices: groups.get(engine)! }));
+  }, [visible]);
 
   return (
     <div
@@ -147,22 +165,37 @@ export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex flex-1 min-h-0">
-          <nav className="w-44 shrink-0 border-r border-(--border) p-2 overflow-y-auto" aria-label="Voice engines">
-            {TABS.map((entry) => (
+          <nav className="w-48 shrink-0 border-r border-(--border) p-2 overflow-y-auto" aria-label="Languages">
+            {languages.map((code) => (
               <button
-                key={entry.id}
+                key={code}
                 type="button"
-                onClick={() => setTab(entry.id)}
-                aria-current={tab === entry.id ? "page" : undefined}
-                className={`w-full text-left px-3 py-2 rounded-md mb-1 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
-                  tab === entry.id ? "bg-(--bg-selected) text-(--text-primary)" : "text-(--text-secondary) hover:bg-(--bg-subtle)"
+                onClick={() => setChosen(code)}
+                aria-current={code === language ? "page" : undefined}
+                className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2 rounded-md mb-1 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
+                  code === language ? "bg-(--bg-selected) text-(--text-primary)" : "text-(--text-secondary) hover:bg-(--bg-subtle)"
                 }`}
-                data-testid={`voice-tab-${entry.id}`}
+                data-testid={`voice-language-${code}`}
               >
-                <div className="text-sm">{entry.label}</div>
-                <div className="text-xs text-(--text-faint)">{entry.hint}</div>
+                <span className="truncate">{languageLabel(code)}</span>
+                <span className="text-xs text-(--text-faint) tabular-nums">{languageCounts.get(code) || "↓"}</span>
               </button>
             ))}
+
+            {clonedVoices.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setChosen(CLONED)}
+                aria-current={language === CLONED ? "page" : undefined}
+                className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2 rounded-md mt-2 pt-3 border-t border-(--border) text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
+                  language === CLONED ? "bg-(--bg-selected) text-(--text-primary)" : "text-(--text-secondary) hover:bg-(--bg-subtle)"
+                }`}
+                data-testid="voice-language-cloned"
+              >
+                <span className="truncate">Your voices</span>
+                <span className="text-xs text-(--text-faint) tabular-nums">{clonedVoices.length}</span>
+              </button>
+            )}
           </nav>
 
           <div className="flex-1 min-w-0 flex flex-col">
@@ -173,7 +206,7 @@ export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
                 name="voice-search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search voices…"
+                placeholder={`Search ${language === CLONED ? "your voices" : languageLabel(language)} voices…`}
                 aria-label="Search voices"
                 className="w-full rounded-md border border-(--border-input) bg-(--bg-input) px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
                 data-testid="voice-search"
@@ -181,11 +214,60 @@ export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
             </div>
 
             <div className="flex-1 overflow-y-auto overscroll-contain p-2" data-testid="voice-list">
-              {tab === "kokoro" && renderGroups(kokoroVoiceGroups, { empty: "No Kokoro voices." })}
-              {tab === "narrators" && renderGroups([{ label: "", voices: narratorVoices }], { empty: "No narrator models." })}
-              {tab === "say" && renderGroups(sayGroups, { loading: sayLoading, empty: "No macOS system voices available." })}
-              {tab === "cartesia" && renderGroups(cartesiaGroups, { loading: cartesiaLoading, empty: "No Cartesia voices — set CARTESIA_API_KEY in .env and restart the server." })}
-              {tab === "pocket" && <PocketTab query={query} matches={matches} />}
+              {language === CLONED ? (
+                <>
+                  {visible.map((voice) => (
+                    <VoiceRow
+                      key={voice.id}
+                      voice={voice}
+                      action={
+                        <button
+                          type="button"
+                          onClick={() => deleteCustomVoice.mutate({ id: voice.id.slice("pocket:custom:".length) })}
+                          disabled={deleteCustomVoice.isPending}
+                          title={`Delete ${voice.label}`}
+                          aria-label={`Delete ${voice.label}`}
+                          className="shrink-0 px-2 py-1 text-xs text-(--text-faint) hover:text-red-600 disabled:opacity-50 rounded focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                          data-testid={`pocket-delete-${voice.id}`}
+                        >
+                          Delete
+                        </button>
+                      }
+                    />
+                  ))}
+                  {pocket?.cloningAvailable ? (
+                    <PocketVoiceCloner onAdded={() => void refetchPocket()} />
+                  ) : (
+                    <p className="px-3 py-2 text-xs text-(--text-muted)">
+                      Voice cloning unavailable — accept the terms at huggingface.co/kyutai/pocket-tts, set HF_TOKEN
+                      in .env, then re-run <code>pnpm run setup</code>.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  {pocketLanguage && !pocketLanguage.installed && <PocketLanguageNotice language={pocketLanguage} />}
+
+                  {byEngine.length > 0
+                    ? byEngine.map(({ engine, voices }) => (
+                        <Section key={engine} label={`${ENGINE_LABELS[engine]} · ${voices.length}`}>
+                          {voices.map((voice) => <VoiceRow key={voice.id} voice={voice} />)}
+                        </Section>
+                      ))
+                    : !pocketLanguage && (
+                        <Empty>
+                          {query ? (
+                            `No ${languageLabel(language)} voices match “${query}”.`
+                          ) : (
+                            <>
+                              No {languageLabel(language)} voices installed.
+                              {cartesiaVoices.length === 0 && " Cartesia's cloud catalogue covers most languages — set CARTESIA_API_KEY in .env to list it here."}
+                            </>
+                          )}
+                        </Empty>
+                      )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -203,4 +285,17 @@ export function VoiceLibraryModal({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+// Opens on the language of the current selection so the picker lands where the user already is.
+function allVoicesLanguageOf(voiceId: string): string | null {
+  if (voiceId.startsWith("pocket:custom:")) return CLONED;
+  const known = staticVoices.find((v) => v.id === voiceId);
+  if (known?.language) return known.language;
+  if (voiceId.startsWith("pocket:")) {
+    const rest = voiceId.slice("pocket:".length);
+    const separator = rest.indexOf(":");
+    return separator === -1 ? "en" : rest.slice(0, separator);
+  }
+  return null;
 }

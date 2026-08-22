@@ -164,11 +164,11 @@ export async function getPreviewTextForVoice(voice: string): Promise<string> {
   }
   if (resolved.engine === "say") {
     const sayVoice = await resolveSayVoice(resolved.voice);
-    return sayVoice?.locale.toLowerCase().startsWith("bg") ? BULGARIAN_PREVIEW_TEXT : ENGLISH_PREVIEW_TEXT;
+    return previewTextFor(sayVoice?.locale.split(/[_-]/)[0].toLowerCase() ?? "en");
   }
   if (resolved.engine === "cartesia") {
     const cartesiaVoice = await findCartesiaVoice(resolved.voice);
-    return cartesiaVoice?.language.toLowerCase().startsWith("bg") ? BULGARIAN_PREVIEW_TEXT : ENGLISH_PREVIEW_TEXT;
+    return previewTextFor(cartesiaVoice?.language.split(/[_-]/)[0].toLowerCase() ?? "en");
   }
   return BULGARIAN_PREVIEW_TEXT;
 }

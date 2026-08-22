@@ -5,7 +5,52 @@ export type Voice = {
   grade: string;
   supportsSpeed?: boolean;
   note?: string;
+  /** ISO-639-1 code the voice actually reads; MULTILINGUAL for models that cover many. */
+  language?: string;
+  /** Which engine provides it — the secondary grouping in the picker. */
+  engine?: VoiceEngine;
 };
+
+export const MULTILINGUAL = "multi";
+
+export const LANGUAGE_LABELS: Record<string, string> = {
+  en: "English",
+  bg: "Bulgarian",
+  fr: "French",
+  es: "Spanish",
+  it: "Italian",
+  de: "German",
+  pt: "Portuguese",
+  hi: "Hindi",
+  zh: "Mandarin Chinese",
+  ja: "Japanese",
+  ru: "Russian",
+  [MULTILINGUAL]: "Multilingual",
+};
+
+export function languageLabel(code: string): string {
+  if (LANGUAGE_LABELS[code]) return LANGUAGE_LABELS[code];
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+// Kokoro encodes language in the voice prefix; the narrator models are single-language except
+// KugelAudio, which covers 24 EU languages and so belongs to every list.
+const KOKORO_LANGUAGE_BY_PREFIX: Record<string, string> = {
+  a: "en", b: "en", e: "es", f: "fr", h: "hi", i: "it", p: "pt", z: "zh", j: "ja",
+};
+
+export function languageOfStaticVoice(voiceId: string): string {
+  if (voiceId.startsWith("kugel:")) return MULTILINGUAL;
+  if (voiceId.startsWith("bg-")) return "bg";
+  if (voiceId.startsWith("kokoro:")) {
+    return KOKORO_LANGUAGE_BY_PREFIX[voiceId.slice("kokoro:".length)[0]] ?? "en";
+  }
+  return "en";
+}
 
 export type VoiceGroup = {
   label: string;
@@ -110,6 +155,17 @@ const voiceGroups: VoiceGroup[] = [
   { label: "Bulgarian", voices: narratorVoices },
 ];
 
+// Static entries predate the language/engine fields; decorate them once rather than repeating
+// the codes in ~50 literals.
+function decorate(voice: Voice, engine: VoiceEngine): Voice {
+  return { ...voice, engine, language: voice.language ?? languageOfStaticVoice(voice.id) };
+}
+
+export const staticVoices: Voice[] = [
+  ...kokoroVoiceGroups.flatMap((group) => group.voices).map((v) => decorate(v, "kokoro")),
+  ...narratorVoices.map((v) => decorate(v, "narrators")),
+];
+
 const voicesById = new Map(voiceGroups.flatMap((group) => group.voices).map((voice) => [voice.id, voice]));
 
 export type VoiceEngine = "kokoro" | "narrators" | "say" | "cartesia" | "pocket";
@@ -160,6 +216,8 @@ export function sayVoiceToEntry(voice: { slug: string; name: string; locale: str
     grade: "OS",
     supportsSpeed: true,
     note: voice.locale,
+    language: voice.locale.split(/[_-]/)[0].toLowerCase(),
+    engine: "say",
   };
 }
 
@@ -171,6 +229,8 @@ export function cartesiaVoiceToEntry(voice: { id: string; name: string; language
     grade: "API",
     supportsSpeed: true,
     note: voice.tagline || voice.language,
+    language: voice.language.split(/[_-]/)[0].toLowerCase(),
+    engine: "cartesia",
   };
 }
 
@@ -186,6 +246,8 @@ export function pocketVoiceToEntry(
     grade: "CPU",
     supportsSpeed: false,
     note: `${voice.note} \u00b7 ${voice.license}`,
+    language: languageCode,
+    engine: "pocket",
   };
 }
 
@@ -199,6 +261,8 @@ export function pocketCustomVoiceToEntry(voice: { id: string; name: string; seco
     grade: "Cloned",
     supportsSpeed: false,
     note: `${voice.seconds}s reference`,
+    language: "en",
+    engine: "pocket",
   };
 }
 

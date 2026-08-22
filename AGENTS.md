@@ -291,7 +291,7 @@ packages/web/src/
     DiskUsageButton.tsx Per-book disk usage + chunk cleanup
     MarkdownBlock.tsx   Markdown renderer for notes/AI answers
     VoicePicker.tsx     Trigger for the voice library modal — two explicit variants, `VoicePicker` (labelled field) and `VoicePickerChip` (inline chip); queries only the engine owning the current selection to resolve its label
-    voice-picker/       VoiceLibraryModal.tsx (engine rail + search + per-engine lists), PocketTab.tsx (cloned voices, delete, cloner), PocketVoiceCloner.tsx (record/upload + consent), VoiceRow.tsx, context.tsx (selection + preview playback), layout.tsx
+    voice-picker/       VoiceLibraryModal.tsx — **language is the primary axis**: the rail lists languages (plus "Your voices" for clones), the pane groups that language's voices by engine, so "what can read my French book" is one click instead of five tabs. Every voice carries `language`/`engine` (set by the mappers in lib/voices.ts; `staticVoices` decorates the literals). Multilingual models (KugelAudio) appear under every language. PocketLanguageNotice.tsx (download prompt + size), PocketVoiceCloner.tsx (record/upload + consent), VoiceRow.tsx, context.tsx (selection + preview playback), layout.tsx
     SpeedSlider.tsx     Speed range slider (0.5x-2.0x)
     StatusBadge.tsx     Color-coded status badge
 ```
@@ -482,6 +482,7 @@ pnpm backfill:index   # Queue search indexing for all books (skips done; --force
 - Graphile Worker uses the same Postgres database. Its internal tables (`graphile_worker.*`) are managed automatically.
 - **Drizzle text enums are TypeScript-only** — adding new status values (like `suspended`) doesn't require a migration since the DB column is just `text`.
 - The frontend polls `books.get` every 2 seconds while processing, stops when status is `done`, `failed`, or `suspended`.
+- **Voice previews speak the voice's own language** (`PREVIEW_TEXT_BY_LANGUAGE` in `lib/tts.ts`). Reading English in a German voice sounds convincing and proves nothing — the same trap as running French text through Pocket's English model. Any new language needs a sentence there.
 - **Kokoro's non-English voices take a different G2P path.** `pipeline.g2p()` returns `(phonemes, None)` for espeak-backed languages, and `en_tokenize` is English-only — feeding it that `None` is what silently broke every non-English voice until 2026-08-22. `scripts/synthesize.py` branches on `tokens is None`. Japanese is deliberately absent from the picker (needs a MeCab/fugashi stack + ~700 MB dictionary, and downgrades `wasabi` under spaCy); Mandarin works via the pinned `misaki[zh]` chain.
 - **`HF_HUB_OFFLINE=1`** is set on all Python subprocesses. Models must be cached locally before first use. If a model is missing, the subprocess will fail (not download).
 - **TTS voice licensing is mixed across engines** — some voices are non-commercial-only. Nothing binds while the project is PolyForm Noncommercial, so no voice is excluded today. Read [docs/tts-licensing.md](docs/tts-licensing.md) before relicensing, charging for hosting, or exposing an engine to paying users.
