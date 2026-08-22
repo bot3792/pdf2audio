@@ -25,12 +25,18 @@ const CLONED = "cloned";
 const ALL = "all";
 // Showing 500 Cartesia voices at once answers nothing; a taste of each provider does.
 const PREVIEW_PER_PROVIDER = 6;
+const RAIL_LANGUAGE_LIMIT = 8;
 
-// English first, then Bulgarian (the library's other main language), multilingual last, rest by size.
-function orderLanguages(counts: Map<string, number>): string[] {
-  const rank = (c: string) => (c === "en" ? 0 : c === "bg" ? 1 : c === MULTILINGUAL ? 3 : 2);
+// What this book is being translated into comes first — that's what you're here to synthesize —
+// then English, then the rest by how many voices they have.
+function orderLanguages(counts: Map<string, number>, priority: string[]): string[] {
+  const rank = (c: string) => (priority.includes(c) ? 0 : c === "en" ? 1 : 2);
   return [...counts.keys()].sort(
-    (a, b) => rank(a) - rank(b) || counts.get(b)! - counts.get(a)! || languageLabel(a).localeCompare(languageLabel(b)),
+    (a, b) =>
+      rank(a) - rank(b) ||
+      (rank(a) === 0 ? priority.indexOf(a) - priority.indexOf(b) : 0) ||
+      counts.get(b)! - counts.get(a)! ||
+      languageLabel(a).localeCompare(languageLabel(b)),
   );
 }
 
@@ -40,10 +46,13 @@ export function VoiceLibraryModal({
   onClose,
   title = "Choose a voice",
   footer,
+  priorityLanguages = [],
 }: {
   onClose: () => void;
   title?: string;
   footer?: React.ReactNode;
+  /** Codes to pin at the top — what this book is actually being synthesized into. */
+  priorityLanguages?: string[];
 }) {
   const { state } = useVoicePicker();
   const [query, setQuery] = useState("");
@@ -101,14 +110,21 @@ export function VoiceLibraryModal({
     }
     // Pocket languages that aren't downloaded still get a row, so they can be requested from here.
     for (const language of pocketLanguages) if (!counts.has(language.code)) counts.set(language.code, 0);
+    for (const code of priorityLanguages) if (!counts.has(code)) counts.set(code, 0);
+    // KugelAudio is listed under every language already; a "Multilingual" row would only repeat it.
+    counts.delete(MULTILINGUAL);
     return counts;
-  }, [allVoices, pocketLanguages]);
+  }, [allVoices, pocketLanguages, priorityLanguages]);
 
-  const languages = useMemo(() => orderLanguages(languageCounts), [languageCounts]);
+  const languages = useMemo(() => orderLanguages(languageCounts, priorityLanguages), [languageCounts, priorityLanguages]);
 
-  const [chosen, setChosen] = useState<string>(
-    () => allVoicesLanguageOf(state.selectedId) ?? "en",
-  );
+  const [chosen, setChosen] = useState<string>(() => {
+    const fromSelection = allVoicesLanguageOf(state.selectedId);
+    // A multilingual voice says nothing about intent, so the book's own language wins.
+    if (fromSelection && fromSelection !== MULTILINGUAL) return fromSelection;
+    return priorityLanguages[0] ?? fromSelection ?? "en";
+  });
+  const [showAllLanguages, setShowAllLanguages] = useState(false);
   const language = chosen === CLONED || languages.includes(chosen) ? chosen : (languages[0] ?? "en");
 
   const matches = useCallback(
@@ -118,6 +134,14 @@ export function VoiceLibraryModal({
     },
     [query],
   );
+
+  // Most of the tail comes from Cartesia's 43-language catalogue and installed macOS voices; keep
+  // the rail to what's plausibly in play, with the rest one click away.
+  const railLanguages = useMemo(() => {
+    if (showAllLanguages) return languages;
+    const head = languages.slice(0, RAIL_LANGUAGE_LIMIT);
+    return head.includes(language) || language === CLONED ? head : [...head, language];
+  }, [languages, showAllLanguages, language]);
 
   const pocketLanguage = pocketLanguages.find((l) => l.code === language) ?? null;
 
@@ -190,7 +214,22 @@ export function VoiceLibraryModal({
 
         <div className="flex flex-1 min-h-0">
           <nav className="w-48 shrink-0 border-r border-(--border) p-2 overflow-y-auto" aria-label="Languages">
-            {languages.map((code) => (
+            {clonedVoices.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setChosen(CLONED)}
+                aria-current={language === CLONED ? "page" : undefined}
+                className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2 rounded-md mb-2 text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
+                  language === CLONED ? "bg-(--bg-selected) text-(--text-primary)" : "text-(--text-secondary) hover:bg-(--bg-subtle)"
+                }`}
+                data-testid="voice-language-cloned"
+              >
+                <span className="truncate">Your voices</span>
+                <span className="text-xs text-(--text-faint) tabular-nums">{clonedVoices.length}</span>
+              </button>
+            )}
+
+            {railLanguages.map((code) => (
               <button
                 key={code}
                 type="button"
@@ -202,22 +241,18 @@ export function VoiceLibraryModal({
                 data-testid={`voice-language-${code}`}
               >
                 <span className="truncate">{languageLabel(code)}</span>
-                <span className="text-xs text-(--text-faint) tabular-nums">{languageCounts.get(code) || "↓"}</span>
+                <span className="text-xs text-(--text-faint) tabular-nums">{languageCounts.get(code) || "\u2193"}</span>
               </button>
             ))}
 
-            {clonedVoices.length > 0 && (
+            {!showAllLanguages && languages.length > railLanguages.length && (
               <button
                 type="button"
-                onClick={() => setChosen(CLONED)}
-                aria-current={language === CLONED ? "page" : undefined}
-                className={`w-full flex items-center justify-between gap-2 text-left px-3 py-2 rounded-md mt-2 pt-3 border-t border-(--border) text-sm focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
-                  language === CLONED ? "bg-(--bg-selected) text-(--text-primary)" : "text-(--text-secondary) hover:bg-(--bg-subtle)"
-                }`}
-                data-testid="voice-language-cloned"
+                onClick={() => setShowAllLanguages(true)}
+                className="w-full text-left px-3 py-2 rounded-md text-xs text-blue-600 hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+                data-testid="voice-show-all-languages"
               >
-                <span className="truncate">Your voices</span>
-                <span className="text-xs text-(--text-faint) tabular-nums">{clonedVoices.length}</span>
+                Show all {languages.length} languages
               </button>
             )}
           </nav>

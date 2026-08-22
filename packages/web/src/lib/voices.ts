@@ -42,6 +42,22 @@ export const LANGUAGE_LABELS: Record<string, string> = {
   [MULTILINGUAL]: "Multilingual",
 };
 
+// Translation variants are keyed by display name ("Russian"); the picker works in codes.
+export function languageCodeFromName(name: string): string | null {
+  const wanted = name.trim().toLowerCase();
+  const known = Object.entries(LANGUAGE_LABELS).find(([, label]) => label.toLowerCase() === wanted);
+  if (known) return known[0];
+  try {
+    const display = new Intl.DisplayNames(["en"], { type: "language" });
+    for (const code of ["ru", "uk", "pl", "nl", "tr", "sv", "da", "no", "fi", "cs", "el", "he", "ar", "ko", "ro", "hu", "hr", "sk", "th", "vi", "id", "ms"]) {
+      if (display.of(code)?.toLowerCase() === wanted) return code;
+    }
+  } catch {
+    // Intl unavailable — fall through
+  }
+  return null;
+}
+
 export function languageLabel(code: string): string {
   if (LANGUAGE_LABELS[code]) return LANGUAGE_LABELS[code];
   try {

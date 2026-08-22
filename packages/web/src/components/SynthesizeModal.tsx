@@ -1,4 +1,6 @@
-import { normalizeVoiceId, voiceSupportsSpeedControl } from "../lib/voices.ts";
+import { useMemo } from "react";
+
+import { languageCodeFromName, normalizeVoiceId, voiceSupportsSpeedControl } from "../lib/voices.ts";
 import { VoicePickerProvider } from "./voice-picker/context.tsx";
 import { VoiceLibraryModal } from "./voice-picker/VoiceLibraryModal.tsx";
 import { SpeedSlider } from "./SpeedSlider.tsx";
@@ -28,11 +30,18 @@ export function SynthesizeModal({
   onStart: () => void;
   onClose: () => void;
 }) {
+  // "Russian" is the variant's key; the picker works in codes. Stable identity — it feeds memos.
+  const priorityLanguages = useMemo(() => {
+    const code = language ? languageCodeFromName(language) : null;
+    return code ? [code] : [];
+  }, [language]);
+
   return (
     <VoicePickerProvider selectedId={normalizeVoiceId(voice)} onSelect={onChangeVoice}>
       <VoiceLibraryModal
         onClose={onClose}
         title={`Synthesize ${count} chapter${count === 1 ? "" : "s"}${language ? ` · ${language}` : ""}`}
+        priorityLanguages={priorityLanguages}
         footer={
           <div className="px-4 py-3 space-y-3" data-testid="synthesize-modal">
             <SpeedSlider value={speed} onChange={onChangeSpeed} disabled={!voiceSupportsSpeedControl(voice)} />
