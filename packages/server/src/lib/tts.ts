@@ -8,6 +8,7 @@ import { chunkTextForBulgarianNarrator } from "./tts-chunks.ts";
 import { synthesize as kokoroSynthesize, KokoroAbortedError } from "./kokoro.ts";
 import { resolveSayVoice } from "./say-voices.ts";
 import { cartesiaSynthesize, CartesiaAbortedError, findCartesiaVoice } from "./cartesia.ts";
+import { POCKET_SCRIPT, isPocketCatalogVoice, isPocketCustomVoice, pocketPython, resolvePocketVoiceArg } from "./pocket.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
 const BG_MLX_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_bg_tts_mlx.py");
@@ -31,7 +32,7 @@ type SynthesizeOptions = {
 };
 
 type ParsedTtsVoice = {
-  engine: "kokoro" | "bg-mlx" | "bg-mms" | "kugel" | "say" | "cartesia";
+  engine: "kokoro" | "bg-mlx" | "bg-mms" | "kugel" | "say" | "cartesia" | "pocket";
   voice: string;
   raw: string;
 };
@@ -109,6 +110,14 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
     return { engine: "cartesia", voice, raw: rawVoice };
   }
 
+  if (rawVoice.startsWith("pocket:")) {
+    const voice = rawVoice.slice("pocket:".length);
+    if (!isPocketCatalogVoice(voice) && !isPocketCustomVoice(voice)) {
+      throw new Error(`Unsupported voice ID: ${rawVoice}`);
+    }
+    return { engine: "pocket", voice, raw: rawVoice };
+  }
+
   if (rawVoice.includes(":")) {
     throw new Error(`Unsupported voice ID: ${rawVoice}`);
   }
@@ -122,7 +131,7 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
 
 export async function getPreviewTextForVoice(voice: string): Promise<string> {
   const resolved = parseTtsVoice(voice);
-  if (resolved.engine === "kokoro") return ENGLISH_PREVIEW_TEXT;
+  if (resolved.engine === "kokoro" || resolved.engine === "pocket") return ENGLISH_PREVIEW_TEXT;
   if (resolved.engine === "say") {
     const sayVoice = await resolveSayVoice(resolved.voice);
     return sayVoice?.locale.toLowerCase().startsWith("bg") ? BULGARIAN_PREVIEW_TEXT : ENGLISH_PREVIEW_TEXT;
@@ -199,6 +208,24 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
     return;
   }
 
+  if (resolved.engine === "pocket") {
+    await synthesizeChunkedBackend({
+      backendName: "Pocket TTS",
+      scriptPath: POCKET_SCRIPT,
+      pythonBin: pocketPython(),
+      inputText,
+      outputPath,
+      voice: await resolvePocketVoiceArg(resolved.voice),
+      speed,
+      chunkPreviewDir,
+      chunkPreviewUrlBase,
+      log,
+      onProgress,
+      signal,
+    });
+    return;
+  }
+
   if (resolved.engine === "bg-mlx" || resolved.engine === "kugel") {
     await runExclusiveMlxSynthesis(() => synthesizeChunkedBackend({
       backendName: resolved.engine === "kugel" ? "KugelAudio" : "Bulgarian MLX",
@@ -250,6 +277,7 @@ async function runExclusiveMlxSynthesis<T>(run: () => Promise<T>): Promise<T> {
 async function synthesizeChunkedBackend({
   backendName,
   scriptPath,
+  pythonBin: pythonBinOverride,
   inputText,
   outputPath,
   voice,
@@ -263,6 +291,7 @@ async function synthesizeChunkedBackend({
 }: SynthesizeOptions & {
   backendName: string;
   scriptPath: string;
+  pythonBin?: string;
   extraArgs?: string[];
   speedLabel?: string;
 }): Promise<void> {
@@ -274,7 +303,7 @@ async function synthesizeChunkedBackend({
   const textPath = outputPath.replace(/\.wav$/, ".txt");
   await writeFile(textPath, chunks.join("\f"), "utf-8");
 
-  const pythonBin = path.join(CONDA_BIN, "python");
+  const pythonBin = pythonBinOverride ?? path.join(CONDA_BIN, "python");
   const wordCount = inputText.split(/\s+/).filter(Boolean).length;
   await log(`Starting ${backendName} synthesis (${wordCount.toLocaleString()} words, voice: ${voice}, ${speedLabel})`);
   if (chunkPreviewUrlBase) {
@@ -302,7 +331,7 @@ async function synthesizeChunkedBackend({
           ...process.env,
           HF_HUB_OFFLINE: "1",
           PYTORCH_ENABLE_MPS_FALLBACK: "1",
-          PATH: `${CONDA_BIN}:${process.env.PATH}`,
+          PATH: `${path.dirname(pythonBin)}:${process.env.PATH}`,
         },
       }
     );

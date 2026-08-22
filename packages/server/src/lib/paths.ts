@@ -9,12 +9,14 @@ export const uploadsDir = path.resolve(DATA_DIR, "uploads");
 export const tmpDir = path.resolve(DATA_DIR, "tmp");
 export const outputDir = path.resolve(DATA_DIR, "output");
 export const previewsDir = path.resolve(DATA_DIR, "previews");
+export const pocketVoicesDir = path.resolve(DATA_DIR, "pocket-voices");
 
 export async function ensureDataDirs() {
   await mkdir(uploadsDir, { recursive: true });
   await mkdir(tmpDir, { recursive: true });
   await mkdir(outputDir, { recursive: true });
   await mkdir(previewsDir, { recursive: true });
+  await mkdir(pocketVoicesDir, { recursive: true });
 }
 
 export function bookOutputDir(bookId: string) {

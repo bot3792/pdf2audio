@@ -45,7 +45,7 @@ Upload → rawExtract (pdftotext, seconds, always)
 
 Jobs run through [Graphile Worker](https://github.com/graphile/worker) in six pools (TTS, raw text, extraction, assembly, AI/translation, search indexing) with `maxAttempts: 1` — nothing retries silently; the user reviews failures and decides. Chapter text falls back `customText ?? cleanText ?? rawText` at synthesis time.
 
-TTS engines: [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English + 8 more languages), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal. Plus every installed macOS system voice (via `say`, free and ~25x realtime) and optional [Cartesia](https://cartesia.ai) Sonic cloud TTS (`CARTESIA_API_KEY`).
+TTS engines: [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English + 8 more languages), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal. Plus [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) from Kyutai (100M params, **CPU-only** at ~12x realtime, 26 built-in voices, optional voice cloning from a ~20s sample), every installed macOS system voice (via `say`, free and ~25x realtime), and optional [Cartesia](https://cartesia.ai) Sonic cloud TTS (`CARTESIA_API_KEY`).
 
 During synthesis the server keeps a per-chunk text↔audio timing map (`chNNN.sync.json`) next to each chapter's M4A. That map powers the web UI's read-along player and the synced EPUB export — and once it is written, the worker deletes the intermediate chunk WAVs to reclaim disk (`pnpm --filter server cleanup:chunks` sweeps leftovers from older runs).
 
@@ -98,6 +98,9 @@ An Apple Silicon Mac (the MLX TTS engines need Metal) with:
 - Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (for Postgres and optionally Storyteller; fine to install while setup downloads models — the setup script prints the two commands to finish the database step)
 - Optional: a [DeepSeek](https://platform.deepseek.com/) API key for translation, rewrites, cleanup, digests, Ask AI, and LLM chapter detection
 - Optional: a [Cartesia](https://cartesia.ai) API key for the Sonic cloud TTS voices
+- Optional: a [HuggingFace](https://huggingface.co) account for Pocket TTS **voice cloning** — accept the terms at
+  [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) and put a read token in `HF_TOKEN`. The 26 built-in
+  Pocket TTS voices need no account and no token.
 
 ## Setup
 
@@ -140,6 +143,10 @@ cd packages/server && pnpm test   # Server test suite (spins up template DB, run
 - Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.
 - Every TTS/extraction subprocess runs with `HF_HUB_OFFLINE=1`, so models never download at synthesis time — `pnpm run setup` caches them all up front (Kokoro-82M, Marker/Surya, BG-TTS V5, MMS Bulgarian, BGE-M3).
 - The first PDF/EPUB export downloads a rendering browser (~350 MB) into the Vivliostyle cache.
+- **Pocket TTS** runs in its own Python env (`.venv-pocket`) because it needs numpy 2.x while the marker/kokoro stack is pinned to 1.26. `pnpm run setup` builds both. It is CPU-only by design — it leaves the GPU free for the MLX engines — and has no speed parameter, so the UI disables the slider.
+- **Pocket TTS voice licensing is mixed.** The built-in voices are embeddings of real recordings under different licenses: most are CC0 or CC BY 4.0, but `cosette` and `jean` are **CC BY-NC 4.0 (non-commercial only)** and `estelle`'s provenance is unverified. Each voice shows its license in the picker. This is irrelevant while pdf2audio is noncommercial (see [LICENSE](LICENSE)) — it matters if you ever sell audio made with it. Details in [docs/tts-licensing.md](docs/tts-licensing.md).
+- **Cloning your own voice** (voice picker → Pocket TTS → *Add your own voice*): record ~20s in the browser or upload a file. For the best result use a quiet room and a headset mic, read with normal expression, and remember the sample's audio quality is reproduced — room echo and hiss get cloned too. On iPhone, Voice Memos set to **Studio** quality gives a noticeably cleaner sample. Any format ffmpeg reads works; browser recording needs localhost or HTTPS.
+- Kyutai's terms prohibit **cloning a voice without that person's consent**, plus deception and impersonation generally. If you enable cloning you accept those terms on your own HuggingFace account; if you host pdf2audio for other people, enforcing them becomes your responsibility.
 - The Bulgarian-capable narrators are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, `KugelAudio (7B, 24 EU languages)`, the macOS `Daria` system voice, and Cartesia's Bulgarian voices. The local model narrators run at fixed speed (UI disables the slider); macOS and Cartesia voices support the speed control.
 - KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm run setup --kugel` downloads and converts it. ~1.5x realtime on an M4 Pro.
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.

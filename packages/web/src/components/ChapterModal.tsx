@@ -4,7 +4,7 @@ import { StatusBadge } from "./StatusBadge.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 import { ChapterAiModal } from "./ChapterAiModal.tsx";
 import { VariantModal } from "./VariantModal.tsx";
-import { VoicePicker } from "./VoicePicker.tsx";
+import { VoicePickerChip } from "./VoicePicker.tsx";
 import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
@@ -400,10 +400,9 @@ export function ChapterModal({
             Re-synthesize
           </button>
           {synthVoice && onChangeSynthVoice ? (
-            <VoicePicker
+            <VoicePickerChip
               value={synthVoice}
               onChange={onChangeSynthVoice}
-              compact
               title={`Voice for the next synthesis — changing it applies to the whole ${isVariant ? `${variantName} lane` : "book"}`}
             />
           ) : synthVoice ? (

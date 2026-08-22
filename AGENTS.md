@@ -40,7 +40,7 @@ pnpm monorepo with two packages:
 
 Postgres runs in Docker (`docker-compose.yml` at root), mapped to host port **5433** (not 5432, to avoid conflicts).
 
-Environment variables are managed via `.env` at the repo root (gitignored), with `.env.example` as template. The server loads env via `dotenv` in `packages/server/src/env.ts`, validated through a Zod schema. All server code imports the typed `env` object — never reads `process.env` directly. Vars: `DATABASE_URL`, `DATA_DIR`, `PORT`, `CONDA_ENV_PATH` (Python env bin dir; default `<repo>/.venv/bin`, created by `scripts/setup.sh`), optional `DEEPSEEK_API_KEY` (all AI features), optional `READALOUD_DROP_DIR` (synced-EPUB drop folder for Storyteller auto-import).
+Environment variables are managed via `.env` at the repo root (gitignored), with `.env.example` as template. The server loads env via `dotenv` in `packages/server/src/env.ts`, validated through a Zod schema. All server code imports the typed `env` object — never reads `process.env` directly. Vars: `DATABASE_URL`, `DATA_DIR`, `PORT`, `CONDA_ENV_PATH` (Python env bin dir; default `<repo>/.venv/bin`, created by `scripts/setup.sh`), `POCKET_ENV_PATH` (Pocket TTS Python env bin dir; default `<repo>/.venv-pocket/bin`), `HF_TOKEN` is read by `scripts/setup.sh` directly (setup-time only, for the gated Pocket TTS cloning weights) and is deliberately not in the Zod schema — no server code reads it, optional `DEEPSEEK_API_KEY` (all AI features), optional `READALOUD_DROP_DIR` (synced-EPUB drop folder for Storyteller auto-import).
 
 ## The Pipeline
 
@@ -165,6 +165,7 @@ data/output/{bookId}/chunks/         Per-chapter chunk WAV previews + chunks.jso
                                      (chunks/{variantSlug}/chNNN/ for variants); disposable once
                                      the sync map exists
 data/previews/                       Voice preview M4As (global, shared)
+data/pocket-voices/{id}.safetensors  Cloned Pocket TTS voice states + {id}.json metadata (global, shared)
 ```
 
 Path helpers are in `lib/paths.ts`. The `DATA_DIR` env var defaults to `./data`.
@@ -289,7 +290,8 @@ packages/web/src/
     PdfPreviewModal.tsx Inline source-PDF preview
     DiskUsageButton.tsx Per-book disk usage + chunk cleanup
     MarkdownBlock.tsx   Markdown renderer for notes/AI answers
-    VoicePicker.tsx     Voice selection dropdown grouped by language/engine
+    VoicePicker.tsx     Trigger for the voice library modal — two explicit variants, `VoicePicker` (labelled field) and `VoicePickerChip` (inline chip); queries only the engine owning the current selection to resolve its label
+    voice-picker/       VoiceLibraryModal.tsx (engine rail + search + per-engine lists), PocketTab.tsx (cloned voices, delete, cloner), PocketVoiceCloner.tsx (record/upload + consent), VoiceRow.tsx, context.tsx (selection + preview playback), layout.tsx
     SpeedSlider.tsx     Speed range slider (0.5x-2.0x)
     StatusBadge.tsx     Color-coded status badge
 ```
@@ -407,6 +409,22 @@ Intentionally minimal — Kokoro handles numbers/dates/abbreviations natively. W
 - 54 voices across 9 languages. Best: af_heart (A), af_bella (A-), bf_emma (B-)
 - Emits JSON progress per chunk to stdout: `{"type": "chunks", "total": N}` then `{"type": "progress", "chunk": 1, "totalChunks": N, "audioSeconds": 3.2}`
 
+## Pocket TTS Details
+
+- Model: `kyutai/pocket-tts` (100M params, CC-BY-4.0), 24kHz output, English model (`english_2026-04`)
+- Python subprocess: `scripts/synthesize_pocket_tts.py`, dispatched through `synthesizeChunkedBackend` in `lib/tts.ts` like the other script backends
+- **Runs in its own venv** (`.venv-pocket`, pins in `scripts/requirements-pocket.txt`): pocket-tts requires `numpy>=2`, the main env is pinned to `numpy==1.26.4` for marker/kokoro. `synthesizeChunkedBackend` takes a `pythonBin` override for exactly this; every other backend still uses `CONDA_ENV_PATH`.
+- **CPU-only by design** — ~12x realtime on 2 cores, so it does not contend with the MLX engines for the GPU and is deliberately outside `runExclusiveMlxSynthesis`
+- No speed parameter in the model, so `voiceSupportsSpeed` returns false and the UI disables the slider
+- 26 catalog voices in `lib/pocket.ts` carry the per-voice **license** metadata (two are non-commercial — see `docs/tts-licensing.md`); that column is human-researched and can't be derived. The voice **ids** are not duplicated in Python — `synthesize_pocket_tts.py` reads them from the installed package (`_ORIGINS_OF_PREDEFINED_VOICES`) so a `pocket-tts` version bump can't silently desync the two. All resolve under the English model, including the non-English speakers.
+- `model.generate_audio(state, text)` defaults to `copy_state=True`, so every chunk re-forks the same voice conditioning — measured drift across chunks is an order of magnitude below the gap between two different voices. This is why it does not have KugelAudio's random-voice-per-chunk problem.
+- Voice cloning takes a reference audio path instead of a catalog name; the weights for it are **gated on HuggingFace** and need `HF_TOKEN` at setup time. The library silently falls back to non-cloning weights when the download 403s — `resolve_voice()` raises an explicit error instead.
+- `--cache-only` downloads the model plus all catalog embeddings; `scripts/setup.sh` runs it because synthesis subprocesses set `HF_HUB_OFFLINE=1`
+- **Voice cloning**: `POST /upload/pocket-voice` (multipart: `file`, `name`, `consent`) → ffmpeg normalises any container to 24kHz mono int16 WAV → `--export-voice` writes a `.safetensors` state to `data/pocket-voices/`. Voice id is `pocket:custom:<uuid>`; `resolvePocketVoiceArg` (lib/pocket.ts) swaps it for the state path and errors readably if the clone was deleted, mirroring `resolveSayVoice`. Rejected without `consent=true` (Kyutai's terms) or under 8s of audio.
+- Re-encoding a reference takes ~0.8s, reloading the exported state ~0.01s — which is why states are stored rather than the source audio
+- **Engine capability lives in `web/src/lib/voices.ts`** (`ENGINE_PREFIXES` → `engineForVoiceId`, `voiceSupportsSpeedControl`). Runtime-discovered voices have no static entry, so a new engine MUST be added to that table or it silently defaults to "speed supported" and the UI offers a control the backend ignores.
+- **Module split matters**: `lib/pocket.ts` is pure (catalog, predicates, fs probes) and is what `lib/tts.ts` imports; `lib/pocket-voices.ts` holds the ffmpeg/python subprocess work. Keep `child_process` out of `pocket.ts` — the tts dispatch tests mock `node:child_process` with only `spawn`, and a transitive `execFile` import breaks them.
+
 ## Marker PDF Extraction Details
 
 - CLI: `marker_single` from `marker-pdf` Python package
@@ -463,6 +481,7 @@ pnpm backfill:index   # Queue search indexing for all books (skips done; --force
 - **Drizzle text enums are TypeScript-only** — adding new status values (like `suspended`) doesn't require a migration since the DB column is just `text`.
 - The frontend polls `books.get` every 2 seconds while processing, stops when status is `done`, `failed`, or `suspended`.
 - **`HF_HUB_OFFLINE=1`** is set on all Python subprocesses. Models must be cached locally before first use. If a model is missing, the subprocess will fail (not download).
+- **TTS voice licensing is mixed across engines** — some voices are non-commercial-only. Nothing binds while the project is PolyForm Noncommercial, so no voice is excluded today. Read [docs/tts-licensing.md](docs/tts-licensing.md) before relicensing, charging for hosting, or exposing an engine to paying users.
 
 ## Pending Task Files
 

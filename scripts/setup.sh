@@ -3,6 +3,7 @@ set -e
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV_DIR="$REPO_DIR/.venv"
+POCKET_VENV_DIR="$REPO_DIR/.venv-pocket"
 WITH_KUGEL=false
 [ "${1:-}" = "--kugel" ] && WITH_KUGEL=true
 
@@ -85,6 +86,28 @@ echo "Caching Meta MMS Bulgarian model (~280 MB)..."
 echo ""
 echo "Caching BGE-M3 embedding model (~2.2 GB, powers library search)..."
 "$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-m3'); print('  bge-m3: OK')"
+
+echo ""
+# Separate venv: pocket-tts requires numpy>=2, the main env is pinned to numpy 1.26.4.
+echo "Creating Pocket TTS environment at .venv-pocket..."
+[ -x "$POCKET_VENV_DIR/bin/python" ] || "$PYTHON" -m venv "$POCKET_VENV_DIR"
+POCKET_PY="$POCKET_VENV_DIR/bin/python"
+"$POCKET_PY" -m pip install --quiet --upgrade pip
+"$POCKET_PY" -m pip install --quiet -r "$REPO_DIR/scripts/requirements-pocket.txt"
+
+# .env is written later in this script, so read the token straight out of it when present.
+if [ -z "${HF_TOKEN:-}" ] && [ -f "$REPO_DIR/.env" ]; then
+  HF_TOKEN="$(grep -E '^HF_TOKEN=.+' "$REPO_DIR/.env" | head -1 | cut -d= -f2- | tr -d '\r')"
+  export HF_TOKEN
+fi
+
+echo "Caching Pocket TTS model and catalog voices (~500 MB)..."
+if [ -n "${HF_TOKEN:-}" ]; then
+  echo "  HF_TOKEN set — will also fetch the gated voice-cloning weights"
+else
+  echo "  no HF_TOKEN — catalog voices only (cloning needs an account; see README)"
+fi
+"$POCKET_PY" "$REPO_DIR/scripts/synthesize_pocket_tts.py" --cache-only
 
 echo ""
 KUGEL_DIR="$HOME/.cache/pdf2audio-models/kugelaudio-0-open-4bit"

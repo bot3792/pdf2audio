@@ -92,12 +92,26 @@ export const narratorVoices: Voice[] = [
   { id: "kugel:default", label: "KugelAudio (7B, 24 EU languages)", gender: null, grade: "MLX", supportsSpeed: false, note: "Multilingual narrator" },
 ];
 
-export const voiceGroups: VoiceGroup[] = [
+const voiceGroups: VoiceGroup[] = [
   ...kokoroVoiceGroups,
   { label: "Bulgarian", voices: narratorVoices },
 ];
 
 const voicesById = new Map(voiceGroups.flatMap((group) => group.voices).map((voice) => [voice.id, voice]));
+
+export type VoiceEngine = "kokoro" | "narrators" | "say" | "cartesia" | "pocket";
+
+const ENGINE_PREFIXES: { prefix: string; engine: VoiceEngine; supportsSpeed: boolean }[] = [
+  { prefix: "say:", engine: "say", supportsSpeed: true },
+  { prefix: "cartesia:", engine: "cartesia", supportsSpeed: true },
+  { prefix: "pocket:", engine: "pocket", supportsSpeed: false },
+  { prefix: "bg-", engine: "narrators", supportsSpeed: false },
+  { prefix: "kugel:", engine: "narrators", supportsSpeed: false },
+];
+
+export function engineForVoiceId(voiceId: string): VoiceEngine {
+  return ENGINE_PREFIXES.find((entry) => voiceId.startsWith(entry.prefix))?.engine ?? "kokoro";
+}
 
 export function normalizeVoiceId(voiceId: string): string {
   return voiceId.includes(":") ? voiceId : `kokoro:${voiceId}`;
@@ -112,6 +126,8 @@ export function getVoiceLabel(voiceId: string): string {
   if (!voice) {
     if (voiceId.startsWith("say:")) return humanizeSayVoiceId(voiceId);
     if (voiceId.startsWith("cartesia:")) return `Cartesia ${voiceId.slice("cartesia:".length, "cartesia:".length + 8)}`;
+    if (voiceId.startsWith(POCKET_CUSTOM_PREFIX)) return "Cloned voice";
+    if (voiceId.startsWith("pocket:")) return `${voiceId.slice("pocket:".length)} (Pocket TTS)`;
     return voiceId;
   }
   return voice.gender ? `${voice.label} (${voice.gender})` : voice.label;
@@ -145,6 +161,34 @@ export function cartesiaVoiceToEntry(voice: { id: string; name: string; language
   };
 }
 
+export function pocketVoiceToEntry(voice: { id: string; name: string; license: string; note: string }): Voice {
+  return {
+    id: `pocket:${voice.id}`,
+    label: voice.name,
+    gender: null,
+    grade: "CPU",
+    supportsSpeed: false,
+    note: `${voice.note} \u00b7 ${voice.license}`,
+  };
+}
+
+export const POCKET_CUSTOM_PREFIX = "pocket:custom:";
+
+export function pocketCustomVoiceToEntry(voice: { id: string; name: string; seconds: number }): Voice {
+  return {
+    id: `${POCKET_CUSTOM_PREFIX}${voice.id}`,
+    label: voice.name,
+    gender: null,
+    grade: "Cloned",
+    supportsSpeed: false,
+    note: `${voice.seconds}s reference`,
+  };
+}
+
+// Runtime-discovered voices have no static entry, so the engine prefix is the fallback authority —
+// a new engine must be listed in ENGINE_PREFIXES rather than defaulting to "speed works".
 export function voiceSupportsSpeedControl(voiceId: string): boolean {
-  return getVoiceById(voiceId)?.supportsSpeed ?? !voiceId.startsWith("bg-");
+  const entry = getVoiceById(voiceId);
+  if (entry) return entry.supportsSpeed ?? true;
+  return ENGINE_PREFIXES.find((e) => voiceId.startsWith(e.prefix))?.supportsSpeed ?? true;
 }

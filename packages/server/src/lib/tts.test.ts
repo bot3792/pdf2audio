@@ -74,6 +74,29 @@ describe("parseTtsVoice", () => {
     });
   });
 
+  it("parses Pocket TTS catalog voices", () => {
+    expect(parseTtsVoice("pocket:alba")).toEqual({
+      engine: "pocket",
+      voice: "alba",
+      raw: "pocket:alba",
+    });
+    expect(parseTtsVoice("pocket:bill_boerst")).toEqual({
+      engine: "pocket",
+      voice: "bill_boerst",
+      raw: "pocket:bill_boerst",
+    });
+  });
+
+  it("parses cloned Pocket TTS voices", () => {
+    expect(parseTtsVoice("pocket:custom:5e509238-95e1-41a0-9818-ec49f27e1bf3")).toEqual({
+      engine: "pocket",
+      voice: "custom:5e509238-95e1-41a0-9818-ec49f27e1bf3",
+      raw: "pocket:custom:5e509238-95e1-41a0-9818-ec49f27e1bf3",
+    });
+    expect(() => parseTtsVoice("pocket:custom:not-a-uuid")).toThrow(/unsupported voice/i);
+    expect(() => parseTtsVoice("pocket:custom:../../etc/passwd")).toThrow(/unsupported voice/i);
+  });
+
   it("rejects unsupported or empty prefixed voice ids", () => {
     expect(() => parseTtsVoice("bg-mlx:")).toThrow(/unsupported voice/i);
     expect(() => parseTtsVoice("bg-mlx:other")).toThrow(/unsupported voice/i);
@@ -84,6 +107,8 @@ describe("parseTtsVoice", () => {
     expect(() => parseTtsVoice("say:")).toThrow(/unsupported voice/i);
     expect(() => parseTtsVoice("say:Daria (Enhanced)")).toThrow(/unsupported voice/i);
     expect(() => parseTtsVoice("kokoro:")).toThrow(/unsupported voice/i);
+    expect(() => parseTtsVoice("pocket:")).toThrow(/unsupported voice/i);
+    expect(() => parseTtsVoice("pocket:not-a-catalog-voice")).toThrow(/unsupported voice/i);
   });
 
   it("rejects malformed legacy Kokoro voice ids", () => {
@@ -113,6 +138,10 @@ describe("getPreviewTextForVoice", () => {
     expect(await getPreviewTextForVoice("say:no-such-voice-installed")).toMatch(/quick brown fox/i);
   });
 
+  it("returns an English sample for Pocket TTS voices", async () => {
+    expect(await getPreviewTextForVoice("pocket:alba")).toMatch(/quick brown fox/i);
+  });
+
   it("matches Cartesia preview text to the voice language", async () => {
     expect(await getPreviewTextForVoice("cartesia:bg-voice-uuid")).toMatch(/пролетна|утрин/i);
     expect(await getPreviewTextForVoice("cartesia:unknown-voice")).toMatch(/quick brown fox/i);
@@ -130,6 +159,10 @@ describe("voiceSupportsSpeed", () => {
 
   it("disables speed control for the KugelAudio voice", () => {
     expect(voiceSupportsSpeed("kugel:default")).toBe(false);
+  });
+
+  it("disables speed control for Pocket TTS, which has no speed parameter", () => {
+    expect(voiceSupportsSpeed("pocket:alba")).toBe(false);
   });
 
   it("keeps speed control enabled for Kokoro", () => {

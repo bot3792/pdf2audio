@@ -4,13 +4,15 @@ import { db } from "./db.ts";
 import { books, bookFiles, folders, type NoteJob } from "./schema.ts";
 import { eq, and, desc } from "drizzle-orm";
 import { profileIdFromHeader } from "./trpc.ts";
-import { uploadsDir } from "./lib/paths.ts";
+import { tmpDir, uploadsDir } from "./lib/paths.ts";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createWriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { quickAddJob } from "graphile-worker";
+import { rm } from "node:fs/promises";
+import { createCustomPocketVoice } from "./lib/pocket-voices.ts";
 
 const connectionString = env.DATABASE_URL;
 
@@ -197,5 +199,39 @@ export function registerUploadRoutes(fastify: FastifyInstance) {
 
     const [updated] = await db.select().from(books).where(eq(books.id, bookId));
     return reply.send(updated);
+  });
+
+  // Reference recordings for Pocket TTS voice cloning: any container ffmpeg can decode.
+  fastify.post("/upload/pocket-voice", async (request, reply) => {
+    await mkdir(tmpDir, { recursive: true });
+    const scratchPath = path.join(tmpDir, `pocket-voice-${randomUUID()}`);
+
+    let name = "";
+    let consented = false;
+    let received = false;
+    for await (const part of request.parts()) {
+      if (part.type === "file") {
+        await pipeline(part.file, createWriteStream(scratchPath));
+        received = true;
+      } else if (part.fieldname === "name") {
+        name = String((part as any).value ?? "");
+      } else if (part.fieldname === "consent") {
+        consented = String((part as any).value) === "true";
+      }
+    }
+
+    try {
+      if (!received) return reply.code(400).send({ error: "No audio uploaded" });
+      if (!consented) {
+        return reply.code(400).send({
+          error: "Kyutai's terms prohibit cloning a voice without the speaker's consent — confirm you have it",
+        });
+      }
+      return reply.send(await createCustomPocketVoice(scratchPath, name));
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : "Voice import failed" });
+    } finally {
+      await rm(scratchPath, { force: true });
+    }
   });
 }
