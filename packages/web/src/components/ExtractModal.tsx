@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { AfterExtractChoice } from "./AfterExtractChoice.tsx";
 import { BOOK_LANGUAGE_OPTIONS } from "../lib/languages.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 
@@ -34,6 +35,7 @@ export function ExtractModal({
   forceOcr,
   llmChapterDetection,
   language,
+  voiceLabel,
   onUpdateBook,
   onStart,
   onClose,
@@ -46,8 +48,9 @@ export function ExtractModal({
   forceOcr: boolean;
   llmChapterDetection: boolean;
   language: string | null;
+  voiceLabel: string;
   onUpdateBook: (settings: { forceOcr?: boolean; llmChapterDetection?: boolean; language?: string | null }) => void;
-  onStart: (scope: ExtractScope) => void;
+  onStart: (scope: ExtractScope, autoSynthesize: boolean) => void;
   onClose: () => void;
 }) {
   useBodyScrollLock();
@@ -66,6 +69,7 @@ export function ExtractModal({
   // count out and requiring a tick is the difference between reading a warning and acting on it.
   const losing = scope === "selected" ? chaptersForSelected : chaptersTotal;
   const [confirmed, setConfirmed] = useState(false);
+  const [autoSynthesize, setAutoSynthesize] = useState(false);
   useEffect(() => setConfirmed(false), [scope]);
   const blocked = disabledReason(scope) ?? (losing > 0 && !confirmed ? "Confirm the chapters you're replacing" : null);
 
@@ -125,6 +129,15 @@ export function ExtractModal({
               );
             })}
           </fieldset>
+
+          <div className="border-t border-(--border) pt-3">
+            <AfterExtractChoice
+              autoSynthesize={autoSynthesize}
+              onChange={setAutoSynthesize}
+              voiceLabel={voiceLabel}
+              chapterCount={scope === "selected" ? chaptersForSelected || undefined : chaptersTotal || undefined}
+            />
+          </div>
 
           <div className="space-y-2 border-t border-(--border) pt-3">
             {/* Not app preferences — these describe the source and its text, and outlive any one run. */}
@@ -202,7 +215,7 @@ export function ExtractModal({
           </button>
           <button
             type="button"
-            onClick={() => onStart(scope)}
+            onClick={() => onStart(scope, autoSynthesize)}
             disabled={!!blocked}
             title={blocked ?? undefined}
             className="px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"

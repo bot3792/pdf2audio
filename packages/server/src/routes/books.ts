@@ -435,6 +435,17 @@ export const booksRouter = router({
       return { success: true };
     }),
 
+  // Written just before an extraction runs; extract.ts reads it to decide whether new chapters are
+  // born "pending" (and queued for synthesis) or "suspended".
+  setAutoSynthesize: publicProcedure
+    .input(z.object({ id: z.string().uuid(), autoSynthesize: z.boolean() }))
+    .mutation(async ({ input }) => {
+      const skipSynthesis = !input.autoSynthesize;
+      await db.update(books).set({ skipSynthesis, updatedAt: new Date() }).where(eq(books.id, input.id));
+      await db.update(bookFiles).set({ skipSynthesis }).where(eq(bookFiles.bookId, input.id));
+      return { success: true };
+    }),
+
   upload: publicProcedure
     .input(
       z.object({

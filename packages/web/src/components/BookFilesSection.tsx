@@ -26,18 +26,16 @@ export function BookFilesSection({
   forceOcr,
   llmChapterDetection,
   language,
+  voiceLabel,
+  onStartExtraction,
   onUpdateExtractionSettings,
   onSetSelected,
   onSetAllSelected,
   onSetSelectedBatch,
   onRemove,
   onReExtract,
-  onReExtractSelected,
-  onReExtractBook,
-  onRedetectChapters,
   onCancelExtraction,
   onCancel,
-  onSetSkipSynthesis,
   onFilesAdded,
 }: {
   files: BookFileRow[];
@@ -47,18 +45,16 @@ export function BookFilesSection({
   forceOcr: boolean;
   llmChapterDetection: boolean;
   language: string | null;
+  voiceLabel: string;
+  onStartExtraction: (scope: ExtractScope, autoSynthesize: boolean) => void;
   onUpdateExtractionSettings: (settings: { forceOcr?: boolean; llmChapterDetection?: boolean; language?: string | null }) => void;
   onSetSelected: (id: string, selected: boolean) => void;
   onSetAllSelected: (selected: boolean) => void;
   onSetSelectedBatch: (ids: string[], selected: boolean) => void;
   onRemove: (id: string) => void;
   onReExtract: (id: string) => void;
-  onReExtractSelected: () => void;
-  onReExtractBook: () => void;
-  onRedetectChapters: () => void;
   onCancelExtraction: () => void;
   onCancel: (id: string) => void;
-  onSetSkipSynthesis: (id: string, skip: boolean) => void;
   onFilesAdded: () => void;
 }) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
@@ -163,7 +159,6 @@ export function BookFilesSection({
               <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">#</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">Filename</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">Status</th>
-              <th className="px-3 py-2 text-center text-xs font-medium text-(--text-muted) uppercase" title="Skip synthesis — extract only, defer audio generation">Skip synth</th>
               <th className="px-3 py-2 text-right text-xs font-medium text-(--text-muted) uppercase">Chapters</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">Actions</th>
             </tr>
@@ -215,15 +210,6 @@ export function BookFilesSection({
                       {file.error.length > 30 ? file.error.slice(0, 30) + "..." : file.error}
                     </span>
                   )}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <input
-                    type="checkbox"
-                    checked={file.skipSynthesis}
-                    onChange={() => onSetSkipSynthesis(file.id, !file.skipSynthesis)}
-                    title={file.skipSynthesis ? "Chapters will be extracted only — click to enable auto-synthesis" : "Chapters will auto-synthesize after extraction — click to extract only"}
-                    className="rounded"
-                  />
                 </td>
                 <td className="px-3 py-2 text-right text-sm tabular-nums text-(--text-tertiary)">
                   {chapterCountForFile(file.index)}
@@ -292,13 +278,12 @@ export function BookFilesSection({
           forceOcr={forceOcr}
           llmChapterDetection={llmChapterDetection}
           language={language}
+          voiceLabel={voiceLabel}
           onUpdateBook={onUpdateExtractionSettings}
           onClose={() => setExtractOpen(false)}
-          onStart={(scope: ExtractScope) => {
+          onStart={(scope: ExtractScope, autoSynthesize: boolean) => {
             setExtractOpen(false);
-            if (scope === "selected") onReExtractSelected();
-            else if (scope === "book") onReExtractBook();
-            else onRedetectChapters();
+            onStartExtraction(scope, autoSynthesize);
           }}
         />
       )}

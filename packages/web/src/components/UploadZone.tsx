@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, type DragEvent } from "react";
 import { VoicePicker } from "./VoicePicker.tsx";
 import { SpeedSlider } from "./SpeedSlider.tsx";
-import { getVoiceById, voiceSupportsSpeedControl } from "../lib/voices.ts";
+import { getVoiceById, voiceSupportsSpeedControl, getVoiceLabel } from "../lib/voices.ts";
 import { AI_MODELS, AI_PRESETS, type AiModelKey } from "../lib/ai-presets.ts";
 import { profileHeaders } from "../lib/profile.ts";
+import { AfterExtractChoice } from "./AfterExtractChoice.tsx";
 
 type UploadZoneProps = {
   onUploadComplete: () => void;
@@ -350,10 +351,11 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
                   <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
                   LLM chapter detection
                 </label>
-                <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Start synthesizing every chapter right after extraction. Off by default — you can read, translate, export, or synthesize selected chapters from the book page anytime.">
-                  <input type="checkbox" checked={autoSynthesize} onChange={(e) => setAutoSynthesize(e.target.checked)} className="rounded" />
-                  Synthesize audio after extraction
-                </label>
+                <AfterExtractChoice
+                  autoSynthesize={autoSynthesize}
+                  onChange={setAutoSynthesize}
+                  voiceLabel={getVoiceLabel(voice)}
+                />
               </>
             )}
             <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title={`Run an AI prompt against ${isMultiFile && separateBooks ? "each book's" : "the book's"} raw text right after upload — the answer is saved to the book's notes`}>

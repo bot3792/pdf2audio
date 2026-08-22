@@ -16,6 +16,7 @@ import { ChapterAiModal, type AiScope } from "../components/ChapterAiModal.tsx";
 import { NotesSection } from "../components/NotesSection.tsx";
 import { loadBookSort, sortBooks } from "../lib/book-sort.ts";
 import { formatBytes, documentFormatLabel } from "../lib/format.ts";
+import { getVoiceLabel } from "../lib/voices.ts";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -222,6 +223,7 @@ export function BookDetail() {
   const assembleVariantMutation = trpc.variants.assemble.useMutation({ onSuccess: invalidateVariants });
   const renameMutation = trpc.books.rename.useMutation({ onSuccess: invalidate });
   const updateSettingsMutation = trpc.books.updateSettings.useMutation({ onSuccess: invalidate });
+  const setAutoSynthesizeMutation = trpc.books.setAutoSynthesize.useMutation();
   const setVariantVoiceMutation = trpc.variants.setVoice.useMutation({ onSuccess: invalidate });
   const deleteChaptersMutation = trpc.chapters.deleteSelected.useMutation({ onSuccess: invalidate });
   const invalidateAudioSizes = () => {
@@ -456,16 +458,12 @@ export function BookDetail() {
             onSetSelectedBatch={(ids, selected) => setFileSelectedBatchMutation.mutate({ ids, selected })}
             onRemove={(fid) => removeFileMutation.mutate({ id: fid })}
             onReExtract={(fid) => reExtractFileMutation.mutate({ id: fid })}
-            onReExtractSelected={() => reExtractSelectedMutation.mutate({ bookId: book.id })}
-            onReExtractBook={() => {
-              if (confirm("This will delete all chapters and re-extract from all PDFs. Continue?")) {
-                retryMutation.mutate({ id: book.id });
-              }
-            }}
-            onRedetectChapters={() => {
-              if (confirm("This will delete all chapter audio and re-detect chapter boundaries from existing extraction output. Continue?")) {
-                redetectMutation.mutate({ id: book.id });
-              }
+            voiceLabel={getVoiceLabel(book.voice)}
+            onStartExtraction={async (scope, autoSynthesize) => {
+              await setAutoSynthesizeMutation.mutateAsync({ id: book.id, autoSynthesize });
+              if (scope === "selected") reExtractSelectedMutation.mutate({ bookId: book.id });
+              else if (scope === "book") retryMutation.mutate({ id: book.id });
+              else redetectMutation.mutate({ id: book.id });
             }}
             onCancelExtraction={() => {
               if (confirm("Stop the running extraction? Files already extracted are kept.")) {
@@ -473,7 +471,6 @@ export function BookDetail() {
               }
             }}
             onCancel={(fid) => cancelFileMutation.mutate({ id: fid })}
-            onSetSkipSynthesis={(fid, skip) => setSkipSynthesisMutation.mutate({ id: fid, skipSynthesis: skip })}
             onFilesAdded={invalidate}
           />
         )}
