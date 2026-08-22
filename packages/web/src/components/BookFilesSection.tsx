@@ -65,6 +65,12 @@ export function BookFilesSection({
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const [extractOpen, setExtractOpen] = useState(false);
 
+  // Chapters belonging to the currently selected files — what a scoped re-extract would replace.
+  const selectedFileIndexes = new Set(files.filter((f) => f.selected).map((f) => f.index));
+  const chaptersForSelected = chapters.filter(
+    (c) => typeof c.sourceFileIndex === "number" && selectedFileIndexes.has(c.sourceFileIndex),
+  ).length;
+
   const selectedCount = files.filter((f) => f.selected).length;
   const allSelected = files.length > 0 && selectedCount === files.length;
   const noneSelected = selectedCount === 0;
@@ -119,11 +125,11 @@ export function BookFilesSection({
         <AddFilesButton bookId={bookId} onFilesAdded={onFilesAdded} />
         <button
           onClick={() => setExtractOpen(true)}
-          title="Re-extract files or re-detect chapter boundaries"
+          title="Extract files again, or re-detect chapter boundaries"
           className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border)"
           data-testid="open-extract-modal"
         >
-          Re-extract...
+          Extract...
         </button>
         <button
           onClick={onCancelExtraction}
@@ -280,6 +286,8 @@ export function BookFilesSection({
         <ExtractModal
           selectedCount={selectedCount}
           hasChapters={chapters.length > 0}
+          chaptersForSelected={chaptersForSelected}
+          chaptersTotal={chapters.length}
           isProcessing={isProcessing}
           forceOcr={forceOcr}
           llmChapterDetection={llmChapterDetection}
