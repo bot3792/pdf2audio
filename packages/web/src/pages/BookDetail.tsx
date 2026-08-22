@@ -16,7 +16,7 @@ import { ChapterAiModal, type AiScope } from "../components/ChapterAiModal.tsx";
 import { NotesSection } from "../components/NotesSection.tsx";
 import { loadBookSort, sortBooks } from "../lib/book-sort.ts";
 import { formatBytes, documentFormatLabel } from "../lib/format.ts";
-import { getVoiceLabel } from "../lib/voices.ts";
+import { getVoiceLabel, languageLabel } from "../lib/voices.ts";
 
 export function BookDetail() {
   const { id } = useParams<{ id: string }>();
@@ -419,9 +419,18 @@ export function BookDetail() {
                title={book.title}
                onRename={(title) => renameMutation.mutate({ id: book.id, title })}
              />
-             {book.skipSynthesis && (
-               <p className="text-sm text-(--text-muted) mt-1">Reader mode</p>
-             )}
+             <p className="text-sm text-(--text-muted) mt-1 flex items-center gap-2">
+               {book.language ? (
+                 <span title="The language this book is written in — change it in Extract...">
+                   {languageLabel(book.language)}
+                 </span>
+               ) : (
+                 <span className="text-(--text-faint)" title="Set it in Extract... to get matching voices offered first">
+                   Language not set
+                 </span>
+               )}
+               {book.skipSynthesis && <span>· Reader mode</span>}
+             </p>
            </div>
           <div className="shrink-0 pt-1 flex items-center gap-2">
             <Link
