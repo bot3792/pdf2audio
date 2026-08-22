@@ -201,7 +201,7 @@ export const bookFilesRouter = router({
 
       await db
         .update(bookFiles)
-        .set({ status: "failed", error: "Cancelled by user" })
+        .set({ status: "suspended", error: null })
         .where(eq(bookFiles.id, input.id));
 
       const killed = abortExtract(input.id);

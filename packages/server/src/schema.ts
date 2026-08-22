@@ -208,7 +208,7 @@ export const bookFiles = pgTable("book_files", {
   pdfPath: text("pdf_path").notNull(),
   // "raw" = raw text only, marker extraction neither queued nor planned
   status: text("status", {
-    enum: ["raw", "pending", "extracting", "done", "failed"],
+    enum: ["raw", "pending", "extracting", "done", "failed", "suspended"],
   }).notNull().default("pending"),
   selected: boolean("selected").notNull().default(true),
   skipSynthesis: boolean("skip_synthesis").notNull().default(false),

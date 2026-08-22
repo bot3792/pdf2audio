@@ -1104,11 +1104,13 @@ export const booksRouter = router({
   cancel: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
-      await appendLog(input.id, "Cancelled by user");
+      await appendLog(input.id, "Extraction cancelled");
 
+      // A deliberate stop is "suspended", not "failed" — chapters and variants already model it
+      // that way, and a red error that never clears is the wrong resting state for a choice.
       await db
         .update(books)
-        .set({ status: "failed", error: "Cancelled by user", updatedAt: new Date() })
+        .set({ status: "suspended", error: null, updatedAt: new Date() })
         .where(eq(books.id, input.id));
 
       await db
@@ -1121,7 +1123,7 @@ export const booksRouter = router({
 
       const cancelledFiles = await db
         .update(bookFiles)
-        .set({ status: "failed", error: "Cancelled by user" })
+        .set({ status: "suspended", error: null })
         .where(and(
           eq(bookFiles.bookId, input.id),
           inArray(bookFiles.status, ["extracting", "pending"]),

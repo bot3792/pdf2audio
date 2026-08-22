@@ -192,10 +192,11 @@ export function BookFilesSection({
                   <span className={`text-xs font-medium ${
                     file.status === "done" ? "text-green-600" :
                     file.status === "failed" ? "text-red-600" :
+                    file.status === "suspended" ? "text-amber-600" :
                     file.status === "extracting" ? "text-blue-600" :
                     "text-(--text-muted)"
                   }`}>
-                    {file.status === "raw" ? "raw text" : file.status}
+                    {file.status === "raw" ? "raw text" : file.status === "suspended" ? "cancelled" : file.status}
                     {file.status === "extracting" && (
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 ml-1.5 animate-pulse" />
                     )}
@@ -230,7 +231,7 @@ export function BookFilesSection({
                     {/* Re-extract */}
                     <button
                       onClick={() => onReExtract(file.id)}
-                      disabled={file.status !== "done" && file.status !== "failed" && file.status !== "raw"}
+                      disabled={file.status !== "done" && file.status !== "failed" && file.status !== "raw" && file.status !== "suspended"}
                       title={
                         file.status === "extracting" ? "Wait for extraction to finish" :
                         file.status === "pending" ? "File hasn't been extracted yet" :

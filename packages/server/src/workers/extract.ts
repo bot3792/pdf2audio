@@ -187,7 +187,7 @@ async function extractMultipleFiles(
     } catch (err) {
       if (err instanceof ExtractAbortedError) {
         await fileLog(`Extraction of "${file.filename}" cancelled`);
-        await db.update(bookFiles).set({ status: "failed", error: "Cancelled by user" }).where(eq(bookFiles.id, file.id));
+        await db.update(bookFiles).set({ status: "suspended", error: null }).where(eq(bookFiles.id, file.id));
         filesFailed++;
         continue;
       }
