@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
+import { ExtractModal, type ExtractScope } from "./ExtractModal.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
-import { BOOK_LANGUAGE_OPTIONS } from "../lib/languages.ts";
 
 export type BookFileRow = {
   id: string;
@@ -63,6 +63,7 @@ export function BookFilesSection({
 }) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
+  const [extractOpen, setExtractOpen] = useState(false);
 
   const selectedCount = files.filter((f) => f.selected).length;
   const allSelected = files.length > 0 && selectedCount === files.length;
@@ -117,36 +118,12 @@ export function BookFilesSection({
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <AddFilesButton bookId={bookId} onFilesAdded={onFilesAdded} />
         <button
-          onClick={onReExtractSelected}
-          disabled={selectedCount === 0}
-          title={selectedCount === 0 ? "Select files to re-extract" : "Delete the selected files' chapters and run extraction again with the settings on the right"}
-          className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border) disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => setExtractOpen(true)}
+          title="Re-extract files or re-detect chapter boundaries"
+          className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border)"
+          data-testid="open-extract-modal"
         >
-          Re-extract selected ({selectedCount})
-        </button>
-        <button
-          onClick={onReExtractBook}
-          disabled={isProcessing || chapters.length === 0}
-          title={
-            isProcessing ? "Wait for processing to finish" :
-            chapters.length === 0 ? "Nothing extracted yet" :
-            "Delete all chapters and re-extract every file with the settings on the right"
-          }
-          className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border) disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Re-extract entire book
-        </button>
-        <button
-          onClick={onRedetectChapters}
-          disabled={isProcessing || chapters.length === 0}
-          title={
-            isProcessing ? "Wait for processing to finish" :
-            chapters.length === 0 ? "Nothing extracted yet" :
-            "Re-detect chapter boundaries from the existing extraction output — does not re-run OCR"
-          }
-          className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border) disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Re-detect chapters
+          Re-extract...
         </button>
         <button
           onClick={onCancelExtraction}
@@ -161,51 +138,6 @@ export function BookFilesSection({
         >
           Cancel extraction
         </button>
-
-        <div className="flex-1" />
-
-        <span className="text-xs text-(--text-faint) uppercase tracking-wider">Extraction settings</span>
-        <label
-          className="flex items-center gap-1.5 text-xs text-(--text-muted)"
-          title="The language this book is written in — decides which voices the picker offers first."
-        >
-          Language
-          <select
-            value={language ?? ""}
-            onChange={(e) => onUpdateExtractionSettings({ language: e.target.value || null })}
-            className="rounded border border-(--border-input) bg-(--bg-input) px-1.5 py-0.5 text-xs"
-            data-testid="book-language"
-          >
-            <option value="">Not set</option>
-            {BOOK_LANGUAGE_OPTIONS.map(({ code, label }) => (
-              <option key={code} value={code}>{label}</option>
-            ))}
-          </select>
-        </label>
-        <label
-          className="flex items-center gap-1.5 text-xs text-(--text-muted)"
-          title="Only needed for scanned PDFs without selectable text. Applies to every extraction of this book, including per-file re-extracts. The original PDF is kept as-is — OCR output is stored as extracted text."
-        >
-          <input
-            type="checkbox"
-            checked={forceOcr}
-            onChange={(e) => onUpdateExtractionSettings({ forceOcr: e.target.checked })}
-            className="rounded"
-          />
-          Force OCR
-        </label>
-        <label
-          className="flex items-center gap-1.5 text-xs text-(--text-muted)"
-          title="Uses DeepSeek to pick chapter boundaries from the table of contents during extraction and re-detection. Applies to every extraction of this book."
-        >
-          <input
-            type="checkbox"
-            checked={llmChapterDetection}
-            onChange={(e) => onUpdateExtractionSettings({ llmChapterDetection: e.target.checked })}
-            className="rounded"
-          />
-          LLM chapters
-        </label>
 
       </div>
 
@@ -343,6 +275,25 @@ export function BookFilesSection({
           </tbody>
         </table>
       </div>
+
+      {extractOpen && (
+        <ExtractModal
+          selectedCount={selectedCount}
+          hasChapters={chapters.length > 0}
+          isProcessing={isProcessing}
+          forceOcr={forceOcr}
+          llmChapterDetection={llmChapterDetection}
+          language={language}
+          onUpdateBook={onUpdateExtractionSettings}
+          onClose={() => setExtractOpen(false)}
+          onStart={(scope: ExtractScope) => {
+            setExtractOpen(false);
+            if (scope === "selected") onReExtractSelected();
+            else if (scope === "book") onReExtractBook();
+            else onRedetectChapters();
+          }}
+        />
+      )}
 
       {previewFileId && (
         <PdfPreviewModal

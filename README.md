@@ -185,7 +185,7 @@ cd packages/server && pnpm test   # Server test suite (spins up template DB, run
 
 ### Book language
 
-Books carry an optional language, set from the extraction settings row. It's a plain field you pick
+Books carry an optional language, set from **Re-extract... → About this book**. It's a plain field you pick
 yourself — nothing infers it — and it decides which voices the picker offers first, so a Russian PDF
 opens on Russian voices instead of English ones. Leave it unset and the picker falls back to the
 language of whatever voice is currently selected.

@@ -1,0 +1,192 @@
+import { useState } from "react";
+
+import { BOOK_LANGUAGE_OPTIONS } from "../lib/languages.ts";
+import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
+
+export type ExtractScope = "selected" | "book" | "chapters";
+
+// Three toolbar buttons that each destroyed different work read as three equal options. As one
+// choice with its consequence spelled out, the destructive one is obvious before you press it.
+const SCOPES: { id: ExtractScope; label: string; detail: string }[] = [
+  {
+    id: "selected",
+    label: "Selected files",
+    detail: "Deletes those files' chapters and extracts them again. Other files keep their chapters.",
+  },
+  {
+    id: "book",
+    label: "Entire book",
+    detail: "Deletes every chapter and re-extracts all files. Any chapter edits are lost.",
+  },
+  {
+    id: "chapters",
+    label: "Chapter boundaries only",
+    detail: "Re-splits the text already extracted. No OCR, no re-reading of the PDFs.",
+  },
+];
+
+export function ExtractModal({
+  selectedCount,
+  hasChapters,
+  isProcessing,
+  forceOcr,
+  llmChapterDetection,
+  language,
+  onUpdateBook,
+  onStart,
+  onClose,
+}: {
+  selectedCount: number;
+  hasChapters: boolean;
+  isProcessing: boolean;
+  forceOcr: boolean;
+  llmChapterDetection: boolean;
+  language: string | null;
+  onUpdateBook: (settings: { forceOcr?: boolean; llmChapterDetection?: boolean; language?: string | null }) => void;
+  onStart: (scope: ExtractScope) => void;
+  onClose: () => void;
+}) {
+  useBodyScrollLock();
+
+  const disabledReason = (scope: ExtractScope) => {
+    if (isProcessing) return "Wait for the current extraction to finish";
+    if (scope === "selected" && selectedCount === 0) return "Select files first";
+    if (scope !== "selected" && !hasChapters) return "Nothing extracted yet";
+    return null;
+  };
+
+  const [scope, setScope] = useState<ExtractScope>(() =>
+    selectedCount > 0 ? "selected" : hasChapters ? "chapters" : "selected",
+  );
+  const blocked = disabledReason(scope);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="extract-modal-title"
+        className="bg-(--bg-card) rounded-lg shadow-xl w-[90vw] max-w-lg flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+        data-testid="extract-modal"
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-(--border)">
+          <h2 id="extract-modal-title" className="text-sm font-medium text-(--text-primary)">Re-extract</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-(--text-faint) hover:text-(--text-tertiary) p-1 rounded focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+            title="Close"
+            aria-label="Close"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <fieldset className="space-y-2">
+            <legend className="text-xs font-medium text-(--text-secondary) mb-1">What to redo</legend>
+            {SCOPES.map((entry) => {
+              const reason = disabledReason(entry.id);
+              const label = entry.id === "selected" ? `${entry.label} (${selectedCount})` : entry.label;
+              return (
+                <label
+                  key={entry.id}
+                  title={reason ?? undefined}
+                  className={`flex gap-2 rounded-md border p-2 ${
+                    scope === entry.id ? "border-blue-500 bg-(--bg-selected)" : "border-(--border)"
+                  } ${reason ? "opacity-50" : "cursor-pointer hover:bg-(--bg-subtle)"}`}
+                >
+                  <input
+                    type="radio"
+                    name="extract-scope"
+                    checked={scope === entry.id}
+                    disabled={!!reason}
+                    onChange={() => setScope(entry.id)}
+                    className="mt-0.5"
+                    data-testid={`extract-scope-${entry.id}`}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm text-(--text-primary)">{label}</span>
+                    <span className="block text-xs text-(--text-muted)">{entry.detail}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </fieldset>
+
+          <div className="space-y-2 border-t border-(--border) pt-3">
+            {/* Not app preferences — these describe the source and its text, and outlive any one run. */}
+            <p className="text-xs font-medium text-(--text-secondary)">About this book</p>
+
+            <label className="flex items-center gap-2 text-xs text-(--text-muted)">
+              <span className="text-(--text-secondary) w-28 shrink-0">Language</span>
+              <select
+                value={language ?? ""}
+                onChange={(e) => onUpdateBook({ language: e.target.value || null })}
+                className="rounded border border-(--border-input) bg-(--bg-input) px-1.5 py-1 text-xs"
+                data-testid="book-language"
+              >
+                <option value="">Not set</option>
+                {BOOK_LANGUAGE_OPTIONS.map(({ code, label }) => (
+                  <option key={code} value={code}>{label}</option>
+                ))}
+              </select>
+              <span className="min-w-0">Decides which voices the picker offers first.</span>
+            </label>
+
+            <label className="flex gap-2 text-xs text-(--text-muted)">
+              <input
+                type="checkbox"
+                checked={forceOcr}
+                onChange={(e) => onUpdateBook({ forceOcr: e.target.checked })}
+                className="mt-0.5 rounded"
+              />
+              <span>
+                <span className="block text-(--text-secondary)">Scanned PDF — needs OCR</span>
+                Set this when the pages are images with no selectable text. Much slower; the original PDF is untouched.
+              </span>
+            </label>
+
+            <label className="flex gap-2 text-xs text-(--text-muted)">
+              <input
+                type="checkbox"
+                checked={llmChapterDetection}
+                onChange={(e) => onUpdateBook({ llmChapterDetection: e.target.checked })}
+                className="mt-0.5 rounded"
+              />
+              <span>
+                <span className="block text-(--text-secondary)">Has a table of contents worth following</span>
+                Uses DeepSeek to take chapter boundaries from the TOC. Without it, boundaries come from headings.
+              </span>
+            </label>
+
+            <p className="text-xs text-(--text-faint)">Saved on the book — every extraction from now on uses them.</p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-(--border)">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-md text-sm font-medium border border-(--border-input) text-(--text-secondary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onStart(scope)}
+            disabled={!!blocked}
+            title={blocked ?? undefined}
+            className="px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
+            data-testid="extract-start"
+          >
+            {scope === "chapters" ? "Re-detect chapters" : scope === "book" ? "Re-extract book" : `Re-extract ${selectedCount} file${selectedCount === 1 ? "" : "s"}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
