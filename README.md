@@ -64,7 +64,7 @@ Every engine covers a different set, so the answer to "does it do language X" de
 | 24 EU languages | 1 multilingual narrator | KugelAudio (opt-in ~5 GB download) |
 | Most others | many | [Cartesia](https://cartesia.ai) (cloud, needs an API key), plus any macOS system voice you have installed |
 
-![The voice picker filtered to Italian: 48 voices across Kokoro, Pocket TTS, KugelAudio, macOS system voices and Cartesia](docs/images/voice-picker-languages.png)
+![The voice picker filtered to Italian: 49 voices across Kokoro, Pocket TTS, KugelAudio, macOS system voices and Cartesia](docs/images/voice-picker-languages.png)
 
 The picker leads with the language, not the engine: pick Italian and you get every voice that can read it, grouped by engine, with a preview button on each one.
 
