@@ -13,7 +13,6 @@
     "db:generate": "pnpm --filter @pdf2audio/server db:generate",
     "db:migrate": "pnpm --filter @pdf2audio/server db:migrate",
     "setup": "bash scripts/setup.sh",
-    "preview:generate": "bash scripts/generate-previews.sh",
     "jobs": "bash scripts/jobs.sh",
     "jobs:clear": "source .env 2>/dev/null; psql \"$DATABASE_URL\" -c 'DELETE FROM graphile_worker._private_jobs; SELECT count(*) AS remaining FROM graphile_worker._private_jobs;'"
   },

@@ -187,7 +187,9 @@ async function main() {
     };
   });
 
-  const previewGenerating = new Set<string>();
+  // Keyed by voice: a second request for a preview already being synthesized waits on the same run
+  // rather than being told to come back later, so the client needs no polling protocol.
+  const previewGenerating = new Map<string, Promise<void>>();
 
   fastify.get("/preview/:voiceId", async (request, reply) => {
     const { voiceId } = request.params as { voiceId: string };
@@ -207,38 +209,40 @@ async function main() {
       return reply.sendFile(`${previewKey}.m4a`, previewsDir);
     } catch {}
 
-    if (previewGenerating.has(voiceId)) {
-      return reply.code(202).send({ status: "generating" });
+    let generating = previewGenerating.get(voiceId);
+    if (!generating) {
+      generating = (async () => {
+        const { synthesize, getPreviewTextForVoice } = await import("./lib/tts.ts");
+        const { encodeToM4a } = await import("./lib/ffmpeg.ts");
+        const wavPath = path.join(previewsDir, `${previewKey}.wav`);
+
+        await synthesize({
+          inputText: await getPreviewTextForVoice(voiceId),
+          outputPath: wavPath,
+          voice: voiceId,
+          speed: 1.0,
+        });
+
+        await encodeToM4a(wavPath, m4aPath);
+        await Promise.all([
+          unlink(wavPath).catch(() => {}),
+          unlink(wavPath.replace(/\.wav$/, ".txt")).catch(() => {}),
+        ]);
+      })();
+      previewGenerating.set(voiceId, generating);
+      // Settled either way, the slot must free; the catch keeps the rejection from going unhandled
+      // here, since each waiting request handles it on its own await below.
+      void generating.catch(() => {}).finally(() => previewGenerating.delete(voiceId));
     }
 
-    previewGenerating.add(voiceId);
-
     try {
-      const { synthesize, getPreviewTextForVoice } = await import("./lib/tts.ts");
-      const { encodeToM4a } = await import("./lib/ffmpeg.ts");
-      const wavPath = path.join(previewsDir, `${previewKey}.wav`);
-
-      await synthesize({
-        inputText: await getPreviewTextForVoice(voiceId),
-        outputPath: wavPath,
-        voice: voiceId,
-        speed: 1.0,
-      });
-
-      await encodeToM4a(wavPath, m4aPath);
-      const txtPath = wavPath.replace(/\.wav$/, ".txt");
-      await import("node:fs/promises").then((fs) => Promise.all([
-        fs.unlink(wavPath).catch(() => {}),
-        fs.unlink(txtPath).catch(() => {}),
-      ]));
-
-      return reply.sendFile(`${previewKey}.m4a`, previewsDir);
+      await generating;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(500).send({ error: `Preview generation failed: ${message}` });
-    } finally {
-      previewGenerating.delete(voiceId);
     }
+
+    return reply.sendFile(`${previewKey}.m4a`, previewsDir);
   });
 
   await startWorker();

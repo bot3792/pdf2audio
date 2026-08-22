@@ -13,6 +13,20 @@ export type Voice = {
 
 export const MULTILINGUAL = "multi";
 
+// KugelAudio reads many languages but not *any* language, and nothing recorded which — so it was
+// offered under Hindi and Mandarin, which it cannot speak. These are the EU's 24 official languages.
+const MULTILINGUAL_LANGUAGES = new Set([
+  "bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr",
+  "hu", "it", "lt", "lv", "mt", "nl", "pl", "pt", "ro", "sk", "sl", "sv",
+]);
+
+// The one predicate behind both the sidebar counts and the list itself; when they disagreed, the
+// rail said 48 and the provider chips added up to 49.
+export function voiceCoversLanguage(voice: Voice, code: string): boolean {
+  const language = voice.language ?? "en";
+  return language === code || (language === MULTILINGUAL && MULTILINGUAL_LANGUAGES.has(code));
+}
+
 // Display grouping in the picker. Finer than `engine`: the narrator bucket holds two Bulgarian
 // models and KugelAudio, which is a different beast and deserves its own name.
 export function providerOfVoice(voice: Voice): string {

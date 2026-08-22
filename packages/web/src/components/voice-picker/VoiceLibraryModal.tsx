@@ -4,6 +4,7 @@ import {
   cartesiaVoiceToEntry,
   languageLabel,
   MULTILINGUAL,
+  voiceCoversLanguage,
   pocketCustomVoiceToEntry,
   pocketVoiceToEntry,
   providerOfVoice,
@@ -103,16 +104,17 @@ export function VoiceLibraryModal({
   );
 
   const languageCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const voice of allVoices) {
-      const code = voice.language ?? "en";
-      counts.set(code, (counts.get(code) ?? 0) + 1);
-    }
+    // A multilingual voice has no row of its own — it belongs to each language it can read.
+    const codes = new Set(allVoices.map((v) => v.language ?? "en"));
+    codes.delete(MULTILINGUAL);
     // Pocket languages that aren't downloaded still get a row, so they can be requested from here.
-    for (const language of pocketLanguages) if (!counts.has(language.code)) counts.set(language.code, 0);
-    for (const code of priorityLanguages) if (!counts.has(code)) counts.set(code, 0);
-    // KugelAudio is listed under every language already; a "Multilingual" row would only repeat it.
-    counts.delete(MULTILINGUAL);
+    for (const language of pocketLanguages) codes.add(language.code);
+    for (const code of priorityLanguages) codes.add(code);
+
+    const counts = new Map<string, number>();
+    for (const code of codes) {
+      counts.set(code, allVoices.reduce((n, v) => n + (voiceCoversLanguage(v, code) ? 1 : 0), 0));
+    }
     return counts;
   }, [allVoices, pocketLanguages, priorityLanguages]);
 
@@ -155,7 +157,7 @@ export function VoiceLibraryModal({
       language === CLONED
         ? clonedVoices
         // A multilingual model reads any language, so it belongs in every list.
-        : allVoices.filter((v) => (v.language ?? "en") === language || v.language === MULTILINGUAL);
+        : allVoices.filter((v) => voiceCoversLanguage(v, language));
     return pool.filter((v) => matches(v.label, v.note, providerOfVoice(v)));
   }, [allVoices, clonedVoices, language, matches]);
 
