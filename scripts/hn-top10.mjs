@@ -8,7 +8,8 @@
 //                                  [--folder "hackernews-summaries"] [--profile <uuid>] [--list]
 //                                  [--api http://localhost:3034] [--model deepseek-v4-flash]
 // A range picks the overall top --count across all its days (catch-up mode);
-// --per-day instead takes the top --count of each day, in day order.
+// --per-day instead takes the top --count of each day. Either way chapters play
+// day by day, biggest story first within a day.
 // --list prints the selected stories and exits (no AI calls, no book); with
 // --json it prints them as a JSON array (progress goes to stderr) — this backs
 // the web UI's preview. --exclude id1,id2 drops deselected stories at build.
@@ -65,6 +66,8 @@ if (days.length > 90) {
 }
 const dayLabel = (ymd) =>
   new Date(ymdToUtcMs(ymd)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const spokenDay = (ymd) =>
+  new Date(ymdToUtcMs(ymd)).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
 
 function deepseekKey() {
   if (process.env.DEEPSEEK_API_KEY) return process.env.DEEPSEEK_API_KEY;
@@ -119,7 +122,13 @@ async function fetchDayStories(ymd) {
           points: Number(li.querySelector(".points")?.textContent) || 0,
           comments: Number(li.querySelector(".comments")?.textContent) || 0,
           link: link?.getAttribute("href"),
-          link_text: link?.childNodes[0]?.textContent?.trim() ?? "",
+          // Title is every text node before the <span class="source">(domain)</span>;
+          // childNodes[0] alone stops at the first entity, truncating any apostrophe title
+          link_text: [...(link?.childNodes ?? [])]
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent)
+            .join("")
+            .trim(),
         });
       }
     }
@@ -163,7 +172,10 @@ async function fetchArticle(url) {
     if (type && !type.includes("html") && !type.includes("text/plain")) return null;
     const html = await res.text();
     const { document } = parseHTML(html);
-    const result = await Defuddle(document, url, { markdown: true });
+    const finalUrl = res.url || url;
+    document.URL = finalUrl;
+    document.location = { href: finalUrl };
+    const result = await Defuddle(document, finalUrl, { markdown: true });
     const text = (result?.content ?? "").trim();
     return text.length > 200 ? text.slice(0, ARTICLE_CAP) : null;
   } catch {
@@ -190,22 +202,51 @@ function collectComments(item) {
   return out.join("\n");
 }
 
-const SYSTEM = `You write chapters for a daily tech news podcast, one chapter per Hacker News story. The text will be read aloud by a text-to-speech voice.
+const SYSTEM = `You write chapters for a tech-news podcast — one chapter per Hacker News story, read aloud by a text-to-speech voice.
 
-Rules:
-- Plain spoken prose only: no markdown, no headings, no bullet points, no URLs, no quotation formatting.
-- Open with a curiosity hook — one or two sentences that make the listener want to hear the rest. Never open with "Today" or the story title verbatim.
-- Then tell the story: what happened, why it matters, the interesting technical or human details. This is the heart of the chapter.
-- End with the community's reaction, introduced explicitly (for example "So what does the Hacker News crowd make of this?"). Summarize the main camps or sharpest points briefly. This closing section must take up NO MORE than 20% of the chapter — the story is the star, not the comments.
-- Around 400-600 words total.
-- Output ONLY the chapter text.`;
+VOICE: American network evening news. An anchor who is warm, unhurried and completely certain of the facts, talking to one person rather than to a crowd. Plain words, short sentences, active voice, real cadence. Authoritative without being stiff, interested without being breathless. Not a radio DJ, not a wire report, not a press release.
+
+Every chapter runs in this order:
+
+1. THE SLUG — the first thing out of your mouth, before the listener knows what the story is. Two clipped sentences at most; anchor fragments are welcome. It carries the weekday and date, and where the story ranked on Hacker News that day. Nothing else — no headline here, no hook here. For example:
+"Tuesday, August eighteenth. The number one story on Hacker News."
+"Wednesday the nineteenth. Second on the day, and it wasn't close — better than nine hundred votes."
+Give the date and the ranking every single time. Vary the wording; the point count can sit here or wait for the reveal.
+
+2. THE HOOK — one to three sentences that earn attention: a scene, a "picture this", a startling number, a question, a human detail. Never open it with "Today". Don't give away the headline yet.
+
+3. THE REVEAL — name the headline as the payoff of the hook, spoken into a sentence rather than announced. "The story is", "that's the story of", "the headline reads", "the post is titled" are all out; hang the headline on a person, a site, or the momentum of the sentence itself.
+
+4. THE STORY — the heart of the chapter. What happened, why it matters, the technical or human detail that makes it worth the time.
+
+5. THE ROOM — close on the Hacker News reaction, introduced explicitly (for example "So what does the Hacker News crowd make of this?"). The main camps or the sharpest points, briefly. No more than 20% of the chapter — the story is the star, not the comments.
+
+ACCURACY: everything you say comes from the material you were given. Don't invent numbers, quotes or events, and never guess at the real name, job or gender behind a Hacker News username — say "one commenter" or use the handle as written.
+
+TIME: the listener may be hearing this weeks after the fact, so "today", "yesterday", "this week" and "recently" are banned everywhere in the chapter. Anchor every reference to the weekday and date you were given.
+
+NUMBERS: speak them the way an anchor speaks them — rounded, in words. "Close to fourteen hundred points", never "1,385 points". Dates as spoken ordinals: "August eighteenth", never "August 18", and never the year. Read version numbers, symbols and abbreviations as they would be said aloud.
+
+This chapter will be heard back to back with a dozen others written the same way, so don't reach for the obvious phrasing. If a sentence reads like a form with the blanks filled in, write it again.
+
+FORMAT: plain spoken prose only. No markdown, no headings, no bullets, no URLs, no quotation marks around the headline, no stage directions, no speaker labels. Around 400-600 words. Output ONLY the chapter text.`;
+
+// Rotated per chapter so a run of 36 doesn't converge on one house opening
+const HOOK_STYLES = [
+  "Open on a concrete scene — a place, a moment, someone doing something — and let the headline land at the end of it.",
+  "Open on the single most startling fact or number in the story, then reveal the headline in the sentence that follows.",
+  "Open on a question the listener will want answered, and answer it by naming the headline.",
+  "Open on a small human detail or a sharp line from the discussion, then widen out to the headline.",
+];
 
 async function summarize(key, story, article, comments) {
   const user = [
-    `Story title: ${story.title}`,
-    story.url ? `Link domain: ${new URL(story.url).hostname}` : "",
-    story.day ? `Story day: ${story.day} (mention the timing only if it matters)` : "",
-    `Points: ${story.points ?? "?"}, comments: ${story.numComments ?? "?"}`,
+    `Headline: ${story.title}`,
+    story.url ? `Published on: ${new URL(story.url).hostname}` : "",
+    `Day: ${story.day}`,
+    `Rank: number ${story.rank} of the ${story.dayTotal} stories Hacker News saw that day`,
+    `Points: ${story.points ?? "?"} — Comments: ${story.numComments ?? "?"}`,
+    `Hook approach for this chapter: ${story.hookStyle}`,
     article ? `ARTICLE TEXT:\n${article}` : "ARTICLE TEXT: (could not be fetched — work from the title and discussion, and say so naturally if needed)",
     comments ? `HACKER NEWS DISCUSSION:\n${comments}` : "HACKER NEWS DISCUSSION: (none)",
   ].filter(Boolean).join("\n\n");
@@ -256,17 +297,21 @@ const byDay = (await mapLimit(days, 8, async (ymd) => {
     return null;
   }
 })).filter(Boolean);
-const all = byDay.flatMap(({ ymd, stories }) => stories.map((s) => ({ ...s, ymd })));
+const all = byDay.flatMap(({ ymd, stories }) =>
+  stories.map((s, i) => ({ ...s, ymd, rank: i + 1, dayTotal: stories.length })));
 if (all.length === 0) {
   console.error("No stories found in the range");
   process.exit(1);
 }
 
 const picked = PER_DAY
-  ? byDay.flatMap(({ ymd, stories }) => stories.slice(0, COUNT).map((s) => ({ ...s, ymd })))
+  ? all.filter((e) => e.rank <= COUNT)
   : [...all].sort((a, b) => (b.points ?? 0) - (a.points ?? 0)).slice(0, COUNT);
 const seen = new Set();
-const top = picked.filter((e) => !seen.has(String(e.id)) && seen.add(String(e.id)));
+// Chapters play day by day, biggest first within a day, whichever mode picked them
+const top = picked
+  .filter((e) => !seen.has(String(e.id)) && seen.add(String(e.id)))
+  .sort((a, b) => a.ymd.localeCompare(b.ymd) || a.rank - b.rank);
 progress(
   `${all.length} stories in ${days.length} day${days.length === 1 ? "" : "s"}; taking ${top.length} (${
     PER_DAY ? `top ${COUNT} per day` : `overall top ${COUNT}`
@@ -285,7 +330,7 @@ if (flag("--list")) {
       })))
     : top.map((e, i) => {
         const day = days.length > 1 ? `${dayLabel(e.ymd).padEnd(7)} ` : "";
-        return `${String(i + 1).padStart(2)}. ${day}${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`;
+        return `${String(i + 1).padStart(2)}. ${day}#${String(e.rank).padEnd(3)}${String(e.points).padStart(4)} pts  ${decodeEntities(e.link_text ?? "")}  (${e.link})`;
       }).join("\n");
   // process.exit truncates pending async pipe writes at 64KB — flush first
   await new Promise((resolve) => process.stdout.write(output + "\n", resolve));
@@ -327,18 +372,27 @@ const chapters = (await mapLimit(included, CONCURRENCY, async (entry, i) => {
   try {
     const story = await getJson(`https://hn.algolia.com/api/v1/items/${entry.id}`);
     const title = story.title ?? decodeEntities(entry.link_text ?? "Untitled");
-    console.log(`${tag} (${entry.points} pts) ${title}`);
+    console.log(`${tag} ${dayLabel(entry.ymd)} #${entry.rank} (${entry.points} pts) ${title}`);
     const article = story.url ? await fetchArticle(story.url) : stripHtml(story.text ?? "") || null;
     const comments = collectComments(story);
     const text = await summarize(
       key,
-      { title, url: story.url, day: days.length > 1 ? dayLabel(entry.ymd) : undefined, points: entry.points, numComments: entry.comments },
+      {
+        title,
+        url: story.url,
+        day: spokenDay(entry.ymd),
+        rank: entry.rank,
+        dayTotal: entry.dayTotal,
+        points: entry.points,
+        numComments: entry.comments,
+        hookStyle: HOOK_STYLES[i % HOOK_STYLES.length],
+      },
       article,
       comments,
     );
     console.log(`${tag} summarized (${text.split(/\s+/).length} words${article ? "" : ", article unavailable"})`);
     return {
-      title: days.length > 1 ? `${dayLabel(entry.ymd)}: ${title}` : title,
+      title: days.length > 1 ? `${dayLabel(entry.ymd)} #${entry.rank} — ${title}` : `#${entry.rank} — ${title}`,
       text,
       url: story.url ?? `https://news.ycombinator.com/item?id=${entry.id}`,
     };

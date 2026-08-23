@@ -58,7 +58,7 @@ The API comfortably handles bulk imports — e.g. a scraped blog archive as one 
 
 ## Example consumer: scripts/hn-top10.mjs
 
-Builds a podcast-style book from a day's top Hacker News stories — one chapter per story, curiosity-hook opening, community reaction explicitly signposted and capped at ~20% of the chapter:
+Builds a podcast-style book from a day's top Hacker News stories — one chapter per story, written in an American network-news register: a clipped anchor slug (weekday + that day's rank), a curiosity hook, the headline revealed as the hook's payoff, then the story, with the community reaction explicitly signposted and capped at ~20% of the chapter:
 
 ```sh
 node scripts/hn-top10.mjs                                  # today's top 10, chapters suspended for review
@@ -68,6 +68,6 @@ node scripts/hn-top10.mjs --from 2026-08-04 --to 2026-08-08 --count 5 --per-day 
 node scripts/hn-top10.mjs --synthesize --count 5           # queue TTS immediately
 ```
 
-Chapters in a range book are titled "Aug 8: Story title" so the day survives into the audio. Stories that fail to summarize are skipped with a log line instead of failing the whole run; `--concurrency` (default 5) controls parallel summaries. `--list --json` emits the selection as a JSON array (progress on stderr) — this backs the web modal's "Preview stories" list (`GET /scripts/hn-top10/preview`), where each story links out and can be unchecked; the build then passes the deselected ids via `--exclude`.
+Chapters play in day order, biggest story first within each day, in both selection modes; they are titled "Aug 8 #1 — Story title" ("#1 — Story title" for a single-day book) so the day and the rank survive into the player. Rank is the story's true position among everything hckrnews saw that day, so it stays honest in overall-top-N mode where a day may contribute its #1 and its #7. Each chapter is told the weekday, the rank, the day's story count and a rotating hook approach (four of them, cycled by position) so a 36-chapter run doesn't converge on one house opening. Stories that fail to summarize are skipped with a log line instead of failing the whole run; `--concurrency` (default 5) controls parallel summaries. `--list --json` emits the selection as a JSON array (progress on stderr) — this backs the web modal's "Preview stories" list (`GET /scripts/hn-top10/preview`), where each story links out and can be unchecked; the build then passes the deselected ids via `--exclude`.
 
 Needs `DEEPSEEK_API_KEY` (env or root `.env`) since the summarization runs in the script, not the server, plus the workspace-root deps (`pnpm install`). Story lists come from [hckrnews.com](https://hckrnews.com/) and replicate its "top 10" tab exactly: the site groups stories into UTC days (archived at `/data/YYYYMMDD.js` — one file is one day group) and shows each group's top N by points. For days not yet archived the group is reconstructed from `latest.js` plus the server-rendered homepage, cut by UTC date. Any historical day works even after stories drop off the HN front page (`--list` prints a day's top stories without creating anything, verified 1:1 against the site's top-10 view); comments come from the Algolia HN API. Article text is extracted with [Defuddle](https://github.com/kepano/defuddle) + linkedom (falls back to title + discussion when a site blocks fetching).
