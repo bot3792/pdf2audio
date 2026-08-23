@@ -97,6 +97,31 @@ describe("synthesize worker", () => {
     expect(chapter.synthesizedWith).toEqual({ voice: "bg-mlx:narrator", speed: null });
   });
 
+  it("never queues an assembly when the last chapter lands", async () => {
+    const db = getDb();
+    const bookId = crypto.randomUUID();
+    const chapterId = crypto.randomUUID();
+    const addJob = vi.fn();
+
+    await db.insert(books).values({ id: bookId, title: "Book", filename: "b.pdf", pdfPath: "/tmp/b.pdf" });
+    await db.insert(chapters).values({
+      id: chapterId,
+      bookId,
+      index: 0,
+      title: "Chapter 1",
+      rawText: "One.",
+      cleanText: "One.",
+    });
+
+    mockSynthesizeAudio.mockImplementation(async () => {});
+
+    await synthesizeWorker({ bookId, chapterId }, { addJob } as never);
+
+    const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
+    expect(chapter.status).toBe("done");
+    expect(addJob).not.toHaveBeenCalled();
+  });
+
   it("resume keeps existing chunk previews and drops only the last (possibly partial) one", async () => {
     const db = getDb();
     const bookId = crypto.randomUUID();

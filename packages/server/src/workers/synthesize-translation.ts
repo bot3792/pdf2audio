@@ -206,12 +206,7 @@ export async function synthesizeTranslation(
     const remaining = rows.filter((r) => r.audioStatus !== "done" && r.audioStatus !== "suspended");
     const suspended = rows.filter((r) => r.audioStatus === "suspended");
     if (rows.length > 0 && remaining.length === 0) {
-      if (suspended.length === 0) {
-        await log(`All ${label} chapters synthesized, queuing assembly`);
-        await addJob("assemble", { bookId, language: current.key }, { maxAttempts: 1 });
-      } else {
-        await log(`All queued ${label} chapters done (${suspended.length} suspended — queue them or assemble manually)`);
-      }
+      await log(`All queued ${label} chapters synthesized`);
     }
   } catch (err) {
     if (cancelPoll) {

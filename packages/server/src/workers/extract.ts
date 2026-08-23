@@ -7,6 +7,7 @@ import { registerExtractAbort, clearExtractAbort } from "../lib/extract-registry
 import { bookTmpDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import path from "node:path";
+import { assembleJobKey } from "../lib/output-readiness.ts";
 import { queueIndexBook } from "../lib/search-index.ts";
 
 export type ExtractPayload = {
@@ -60,11 +61,20 @@ export async function extract(payload: ExtractPayload, { addJob }: { addJob: Wor
       throw new Error("No chapters detected in any file");
     }
 
-    await log(
-      book.skipSynthesis
-        ? "Extraction complete in reader mode — chapters are suspended. Queue selected chapters when ready."
-        : "Extraction complete, queuing normalization"
-    );
+    if (book.skipSynthesis) {
+      await log("Extraction complete in reader mode — chapters are suspended. Queue selected chapters when ready.");
+    } else {
+      await log("Extraction complete, queuing normalization");
+      // The unattended upload path is the only one that promises an M4B. Recording that
+      // intent here as a waiting job keeps it visible instead of surprising the user at
+      // the end of every synthesis run.
+      await addJob("assemble", { bookId, waitForAll: true }, {
+        maxAttempts: 1,
+        jobKey: assembleJobKey(bookId),
+        jobKeyMode: "replace",
+      });
+      await log("M4B assembly queued — it runs once every chapter is synthesized");
+    }
     await queueIndexBook(bookId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

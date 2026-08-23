@@ -181,18 +181,7 @@ export async function synthesize(payload: SynthesizePayload, { addJob }: { addJo
       ));
 
     if (remaining.length === 0) {
-      // Check if there are any suspended chapters — if so, don't auto-assemble
-      const suspended = await db
-        .select()
-        .from(chapters)
-        .where(and(eq(chapters.bookId, bookId), eq(chapters.status, "suspended")));
-
-      if (suspended.length === 0) {
-        await log("All chapters synthesized, queuing assembly");
-        await addJob("assemble", { bookId }, { maxAttempts: 1 });
-      } else {
-        await log(`All queued chapters done (${suspended.length} suspended — queue them or assemble manually)`);
-      }
+      await log("All queued chapters synthesized");
     }
   } catch (err) {
     if (cancelPoll) {

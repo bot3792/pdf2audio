@@ -15,7 +15,7 @@ import { DiskUsageButton } from "../components/DiskUsageButton.tsx";
 import { ChapterAiModal, type AiScope } from "../components/ChapterAiModal.tsx";
 import { NotesSection } from "../components/NotesSection.tsx";
 import { loadBookSort, sortBooks } from "../lib/book-sort.ts";
-import { formatBytes, documentFormatLabel } from "../lib/format.ts";
+import { formatBytes, pendingExportLabel, pendingExportSummary } from "../lib/format.ts";
 import { getVoiceLabel, languageLabel } from "../lib/voices.ts";
 
 export function BookDetail() {
@@ -121,7 +121,8 @@ export function BookDetail() {
   });
   const deleteDocumentMutation = trpc.books.deleteDocument.useMutation({ onSuccess: invalidate });
   const { data: exportConfig } = trpc.books.exportConfig.useQuery();
-  const [copyToImport, setCopyToImport] = useState(false);
+  const [copyToImport, setCopyToImport] = useState(true);
+  const [waitForAll, setWaitForAll] = useState(true);
 
   // Chapter mutations
   const queueMutation = trpc.chapters.queue.useMutation({ onSuccess: invalidate });
@@ -322,7 +323,12 @@ export function BookDetail() {
     return t?.status === "translating" || t?.status === "pending";
   }).length;
   const allSelectedDone = selectedCount > 0 && viewChapters.filter((c) => c.selected).every((c) => c.status === "done" && c.audioPath);
-  const canAssemble = allSelectedDone && !isAssembling;
+  // Outputs that need audio can be queued behind the chapters still producing it
+  const selectedInFlight = viewChapters.filter((c) =>
+    c.selected && ["pending", "normalizing", "synthesizing"].includes(c.status)
+  ).length;
+  const deferOutputs = waitForAll && selectedInFlight > 0;
+  const canAssemble = (allSelectedDone || deferOutputs) && !isAssembling;
   // Language-view audio queueing is idempotent server-side, so running chapters don't block it
   const canProcess = selectedSynthesizable > 0 && !isAssembling && (!!activeVariant || !hasActiveChapters);
   const translationsRunning = activeVariant
@@ -360,14 +366,20 @@ export function BookDetail() {
   const viewPendingExports = pendingExports.filter((e) => (e.language ?? null) === activeVariant);
   const pendingExportFor = (format: "pdf" | "epub" | "epub-sync") => viewPendingExports.find((e) => e.format === format);
   const canExportDocument = selectedExportable > 0 && !isAssembling && !exportDocumentMutation.isPending;
+  const canExportSync = (selectedSyncExportable > 0 || deferOutputs) && !isAssembling && !exportDocumentMutation.isPending;
   const exportTooltip = (format: "pdf" | "epub") =>
-    pendingExportFor(format) ? `${format.toUpperCase()} export already ${pendingExportFor(format)!.running ? "rendering" : "queued"}`
+    pendingExportFor(format)?.running ? `${format.toUpperCase()} export is rendering`
+      : pendingExportFor(format) ? `${format.toUpperCase()} export ${pendingExportLabel(pendingExportFor(format)!)} — click again to replace it`
       : selectedExportable === 0
       ? (activeVariant ? `No selected chapters have finished ${activeLabel} text` : "No chapters selected")
       : isAssembling ? "Wait for the current assembly to finish"
       : `Render the selected chapters as ${format === "pdf" ? "a PDF" : "an EPUB"} book`;
+  const pendingSync = pendingExportFor("epub-sync");
   const syncExportTooltip =
-    pendingExportFor("epub-sync") ? `Synced EPUB export already ${pendingExportFor("epub-sync")!.running ? "rendering" : "queued"}`
+    pendingSync?.running ? "Synced EPUB export is rendering"
+      : pendingSync ? `Synced EPUB export ${pendingExportLabel(pendingSync)}${pendingSync.copyToDropDir ? ", will copy to the import folder" : ", will NOT copy to the import folder"} — click again to replace it with the settings above`
+      : deferOutputs
+      ? `Queue the export now — it runs once the ${selectedInFlight} chapter(s) still synthesizing are finished`
       : selectedSyncExportable === 0
       ? `No selected chapters have finished${activeVariant ? ` ${activeLabel}` : ""} audio`
       : isAssembling ? "Wait for the current assembly to finish"
@@ -875,24 +887,54 @@ export function BookDetail() {
                   )}
                 </button>
               </div>
+              {selectedInFlight > 0 && (
+                <div className="pt-3 flex items-center gap-2 flex-wrap" data-testid="output-timing">
+                  <span className="text-xs text-(--text-muted)">
+                    {selectedInFlight} of {selectedCount} selected chapter{selectedCount === 1 ? "" : "s"} still synthesizing —
+                  </span>
+                  <div className="inline-flex rounded-lg bg-(--bg-subtle) border border-(--border) p-0.5 gap-0.5">
+                    <button
+                      onClick={() => setWaitForAll(false)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                        waitForAll ? "text-(--text-muted) hover:text-(--text-secondary)" : "bg-(--bg-card) shadow-sm text-(--text-primary)"
+                      }`}
+                      title="Build straight away from the chapters that already have audio"
+                      data-testid="output-timing-now"
+                    >
+                      Ready now ({selectedWithAudio})
+                    </button>
+                    <button
+                      onClick={() => setWaitForAll(true)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                        waitForAll ? "bg-(--bg-card) shadow-sm text-(--text-primary)" : "text-(--text-muted) hover:text-(--text-secondary)"
+                      }`}
+                      title="Queue the job now — it runs by itself once no chapter is still synthesizing"
+                      data-testid="output-timing-wait"
+                    >
+                      When all {selectedCount} finish
+                    </button>
+                  </div>
+                </div>
+              )}
               <div className={`pt-3 space-y-3 ${createTab === "audio" ? "" : "hidden"}`}>
                 <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() =>
                     activeVariant
-                      ? assembleVariantMutation.mutate({ bookId: book.id, key: activeVariant })
-                      : assembleMutation.mutate({ id: book.id })
+                      ? assembleVariantMutation.mutate({ bookId: book.id, key: activeVariant, waitForAll: deferOutputs })
+                      : assembleMutation.mutate({ id: book.id, waitForAll: deferOutputs })
                   }
                   disabled={!canAssemble || assembleMutation.isPending || assembleVariantMutation.isPending}
                   title={
                     selectedCount === 0 ? "No chapters selected" :
+                    deferOutputs ? `Queue the assembly now — it runs once the ${selectedInFlight} chapter(s) still synthesizing are finished` :
                     !allSelectedDone ? "All selected chapters must be done with audio" :
                     isAssembling ? "Assembly already in progress" :
                     undefined
                   }
                   className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {book.outputPath ? "Re-assemble" : "Assemble"} selected ({selectedWithAudio}){langSuffix}
+                  {book.outputPath ? "Re-assemble" : "Assemble"}{deferOutputs ? " when ready" : " selected"} ({deferOutputs ? selectedCount : selectedWithAudio}){langSuffix}
                 </button>
                 <button
                   onClick={() => {
@@ -921,7 +963,7 @@ export function BookDetail() {
                 <div className="flex items-start gap-2 flex-wrap">
                   <button
                     onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeVariant ?? undefined, format: "pdf" })}
-                    disabled={!canExportDocument || !!pendingExportFor("pdf")}
+                    disabled={!canExportDocument || !!pendingExportFor("pdf")?.running}
                     title={exportTooltip("pdf")}
                     className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     data-testid="export-pdf"
@@ -930,7 +972,7 @@ export function BookDetail() {
                   </button>
                   <button
                     onClick={() => exportDocumentMutation.mutate({ id: book.id, language: activeVariant ?? undefined, format: "epub" })}
-                    disabled={!canExportDocument || !!pendingExportFor("epub")}
+                    disabled={!canExportDocument || !!pendingExportFor("epub")?.running}
                     title={exportTooltip("epub")}
                     className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     data-testid="export-epub"
@@ -944,13 +986,14 @@ export function BookDetail() {
                         language: activeVariant ?? undefined,
                         format: "epub-sync",
                         copyToDropDir: !!exportConfig?.readaloudDropDir && copyToImport,
+                        waitForAll: deferOutputs,
                       })}
-                      disabled={selectedSyncExportable === 0 || isAssembling || exportDocumentMutation.isPending || !!pendingExportFor("epub-sync")}
+                      disabled={!canExportSync || !!pendingExportFor("epub-sync")?.running}
                       title={syncExportTooltip}
                       className="px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       data-testid="export-epub-sync"
                     >
-                      Export synced EPUB ({selectedSyncExportable}){langSuffix}
+                      Export synced EPUB{deferOutputs ? " when ready" : ""} ({deferOutputs ? selectedCount : selectedSyncExportable}){langSuffix}
                     </button>
                     {exportConfig?.readaloudDropDir && (
                       <label
@@ -971,7 +1014,7 @@ export function BookDetail() {
                   {viewPendingExports.length > 0 && (
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400" data-testid="export-pending-inline">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                      {viewPendingExports.map((p) => `${documentFormatLabel(p.format)} ${p.running ? "rendering" : "queued"}`).join(" · ")}...
+                      {viewPendingExports.map(pendingExportSummary).join(" · ")}...
                     </span>
                   )}
                 </div>

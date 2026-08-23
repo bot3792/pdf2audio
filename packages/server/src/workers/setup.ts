@@ -92,8 +92,8 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
     name: "assembly", // ffmpeg concat / Vivliostyle render — independent of marker, must not queue behind a long extraction
     concurrency: 1,
     taskList: {
-      assemble: wrapTask("assemble", (payload) => assemble(payload as any)),
-      assembleDocument: wrapTask("assembleDocument", (payload) => assembleDocument(payload as any)),
+      assemble: wrapTask("assemble", (payload, helpers) => assemble(payload as any, helpers)),
+      assembleDocument: wrapTask("assembleDocument", (payload, helpers) => assembleDocument(payload as any, helpers)),
     },
   },
   {

@@ -68,7 +68,12 @@ describe("extract worker", () => {
     expect(chs).toHaveLength(3);
     expect(chs.map((c) => c.index)).toEqual([0, 1, 2]);
     expect(chs.map((c) => c.sourceFileIndex)).toEqual([null, null, null]);
-    expect(addJob).toHaveBeenCalledTimes(3); // normalize for each chapter
+    expect(addJob).toHaveBeenCalledTimes(4); // normalize per chapter, plus the deferred assembly
+    expect(addJob).toHaveBeenCalledWith(
+      "assemble",
+      { bookId, waitForAll: true },
+      expect.objectContaining({ jobKey: `assemble:${bookId}:original` }),
+    );
 
     const [book] = await db.select().from(books).where(eq(books.id, bookId));
     expect(book.totalChapters).toBe(3);
@@ -169,6 +174,7 @@ describe("extract worker", () => {
 
     const chs = await db.select().from(chapters).where(eq(chapters.bookId, bookId));
     expect(chs.every((c) => c.status === "suspended")).toBe(true);
+    // Reader mode promises no audio, so it must not promise an M4B either
     expect(addJob).not.toHaveBeenCalled();
   });
 

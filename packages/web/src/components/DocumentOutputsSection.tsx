@@ -1,4 +1,4 @@
-import { formatOutputDate, documentFormatLabel, type DocumentFormat } from "../lib/format.ts";
+import { formatOutputDate, documentFormatLabel, pendingExportSummary, type DocumentFormat } from "../lib/format.ts";
 
 export type DocumentRow = {
   id: string;
@@ -13,6 +13,8 @@ export type PendingExport = {
   format: DocumentFormat;
   language: string | null;
   running: boolean;
+  waiting: boolean;
+  copyToDropDir: boolean;
 };
 
 export function DocumentOutputsSection({
@@ -36,7 +38,7 @@ export function DocumentOutputsSection({
         {pending.length > 0 && (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 ml-3" data-testid="export-pending">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            {pending.map((p) => `${documentFormatLabel(p.format)} ${p.running ? "rendering" : "queued"}`).join(" · ")}...
+            {pending.map(pendingExportSummary).join(" · ")}...
           </span>
         )}
       </h2>

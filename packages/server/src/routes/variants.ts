@@ -12,6 +12,7 @@ import { languageSlug, translationChunkPreviewDir } from "../workers/synthesize-
 import { getTransformPreset, TRANSFORM_PRESETS } from "../lib/transform-presets.ts";
 import { inferVariantLabel, variantKeySlug, variantLabel } from "../lib/transform.ts";
 import { dirSize } from "../lib/disk-usage.ts";
+import { assembleJobKey, inFlightInputs } from "../lib/output-readiness.ts";
 import { stat, unlink, rm } from "node:fs/promises";
 import type { SourceBlock } from "../lib/marker.ts";
 
@@ -624,14 +625,22 @@ export const variantsRouter = router({
     }),
 
   assemble: publicProcedure
-    .input(z.object({ bookId: z.string().uuid(), key: z.string().min(1) }))
+    .input(z.object({ bookId: z.string().uuid(), key: z.string().min(1), waitForAll: z.boolean().optional() }))
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.bookId));
       if (!book) throw new Error("Book not found");
       if (book.status === "assembling") throw new Error("Assembly already in progress");
 
-      await appendLog(input.bookId, `Queued ${input.key} assembly`);
-      await quickAddJob({ connectionString }, "assemble", { bookId: input.bookId, language: input.key }, { maxAttempts: 1 });
+      const waiting = input.waitForAll ? await inFlightInputs(input.bookId, input.key, "audio") : 0;
+      await appendLog(input.bookId, waiting > 0
+        ? `Queued ${input.key} assembly once ${waiting} chapter${waiting !== 1 ? "s" : ""} finish${waiting === 1 ? "es" : ""}`
+        : `Queued ${input.key} assembly`);
+      await quickAddJob(
+        { connectionString },
+        "assemble",
+        { bookId: input.bookId, language: input.key, waitForAll: input.waitForAll },
+        { maxAttempts: 1, jobKey: assembleJobKey(input.bookId, input.key), jobKeyMode: "replace" },
+      );
       return { success: true };
     }),
 

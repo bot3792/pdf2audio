@@ -17,6 +17,7 @@ import { chapterChunkPreviewDir } from "../lib/chunk-previews.ts";
 import { translationChunkPreviewDir } from "../workers/synthesize-translation.ts";
 import { insertSuspendedChapters, resetChaptersKeepingInserted } from "../lib/insert-chapters.ts";
 import { countAsciiNonAscii } from "../lib/token-estimate.ts";
+import { assembleJobKey, documentJobKey, inFlightInputs } from "../lib/output-readiness.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { mkdir, unlink, rm } from "node:fs/promises";
@@ -934,7 +935,7 @@ export const booksRouter = router({
     }),
 
   assemble: publicProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.string().uuid(), waitForAll: z.boolean().optional() }))
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       if (!book) throw new Error("Book not found");
@@ -949,7 +950,8 @@ export const booksRouter = router({
         ));
 
       const withAudio = selectedDone.filter((ch) => ch.audioPath);
-      if (withAudio.length === 0) {
+      const waiting = input.waitForAll ? await inFlightInputs(input.id, null, "audio") : 0;
+      if (withAudio.length === 0 && waiting === 0) {
         throw new Error("No selected chapters with audio available for assembly");
       }
 
@@ -958,8 +960,15 @@ export const booksRouter = router({
         .set({ outputPath: null, error: null, updatedAt: new Date() })
         .where(eq(books.id, input.id));
 
-      await appendLog(input.id, `Queuing assembly (${withAudio.length} selected chapter${withAudio.length !== 1 ? "s" : ""} with audio)`);
-      await quickAddJob({ connectionString }, "assemble", { bookId: input.id }, { maxAttempts: 1 });
+      await appendLog(input.id, waiting > 0
+        ? `Queuing assembly once ${waiting} chapter${waiting !== 1 ? "s" : ""} finish${waiting === 1 ? "es" : ""} synthesizing`
+        : `Queuing assembly (${withAudio.length} selected chapter${withAudio.length !== 1 ? "s" : ""} with audio)`);
+      await quickAddJob(
+        { connectionString },
+        "assemble",
+        { bookId: input.id, waitForAll: input.waitForAll },
+        { maxAttempts: 1, jobKey: assembleJobKey(input.id), jobKeyMode: "replace" },
+      );
 
       const [updated] = await db.select().from(books).where(eq(books.id, input.id));
       return updated;
@@ -976,11 +985,16 @@ export const booksRouter = router({
       language: z.string().min(1).optional(),
       format: z.enum(["pdf", "epub", "epub-sync"]),
       copyToDropDir: z.boolean().optional(),
+      waitForAll: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const [book] = await db.select().from(books).where(eq(books.id, input.id));
       if (!book) throw new Error("Book not found");
       if (book.status === "assembling") throw new Error("Assembly already in progress");
+
+      const waitingFor = input.waitForAll
+        ? await inFlightInputs(input.id, input.language ?? null, input.format === "epub-sync" ? "audio" : "text")
+        : 0;
 
       let exportable: number;
       if (input.format === "epub-sync") {
@@ -1004,7 +1018,7 @@ export const booksRouter = router({
             .where(and(eq(chapters.bookId, input.id), eq(chapters.selected, true), eq(chapters.status, "done")));
           exportable = rows.length;
         }
-        if (exportable === 0) {
+        if (exportable === 0 && waitingFor === 0) {
           throw new Error(input.language
             ? `No selected chapters have finished ${input.language} audio`
             : "No selected chapters have finished audio");
@@ -1028,20 +1042,29 @@ export const booksRouter = router({
           .where(and(eq(chapters.bookId, input.id), eq(chapters.selected, true)));
         exportable = rows.length;
       }
-      if (exportable === 0) {
+      if (exportable === 0 && waitingFor === 0) {
         throw new Error(input.language
           ? `No selected chapters have a finished ${input.language} translation`
           : "No chapters selected");
       }
 
       const formatLabel = input.format === "epub-sync" ? "synced EPUB" : input.format.toUpperCase();
-      await appendLog(input.id, `Queuing ${formatLabel} export (${exportable} chapter${exportable !== 1 ? "s" : ""})${input.language ? ` · ${input.language}` : ""}`);
+      const langLabel = input.language ? ` · ${input.language}` : "";
+      await appendLog(input.id, waitingFor > 0
+        ? `Queuing ${formatLabel} export once ${waitingFor} chapter${waitingFor !== 1 ? "s" : ""} finish${waitingFor === 1 ? "es" : ""}${langLabel}`
+        : `Queuing ${formatLabel} export (${exportable} chapter${exportable !== 1 ? "s" : ""})${langLabel}`);
       // jobKey: repeat clicks replace the queued job instead of stacking duplicates
       await quickAddJob(
         { connectionString },
         "assembleDocument",
-        { bookId: input.id, language: input.language, format: input.format, copyToDropDir: input.copyToDropDir },
-        { maxAttempts: 1, jobKey: `assembleDocument:${input.id}:${input.format}:${input.language ?? "original"}`, jobKeyMode: "replace" },
+        {
+          bookId: input.id,
+          language: input.language,
+          format: input.format,
+          copyToDropDir: input.copyToDropDir,
+          waitForAll: input.waitForAll,
+        },
+        { maxAttempts: 1, jobKey: documentJobKey(input.id, input.format, input.language), jobKeyMode: "replace" },
       );
       return { success: true };
     }),
@@ -1050,12 +1073,20 @@ export const booksRouter = router({
     .input(z.object({ bookId: z.string().uuid() }))
     .query(async ({ input }) => {
       const rows = (await db.execute(sql`
-        SELECT j.payload->>'format' AS format, j.payload->>'language' AS language, j.locked_at IS NOT NULL AS running
+        SELECT j.payload->>'format' AS format, j.payload->>'language' AS language,
+               j.locked_at IS NOT NULL AS running, j.run_at > now() AS waiting,
+               COALESCE((j.payload->>'copyToDropDir')::boolean, false) AS copy_to_drop_dir
         FROM graphile_worker._private_jobs j
         JOIN graphile_worker._private_tasks t ON t.id = j.task_id
         WHERE t.identifier = 'assembleDocument' AND j.payload->>'bookId' = ${input.bookId}
-      `)) as unknown as Array<{ format: "pdf" | "epub" | "epub-sync"; language: string | null; running: boolean }>;
-      return rows;
+      `)) as unknown as Array<{
+        format: "pdf" | "epub" | "epub-sync";
+        language: string | null;
+        running: boolean;
+        waiting: boolean;
+        copy_to_drop_dir: boolean;
+      }>;
+      return rows.map(({ copy_to_drop_dir, ...row }) => ({ ...row, copyToDropDir: copy_to_drop_dir }));
     }),
 
   documents: publicProcedure

@@ -6,17 +6,37 @@ import { generateCover } from "../lib/cover.ts";
 import { bookOutputDir } from "../lib/paths.ts";
 import { appendLog } from "../lib/log.ts";
 import { languageSlug } from "./synthesize-translation.ts";
+import { assembleJobKey, deferUntilInputsSettle } from "../lib/output-readiness.ts";
+import type { WorkerUtils } from "graphile-worker";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
 
 export type AssemblePayload = {
   bookId: string;
   language?: string;
+  waitForAll?: boolean;
+  waitingSince?: string;
 };
 
-export async function assemble(payload: AssemblePayload) {
+export async function assemble(
+  payload: AssemblePayload,
+  { addJob }: { addJob: WorkerUtils["addJob"] },
+) {
   const { bookId, language } = payload;
   const log = (msg: string) => appendLog(bookId, msg);
+
+  if (payload.waitForAll) {
+    const deferred = await deferUntilInputsSettle({
+      identifier: "assemble",
+      payload,
+      jobKey: assembleJobKey(bookId, language),
+      language,
+      needs: "audio",
+      addJob,
+      log,
+    });
+    if (deferred) return;
+  }
 
   await db.update(books).set({ status: "assembling", updatedAt: new Date() }).where(eq(books.id, bookId));
   await log(language ? `Starting assembly (${language})` : "Starting assembly");
@@ -63,6 +83,13 @@ export async function assemble(payload: AssemblePayload) {
     }
 
     if (chaptersWithAudio.length === 0) {
+      // A deferred assembly was queued before the audio existed; if none ever arrived
+      // that is the synthesis's failure to report, not the assembly's
+      if (payload.waitForAll) {
+        await log("Nothing to assemble — no selected chapter finished with audio");
+        await db.update(books).set({ status: "done", updatedAt: new Date() }).where(eq(books.id, bookId));
+        return;
+      }
       throw new Error(language
         ? `No selected chapters with ${language} audio available for assembly`
         : "No selected chapters with audio available for assembly");

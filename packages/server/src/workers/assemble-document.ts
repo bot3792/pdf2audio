@@ -9,7 +9,9 @@ import { languageSlug, translationChunkPreviewDir } from "./synthesize-translati
 import { chapterChunkPreviewDir } from "../lib/chunk-previews.ts";
 import { ensureSyncMap } from "../lib/sync-map.ts";
 import { buildReadaloudEpub, type ReadaloudChapter } from "../lib/readaloud-epub.ts";
-import { mkdir, writeFile, unlink, rm, copyFile } from "node:fs/promises";
+import { deferUntilInputsSettle, documentJobKey } from "../lib/output-readiness.ts";
+import type { WorkerUtils } from "graphile-worker";
+import { mkdir, writeFile, unlink, rm, copyFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { env } from "../env.ts";
 
@@ -18,12 +20,30 @@ export type AssembleDocumentPayload = {
   language?: string;
   format: "pdf" | "epub" | "epub-sync";
   copyToDropDir?: boolean;
+  waitForAll?: boolean;
+  waitingSince?: string;
 };
 
-export async function assembleDocument(payload: AssembleDocumentPayload) {
+export async function assembleDocument(
+  payload: AssembleDocumentPayload,
+  { addJob }: { addJob: WorkerUtils["addJob"] },
+) {
   const { bookId, language, format } = payload;
   const log = (msg: string) => appendLog(bookId, msg);
   const formatLabel = format === "epub-sync" ? "synced EPUB" : format.toUpperCase();
+
+  if (payload.waitForAll) {
+    const deferred = await deferUntilInputsSettle({
+      identifier: "assembleDocument",
+      payload,
+      jobKey: documentJobKey(bookId, format, language),
+      language,
+      needs: format === "epub-sync" ? "audio" : "text",
+      addJob,
+      log,
+    });
+    if (deferred) return;
+  }
 
   await db.update(books).set({ status: "assembling", updatedAt: new Date() }).where(eq(books.id, bookId));
   await log(language ? `Starting ${formatLabel} export (${language})` : `Starting ${formatLabel} export`);
@@ -259,7 +279,18 @@ async function assembleReadaloud(
   if (copyToDropDir && env.READALOUD_DROP_DIR) {
     try {
       await mkdir(env.READALOUD_DROP_DIR, { recursive: true });
-      await copyFile(outputPath, path.join(env.READALOUD_DROP_DIR, path.basename(outputPath)));
+      // Storyteller's watch folder skips the entire directory while it holds more than one
+      // read-along EPUB ("multiple epubs of the same kind"), so a re-export has to replace
+      // its predecessor rather than pile up beside it — otherwise nothing imports again.
+      const superseded = `${sanitizeFilename(bookTitle)}${suffix}_readaloud_`;
+      const keep = path.basename(outputPath);
+      for (const name of await readdir(env.READALOUD_DROP_DIR)) {
+        if (name !== keep && name.startsWith(superseded) && name.endsWith(".epub")) {
+          await unlink(path.join(env.READALOUD_DROP_DIR, name)).catch(() => {});
+          await log(`Removed superseded staged export ${name} from the import folder`);
+        }
+      }
+      await copyFile(outputPath, path.join(env.READALOUD_DROP_DIR, keep));
       await log(`Copied synced EPUB to import folder (${env.READALOUD_DROP_DIR})`);
     } catch (err) {
       await log(`Could not copy to import folder: ${err instanceof Error ? err.message : String(err)}`);
