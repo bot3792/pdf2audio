@@ -488,12 +488,12 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
                     {book.title}
                   </Link>
                   {book.kind === "digest" && (
-                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 align-middle" title="Digest — AI summary chapters from other books">
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 align-middle" data-testid="digest-badge" title="Digest — AI summary chapters from other books">
                       digest
                     </span>
                   )}
                   {book.kind === "api" && (
-                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300 align-middle" title="Created through the external API by a script or another project">
+                    <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300 align-middle" data-testid="api-badge" title="Created through the external API by a script or another project">
                       api
                     </span>
                   )}

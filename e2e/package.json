@@ -1,0 +1,16 @@
+{
+  "name": "@pdf2audio/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke": "playwright test --grep-invert @slow",
+    "full": "playwright test",
+    "ui": "playwright test --ui",
+    "fixtures:pdf": "node fixtures/make-fixture-pdf.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^22.10.0",
+    "pdfkit": "^0.17.1"
+  }
+}

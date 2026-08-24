@@ -393,6 +393,7 @@ export function ChapterTable({
               return (
                 <tr
                   key={chapter.id}
+                  data-testid="chapter-row"
                   draggable={!!canDrag}
                   onDragStart={(e) => {
                     if (!canDrag) return;
@@ -533,6 +534,7 @@ export function ChapterTable({
                               : "text-(--text-faint) hover:text-(--text-secondary)"
                           }`}
                           title={playingChapterId === chapter.id && isAudioPlaying ? "Pause" : "Play"}
+                          data-testid="chapter-play"
                         >
                           {playingChapterId === chapter.id && isAudioPlaying ? "\u23F8" : "\u25B6"}
                         </button>

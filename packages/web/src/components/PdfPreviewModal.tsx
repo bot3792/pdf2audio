@@ -13,7 +13,7 @@ export function PdfPreviewModal({
 }) {
   useBodyScrollLock();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose} data-testid="pdf-preview-modal">
       <div className="bg-(--bg-card) rounded-lg shadow-xl w-[90vw] h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-(--border)">
           <span className="text-sm font-medium text-(--text-primary)">
@@ -22,6 +22,7 @@ export function PdfPreviewModal({
           </span>
           <button
             onClick={onClose}
+            title="Close"
             className="text-(--text-faint) hover:text-(--text-tertiary) p-1"
           >
             <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

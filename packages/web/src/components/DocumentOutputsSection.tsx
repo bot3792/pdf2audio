@@ -47,7 +47,7 @@ export function DocumentOutputsSection({
       ) : (
         <ul className="divide-y divide-(--divide) rounded-lg border border-(--border)">
           {documents.map((doc) => (
-            <li key={doc.id} className="px-3 py-2.5 flex items-center gap-2 hover:bg-(--bg-card-hover)">
+            <li key={doc.id} className="px-3 py-2.5 flex items-center gap-2 hover:bg-(--bg-card-hover)" data-testid="document-row">
               <span className="text-sm text-(--text-secondary)">{formatOutputDate(doc.createdAt)}</span>
               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 uppercase">
                 {documentFormatLabel(doc.format)}
@@ -60,6 +60,7 @@ export function DocumentOutputsSection({
                   href={`/download/document/${doc.id}`}
                   download={doc.outputPath.split("/").pop()}
                   className="text-xs text-green-600 hover:text-green-800 font-medium"
+                  data-testid="document-download"
                 >
                   Download
                 </a>

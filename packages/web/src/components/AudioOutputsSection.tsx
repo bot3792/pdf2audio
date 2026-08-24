@@ -33,7 +33,7 @@ export function AudioOutputsSection({
           {assemblies.map((assembly) => {
             const isLatest = assembly.outputPath === latestOutputPath;
             return (
-              <li key={assembly.id} className="px-3 py-2.5 hover:bg-(--bg-card-hover)">
+              <li key={assembly.id} className="px-3 py-2.5 hover:bg-(--bg-card-hover)" data-testid="assembly-row">
                 <div className="flex items-center gap-2 text-sm text-(--text-secondary)">
                   {formatOutputDate(assembly.createdAt)}
                   {isLatest && (
@@ -54,6 +54,7 @@ export function AudioOutputsSection({
                     href={`/download/assembly/${assembly.id}`}
                     download={assembly.outputPath.split("/").pop()}
                     className="text-xs text-green-600 hover:text-green-800 font-medium shrink-0"
+                    data-testid="assembly-download"
                   >
                     Download
                   </a>

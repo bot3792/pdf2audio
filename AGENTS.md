@@ -471,6 +471,35 @@ pnpm jobs:clear       # Delete all jobs from the Graphile Worker queue
 pnpm backfill:index   # Queue search indexing for all books (skips done; --force redoes)
 ```
 
+## E2E Suite (`e2e/`)
+
+Playwright suite mirroring the five intro videos' promises (`docs/use-cases.md`); see
+`e2e/README.md` for conventions. Runs against an already-running dev server — there is
+no Docker path and no webServer autostart.
+
+```bash
+pnpm e2e:smoke        # fast tier (~5s) — while developing / before committing
+pnpm e2e:full         # everything incl. @slow (marker, TTS, exports) — before pushing
+pnpm e2e:ui           # Playwright UI mode
+```
+
+Facts agents get wrong without reading the suite first:
+
+- **`POST /api/books` is the fast chapter factory.** Chapters land instantly (suspended,
+  default-selected, synthesizable) — use it for any spec needing chapters instead of
+  waiting minutes for marker. Only UC1's extraction specs upload a real PDF.
+- **The fake LLM registers at runtime, no restart.** `configModels()` in `lib/llm.ts`
+  hot-reloads `DATA_DIR/llm-models.json` on mtime change; the e2e fixture writes stub
+  entries there and restores the file. Never reach for `LOCAL_LLM_URL` + restart. The
+  stub also scripts one OpenAI tool-calling round so agentic chat runs offline.
+- **tRPC speaks plain JSON over HTTP** (no transformer): query via
+  `GET /trpc/<proc>?input=<url-encoded JSON>`, mutate via POST with the raw input as
+  body, unwrap `{result:{data}}`. Profile scoping is the `x-profile-id` header.
+- **Test isolation is profile-per-test** with self-healing: `profiles.delete` refuses a
+  non-empty profile, so teardown drains folders (which cascade their books) then root
+  books first — `purgeProfile()` in `e2e/tests/helpers/trpc.ts` owns that order, and
+  global setup sweeps state left by interrupted runs.
+
 ## Gotchas
 
 - Docker Postgres is on port **5433**, not 5432. Another Docker postgres may conflict — check `docker ps`.
@@ -491,6 +520,10 @@ pnpm backfill:index   # Queue search indexing for all books (skips done; --force
 - **Kokoro's non-English voices take a different G2P path.** `pipeline.g2p()` returns `(phonemes, None)` for espeak-backed languages, and `en_tokenize` is English-only — feeding it that `None` is what silently broke every non-English voice until 2026-08-22. `scripts/synthesize.py` branches on `tokens is None`. Japanese is deliberately absent from the picker (needs a MeCab/fugashi stack + ~700 MB dictionary, and downgrades `wasabi` under spaCy); Mandarin works via the pinned `misaki[zh]` chain.
 - **`HF_HUB_OFFLINE=1`** is set on all Python subprocesses. Models must be cached locally before first use. If a model is missing, the subprocess will fail (not download).
 - **TTS voice licensing is mixed across engines** — some voices are non-commercial-only. Nothing binds while the project is PolyForm Noncommercial, so no voice is excluded today. Read [docs/tts-licensing.md](docs/tts-licensing.md) before relicensing, charging for hosting, or exposing an engine to paying users.
+- **Voice ids are engine-prefixed lowercase slugs** — `say:samantha`, not `say:Samantha`. `parseTtsVoice()` in `lib/tts.ts` validates per engine; the `say` slugs come from `sayVoiceSlug()` lowercasing the macOS voice name.
+- **Destructive UI actions confirm via native `confirm()`** (apply chapter boundaries, delete audio, delete folder…), not custom modals. Browser automation dismisses these by default — Playwright needs `page.once("dialog", d => d.accept())` before the click.
+- **Document exports are serialized per book** — a second `books.exportDocument` while one renders throws "Assembly already in progress". The UI only disables the clicked format's button, so the other format's button is enabled but will error.
+- **`books.list` returns `{folders, books}`**, and the root listing hides books that live inside folders — deleting "all a profile's books" via the root list alone misses foldered ones.
 
 ## Pending Task Files
 

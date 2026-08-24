@@ -32,8 +32,11 @@ export function BookDetail() {
       refetchInterval: (query) => {
         const data = query.state.data;
         if (!data) return 3000;
-        const hasActiveFiles = data.files?.some((f: { status: string }) =>
-          f.status === "extracting" || f.status === "pending"
+        // Raw-only files never get another status change, so poll only briefly after
+        // upload — a scanned PDF's rawText stays null forever
+        const hasActiveFiles = data.files?.some((f: { status: string; hasRawText?: boolean; createdAt?: string }) =>
+          f.status === "extracting" || f.status === "pending" ||
+          (f.status === "raw" && !f.hasRawText && Date.now() - new Date(f.createdAt ?? 0).getTime() < 2 * 60_000)
         );
         const hasActiveChapters = data.chapters?.some((c: { status: string }) =>
           ["synthesizing", "normalizing", "pending"].includes(c.status)
@@ -934,6 +937,7 @@ export function BookDetail() {
                     undefined
                   }
                   className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  data-testid="assemble-button"
                 >
                   {book.outputPath ? "Re-assemble" : "Assemble"}{deferOutputs ? " when ready" : " selected"} ({deferOutputs ? selectedCount : selectedWithAudio}){langSuffix}
                 </button>

@@ -173,6 +173,8 @@ pnpm run setup        # Full setup (deps check, .venv + pinned Python deps, mode
 pnpm jobs             # Show Graphile Worker queue status
 pnpm jobs:clear       # Delete all queued jobs
 cd packages/server && pnpm test   # Server test suite (spins up template DB, runs migrations)
+pnpm e2e:smoke        # Playwright e2e, fast tier (needs the dev server running; see e2e/README.md)
+pnpm e2e:full         # Everything incl. slow tests (marker, TTS, exports)
 ```
 
 ## Notes
