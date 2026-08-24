@@ -44,7 +44,6 @@ export function PdfCanvas({
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
-  const [rendered, setRendered] = useState(false);
   const [x, y, width, height] = crop;
 
   useEffect(() => {
@@ -74,7 +73,6 @@ export function PdfCanvas({
       canvas.width = Math.round(width * scale);
       canvas.height = Math.round(height * scale);
       await page.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport }).promise;
-      if (!cancelled) setRendered(true);
     })().catch(() => {});
 
     return () => { cancelled = true; };
@@ -97,7 +95,9 @@ export function PdfCanvas({
       }}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
-      {rendered ? children : null}
+      {/* Drawn whether or not the page has painted yet: the box is already the right size and in
+          the right place, so this is what lets the reader be scrolled to a page it has not reached */}
+      {children}
     </div>
   );
 }

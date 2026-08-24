@@ -146,21 +146,31 @@ export function Reader() {
     setMs(to);
   };
 
-  useEffect(() => {
-    if (Date.now() - lastGestureRef.current < FOLLOW_PAUSE_MS) return;
+  const showCue = useCallback((force: boolean) => {
     const target = document.querySelector('[data-testid="cue-rect"], [data-testid="text-cue-active"]');
     if (!target) return;
 
     // Only move when the cue has left the band, then land it high enough that the next several
     // cues fit below — following along should scroll in stretches, not on every sentence
     const box = target.getBoundingClientRect();
-    if (box.top >= FOLLOW_TOP && box.top <= window.innerHeight - FOLLOW_BOTTOM) return;
+    if (!force && box.top >= FOLLOW_TOP && box.top <= window.innerHeight - FOLLOW_BOTTOM) return;
 
     window.scrollTo({
       top: window.scrollY + box.top - window.innerHeight * FOLLOW_LANDING,
       behavior: reducedMotion() ? "auto" : "smooth",
     });
-  }, [activeIndex, view]);
+  }, []);
+
+  useEffect(() => {
+    if (Date.now() - lastGestureRef.current < FOLLOW_PAUSE_MS) return;
+    showCue(false);
+  }, [activeIndex, showCue]);
+
+  // Switching view relays the whole document out — a column is not where its page was — so the
+  // place being read has to be found again rather than left wherever the old scroll position lands
+  useEffect(() => {
+    showCue(true);
+  }, [view, showCue]);
 
   const fit = useMemo(() => {
     const cropWidth = spreads[0]?.crop[2] ?? pages[0]?.w ?? 0;
