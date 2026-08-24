@@ -130,11 +130,13 @@ export function ChapterModal({
   const activeCueIndex = cues ? cueIndexAt(cues.cues, ms) : -1;
 
   const activeWordIndex = cues && activeCueIndex >= 0 ? wordIndexAt(cues.cues[activeCueIndex], ms) : -1;
+  const followAnchor = `${chapter.id}:${viewMode}`;
+  const settledAt = useRef("");
 
   // The modal scrolls its own panel rather than the window, which followCue works out for itself
   useEffect(() => {
-    followCue(false, MODAL_BAND);
-  }, [activeCueIndex, activeWordIndex, viewMode]);
+    if (followCue(MODAL_BAND, { jump: settledAt.current !== followAnchor })) settledAt.current = followAnchor;
+  }, [activeCueIndex, activeWordIndex, followAnchor]);
 
   // Reading along on the page is the experience; text is the fallback when there is no page
   useEffect(() => {

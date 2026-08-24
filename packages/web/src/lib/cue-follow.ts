@@ -40,13 +40,16 @@ function span(elements: Element[], viewTop: number): Span | null {
   return top === Infinity ? null : { top, bottom };
 }
 
-export function followCue(force: boolean, band: FollowBand): void {
+// jump: land the cue now and without animation — a new chapter or view has nothing on screen
+// whose movement would mean anything, and sliding there from the last one only jiggles.
+// Returns whether there was a cue to place at all.
+export function followCue(band: FollowBand, { jump = false } = {}): boolean {
   watchGestures();
-  if (!force && Date.now() - lastGesture < PAUSE_MS) return;
+  if (!jump && Date.now() - lastGesture < PAUSE_MS) return false;
 
   const all = (selector: string) => [...document.querySelectorAll(selector)];
   const marks = all('[data-testid="cue-rect"], [data-testid="text-cue-active"]');
-  if (marks.length === 0) return;
+  if (marks.length === 0) return false;
 
   const scroller = scrollParent(marks[0]);
   const viewTop = scroller ? scroller.getBoundingClientRect().top : 0;
@@ -55,20 +58,21 @@ export function followCue(force: boolean, band: FollowBand): void {
   const safeBottom = viewHeight - band.bottom;
 
   const cue = span(marks, viewTop);
-  if (!cue) return;
+  if (!cue) return false;
   // A whole sentence stays in view while it fits between the safe edges; past that the word being
   // spoken is what has to stay, or a long cue would strand the cursor below the fold
   const word = span(all('[data-testid="cue-word-rect"], [data-testid="reader-word"]'), viewTop);
   const focus = cue.bottom - cue.top <= safeBottom - safeTop ? cue : word ?? { top: cue.top, bottom: cue.top };
 
-  if (!force && focus.top >= safeTop && focus.bottom <= safeBottom) return;
+  if (!jump && focus.top >= safeTop && focus.bottom <= safeBottom) return true;
 
   // Land it high enough that the next several cues fit below — following along should scroll in
   // stretches, not on every sentence — without pushing its own tail past the bottom edge
   const height = focus.bottom - focus.top;
   const landing = Math.max(safeTop, Math.min(viewHeight * band.landing, safeBottom - height));
-  const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  const behavior = jump || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
   const delta = focus.top - landing;
   if (scroller) scroller.scrollTo({ top: scroller.scrollTop + delta, behavior });
   else window.scrollTo({ top: window.scrollY + delta, behavior });
+  return true;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { CueTranscript } from "../components/reader/CueTranscript.tsx";
@@ -117,21 +117,19 @@ export function Reader() {
     if (audio.paused) audio.play().catch(() => {});
   };
 
-  const showCue = useCallback((force: boolean) => followCue(force, READER_BAND), []);
-
   // The word matters as well as the cue: a sentence taller than the safe area has to keep
   // scrolling as it is read, or the cursor walks off the bottom edge
   const activeWord = cues && activeIndex >= 0 ? wordIndexAt(cues.cues[activeIndex], ms) : -1;
 
-  useEffect(() => {
-    showCue(false);
-  }, [activeIndex, activeWord, showCue]);
+  // Switching chapter or view relays the whole document out — a column is not where its page was —
+  // so the place being read has to be found again rather than left where the old scroll position
+  // lands. Until it has been found once, landing there is a jump rather than a scroll.
+  const anchor = `${chapter?.id ?? ""}:${view}`;
+  const settled = useRef("");
 
-  // Switching view relays the whole document out — a column is not where its page was — so the
-  // place being read has to be found again rather than left wherever the old scroll position lands
   useEffect(() => {
-    showCue(true);
-  }, [view, showCue]);
+    if (followCue(READER_BAND, { jump: settled.current !== anchor })) settled.current = anchor;
+  }, [activeIndex, activeWord, anchor]);
 
   const fit = useMemo(() => {
     // What the reader is actually looking at: a column in column view, the whole page otherwise
