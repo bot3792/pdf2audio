@@ -75,8 +75,14 @@ export function Reader() {
     fetchManifest(id).then(setManifest).catch((err: Error) => setError(err.message));
   }, [id]);
 
-  const chapterIndex = Number(searchParams.get("chapter") ?? 0);
-  const chapter = manifest?.chapters.find((c) => c.i === chapterIndex) ?? manifest?.chapters[0] ?? null;
+  const requested = searchParams.get("chapter");
+  const list = manifest?.chapters ?? [];
+  // Opening on a chapter that was never narrated is a dead end, so fall back to one that was
+  const chapter =
+    (requested === null ? undefined : list.find((entry) => entry.i === Number(requested))) ??
+    list.find((entry) => entry.audio) ??
+    list[0] ??
+    null;
 
   useEffect(() => {
     if (!chapter) return;
