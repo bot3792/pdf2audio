@@ -101,6 +101,15 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
     await expect(page.getByTestId("cue-ring-rect").first()).toBeVisible();
     await expect(page.getByTestId("cue-linked-rect")).toHaveCount(0);
 
+    // Space is play/pause, so nobody has to go looking for the button. Tapping a sentence above
+    // already started the narration, so the state to assert against is whatever that left.
+    const paused = () => page.locator("audio").evaluate((el: HTMLAudioElement) => el.paused);
+    const wasPaused = await paused();
+    await page.locator("body").press("Space");
+    await expect.poll(paused).toBe(!wasPaused);
+    await page.locator("body").press("Space");
+    await expect.poll(paused).toBe(wasPaused);
+
     // The chapter that was reading rolls on to the next narrated one when its audio ends
     const chapterPicker = page.getByTestId("reader-chapter");
     const leaving = await chapterPicker.inputValue();

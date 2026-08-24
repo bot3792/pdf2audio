@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { CueTranscript } from "../components/reader/CueTranscript.tsx";
@@ -7,6 +7,7 @@ import { bodyFit, chapterPages, fetchCues, fetchManifest, UNMAPPED, type ReaderC
 import { formatDuration } from "../lib/format.ts";
 import { useFollowCue, type FollowBand } from "../lib/cue-follow.ts";
 import { useAudioTime } from "../lib/use-audio-time.ts";
+import { usePlayPauseKey } from "../lib/play-pause-key.ts";
 import { SPEEDS, loadSpeed, saveSpeed } from "../lib/playback-speed.ts";
 
 // The band a cue may start in without the page moving: clear of the sticky bar, clear of the fold
@@ -80,6 +81,12 @@ export function Reader() {
 
   useAudioTime(audioRef, playing, setMs);
 
+  const togglePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio?.src) void (audio.paused ? audio.play().catch(() => {}) : audio.pause());
+  }, []);
+  usePlayPauseKey(togglePlay);
+
   const pages = useMemo(
     () => (manifest && chapter ? chapterPages(manifest, chapter) : []),
     [manifest, chapter?.id],
@@ -126,9 +133,9 @@ export function Reader() {
       <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-(--border) bg-(--bg-page)/95 px-4 py-2 backdrop-blur">
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={() => (playing ? audioRef.current?.pause() : audioRef.current?.play())}
+            onClick={togglePlay}
             disabled={!chapter.audio}
-            title={chapter.audio ? (playing ? "Pause" : "Play the narration") : "This chapter has no audio yet"}
+            title={chapter.audio ? (playing ? "Pause (space)" : "Play the narration (space)") : "This chapter has no audio yet"}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
             data-testid="reader-play"
           >

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from "react";
+import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
@@ -14,6 +14,7 @@ import { CuePages } from "./reader/CuePages.tsx";
 import { fetchCues, fetchManifest, UNMAPPED, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
 import { useFollowCue, type FollowBand } from "../lib/cue-follow.ts";
 import { useAudioTime } from "../lib/use-audio-time.ts";
+import { usePlayPauseKey } from "../lib/play-pause-key.ts";
 import { SPEEDS, loadSpeed, saveSpeed } from "../lib/playback-speed.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
 
@@ -83,7 +84,7 @@ export function ChapterModal({
   const [cues, setCues] = useState<ReaderCues | null>(null);
   const [manifest, setManifest] = useState<ReaderManifest | null>(null);
   const [ms, setMs] = useState(0);
-  const seekRef = useRef<((ms: number) => void) | null>(null);
+  const playerRef = useRef<{ seek: (ms: number) => void; toggle: () => void } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [selectedChunkPreviewUrl, setSelectedChunkPreviewUrl] = useState<string | null>(null);
@@ -300,6 +301,9 @@ export function ChapterModal({
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
   }, []);
+
+  const togglePlay = useCallback(() => playerRef.current?.toggle(), []);
+  usePlayPauseKey(togglePlay, !isEditing && !showCompare && pdfPage === null);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -720,7 +724,7 @@ export function ChapterModal({
             canOpenPdf={sourceFile !== undefined}
             onOpenPdf={setPdfPage}
             onTime={setMs}
-            seekRef={seekRef}
+            playerRef={playerRef}
             follows={viewMode === "pages" || viewMode === "text"}
           />
         ) : null}
@@ -753,7 +757,7 @@ export function ChapterModal({
                   cues={canMark ? cues : null}
                   ms={ms}
                   columns
-                  onSeek={(at) => seekRef.current?.(at)}
+                  onSeek={(at) => playerRef.current?.seek(at)}
                   hoverChunk={hoverChunk}
                   onHoverCue={hoverCue}
                 />
@@ -762,7 +766,7 @@ export function ChapterModal({
               <CueTranscript
                 cues={cues}
                 ms={ms}
-                onSeek={(at) => seekRef.current?.(at)}
+                onSeek={(at) => playerRef.current?.seek(at)}
                 hoverChunk={hoverChunk}
                 onHoverCue={hoverCue}
                 className="mx-auto w-full max-w-4xl flex-1 min-h-0 overflow-y-auto rounded bg-(--bg-subtle) border border-(--border) px-6 py-5 text-[15px] leading-relaxed text-(--text-primary)"
@@ -851,7 +855,7 @@ function ChunkPreviewPanel({
   canOpenPdf,
   onOpenPdf,
   onTime,
-  seekRef,
+  playerRef,
   follows,
 }: {
   chunkPreviews: Array<{ index: number; fileName: string; url: string; page?: number; startMs?: number; endMs?: number }>;
@@ -867,7 +871,7 @@ function ChunkPreviewPanel({
   canOpenPdf: boolean;
   onOpenPdf: (page: number) => void;
   onTime: (ms: number) => void;
-  seekRef: React.RefObject<((ms: number) => void) | null>;
+  playerRef: React.RefObject<{ seek: (ms: number) => void; toggle: () => void } | null>;
   // Whether the open view marks the words, and so needs a position finer than timeupdate's
   follows: boolean;
 }) {
@@ -929,17 +933,20 @@ function ChunkPreviewPanel({
   useAudioTime(audioRef, isPlaying && follows, onTime);
 
   useEffect(() => {
-    seekRef.current = (ms: number) => {
-      const audio = audioRef.current;
-      if (!audio) return;
-      onTime(ms);
-      // preload="none" means currentTime is ignored until metadata arrives; the pending seek
-      // is applied by playActive and by loadedmetadata, whichever gets there first
-      pendingSeekRef.current = ms / 1000;
-      playActive();
+    playerRef.current = {
+      seek: (ms: number) => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        onTime(ms);
+        // preload="none" means currentTime is ignored until metadata arrives; the pending seek
+        // is applied by playActive and by loadedmetadata, whichever gets there first
+        pendingSeekRef.current = ms / 1000;
+        playActive();
+      },
+      toggle: togglePlay,
     };
-    return () => { seekRef.current = null; };
-  }, [seekRef, onTime]);
+    return () => { playerRef.current = null; };
+  }, [playerRef, onTime]);
 
   function handleTimeUpdate() {
     const audio = audioRef.current;
@@ -984,7 +991,7 @@ function ChunkPreviewPanel({
           {activeUrl ? (
             <button
               onClick={togglePlay}
-              title={isPlaying ? "Pause" : "Play — auto-advances through chunks"}
+              title={isPlaying ? "Pause (space)" : "Play (space) — auto-advances through chunks"}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700"
             >
               {isPlaying ? (

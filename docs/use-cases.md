@@ -99,7 +99,8 @@ book with one chapter per story.
 5. Hovering a sentence on the page rings it and lights the chunk it belongs to; hovering a chunk
    tints the print it became. The transcript binds the same way.
 6. When a chapter's audio ends the reader rolls on to the next narrated one, and **← Back**
-   returns to the chapter you were reading.
+   returns to the chapter you were reading. **Space** plays and pauses, in the reader and in the
+   chapter modal alike.
 7. Opening a chapter reads along on the same pages inside its modal. A chapter whose text has
    moved on from the print — edited, cleaned, translated — still opens its pages, unmarked and
    with a line saying why.
