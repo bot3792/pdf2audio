@@ -17,10 +17,10 @@ import {
 } from "../lib/reader-doc.ts";
 import { formatDuration } from "../lib/format.ts";
 import { followCue, type FollowBand } from "../lib/cue-follow.ts";
+import { SPEEDS, loadSpeed, saveSpeed } from "../lib/playback-speed.ts";
 
 // The band a cue may start in without the page moving: clear of the sticky bar, clear of the fold
 const READER_BAND: FollowBand = { top: 120, bottom: 140, landing: 0.3 };
-const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
 // Logical widths of a current iPhone, which is the screen the page has to survive
 const WIDTHS = [
@@ -307,18 +307,6 @@ export function Reader() {
       </div>
     </ReaderShell>
   );
-}
-
-// Reading speed is a standing preference, not something to re-pick every time a chapter opens
-const SPEED_KEY = "reader.speed";
-
-function loadSpeed(): number {
-  const stored = Number(localStorage.getItem(SPEED_KEY));
-  return SPEEDS.includes(stored) ? stored : 1;
-}
-
-function saveSpeed(rate: number): void {
-  localStorage.setItem(SPEED_KEY, String(rate));
 }
 
 function Segmented({

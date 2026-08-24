@@ -13,6 +13,7 @@ import { CueTranscript } from "./reader/CueTranscript.tsx";
 import { CuePages } from "./reader/CuePages.tsx";
 import { cueIndexAt, fetchCues, fetchManifest, wordIndexAt, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
 import { followCue, type FollowBand } from "../lib/cue-follow.ts";
+import { SPEEDS, loadSpeed, saveSpeed } from "../lib/playback-speed.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
@@ -343,7 +344,7 @@ export function ChapterModal({
       : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="chapter-modal">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       {hasPrev ? (
         <a
@@ -868,7 +869,7 @@ function ChunkPreviewPanel({
   const audioRef = useRef<HTMLAudioElement>(null);
   const activeButtonRef = useRef<HTMLButtonElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const [playbackRate, setPlaybackRate] = useState(loadSpeed);
 
   // After cleanup the chunk WAVs are gone: entries carry sync-map timings instead, and the
   // panel plays the chapter audio, seeking to each chunk's startMs.
@@ -995,11 +996,14 @@ function ChunkPreviewPanel({
           {activeUrl ? (
             <select
               value={playbackRate}
-              onChange={(e) => setPlaybackRate(Number(e.target.value))}
+              onChange={(e) => {
+                setPlaybackRate(Number(e.target.value));
+                saveSpeed(Number(e.target.value));
+              }}
               title="Playback speed"
               className="rounded border border-(--border) bg-(--bg-subtle) px-1 py-0.5 text-xs text-(--text-tertiary)"
             >
-              {[0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+              {SPEEDS.map((rate) => (
                 <option key={rate} value={rate}>
                   {rate}x
                 </option>
@@ -1137,6 +1141,7 @@ function ViewModeTabs({
         <button
           key={mode}
           onClick={() => onSetViewMode(mode)}
+          data-testid={`view-tab-${mode}`}
           className={`px-2.5 py-1 capitalize ${
             viewMode === mode
               ? "bg-zinc-800 text-white"
