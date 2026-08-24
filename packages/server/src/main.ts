@@ -8,6 +8,7 @@ import { appRouter } from "./router.ts";
 import { createContext } from "./trpc.ts";
 import { startWorker, stopWorker } from "./workers/setup.ts";
 import { registerChapterReaderRoute, type ChapterReaderLookupResult } from "./lib/chapter-reader-route.ts";
+import { registerReaderRoutes } from "./lib/reader-routes.ts";
 import { registerUploadRoutes } from "./upload-routes.ts";
 import { registerChatRoutes } from "./chat-routes.ts";
 import { registerTranslationStreamRoutes } from "./translation-stream-routes.ts";
@@ -76,6 +77,16 @@ async function main() {
       return reply.code(404).send({ error: "File not found" });
     }
     return reply.type("application/pdf").sendFile(path.basename(file.pdfPath), path.dirname(file.pdfPath));
+  });
+
+  // Books uploaded before book_files existed have their PDF on the book row
+  fastify.get("/pdf/book/:bookId", async (request, reply) => {
+    const { bookId } = request.params as { bookId: string };
+    const [book] = await db.select().from(books).where(eq(books.id, bookId));
+    if (!book?.pdfPath) {
+      return reply.code(404).send({ error: "File not found" });
+    }
+    return reply.type("application/pdf").sendFile(path.basename(book.pdfPath), path.dirname(book.pdfPath));
   });
 
   fastify.get("/download/:bookId", async (request, reply) => {
@@ -159,6 +170,8 @@ async function main() {
       .header("content-disposition", contentDisposition("inline", path.basename(assembly.outputPath)))
       .sendFile(path.relative(outputDir, assembly.outputPath), outputDir);
   });
+
+  registerReaderRoutes(fastify);
 
   registerChapterReaderRoute(fastify, async (chapterId): Promise<ChapterReaderLookupResult> => {
     const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
