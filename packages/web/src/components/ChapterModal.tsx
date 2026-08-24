@@ -55,7 +55,7 @@ type SourceBlock = {
 // No sticky bar inside the panel, so the cue may sit closer to its top than in the reader
 const MODAL_BAND: FollowBand = { top: 24, bottom: 90, landing: 0.25 };
 
-type ViewMode = "readalong" | "text" | "custom" | "clean" | "raw" | "split" | "blocks";
+type ViewMode = "pages" | "text" | "custom" | "clean" | "raw" | "split" | "blocks";
 
 export function ChapterModal({
   bookId,
@@ -117,16 +117,14 @@ export function ChapterModal({
     fetchCues(`/read/chapter/${chapter.id}/cues.json`).then(setCues).catch(() => setCues(null));
   }, [chapter.id, chapter.status, isVariant]);
 
-  // The pages are only worth fetching for a chapter whose text still maps onto them
   useEffect(() => {
-    setManifest(null);
-    if (isVariant) return;
-    fetchManifest(bookId)
-      .then((doc) => setManifest(doc.chapters.some((c) => c.i === chapter.index && c.mode === "page") ? doc : null))
-      .catch(() => setManifest(null));
-  }, [bookId, chapter.index, isVariant]);
+    fetchManifest(bookId).then(setManifest).catch(() => setManifest(null));
+  }, [bookId]);
 
   const readerChapter = manifest?.chapters.find((entry) => entry.i === chapter.index);
+  // Where a chapter sits in the book survives an edit or a translation; marking the audio on it does not
+  const hasPages = readerChapter?.pageStart != null;
+  const canMark = !isVariant && readerChapter?.mode === "page" && cues !== null;
   const activeCueIndex = cues ? cueIndexAt(cues.cues, ms) : -1;
 
   const activeWordIndex = cues && activeCueIndex >= 0 ? wordIndexAt(cues.cues[activeCueIndex], ms) : -1;
@@ -138,13 +136,15 @@ export function ChapterModal({
     if (followCue(MODAL_BAND, { jump: settledAt.current !== followAnchor })) settledAt.current = followAnchor;
   }, [activeCueIndex, activeWordIndex, followAnchor]);
 
-  // Reading along on the page is the experience; text is the fallback when there is no page
+  // Reading along on the page is the experience; the transcript is the fallback that still marks words
   useEffect(() => {
-    if (cues) setViewMode(manifest ? "readalong" : "text");
-  }, [cues, manifest]);
+    if (canMark) setViewMode("pages");
+    else if (cues) setViewMode("text");
+  }, [canMark, cues]);
 
   const isTranslationKind = variant?.kind === "translation";
   const variantName = variant ? variant.label ?? variant.key : null;
+  const markReason = unmarkedReason(variantName, chapter, cues !== null);
   const { data: originalChapter, isLoading: originalLoading } = trpc.chapters.get.useQuery(
     { id: chapter.id },
     { enabled: !isVariant, refetchInterval: chapter.status === "synthesizing" ? 1000 : false },
@@ -401,15 +401,21 @@ export function ChapterModal({
                   </span>
                 )
               ) : null}
-              {readerChapter ? (
-                <Link
-                  to={`/books/${bookId}/read?chapter=${chapter.index}`}
-                  className="text-blue-600 hover:text-blue-800"
-                  title="Follow the narration on the page itself, at full size"
-                  data-testid="chapter-read-along"
-                >
-                  Read along on the page
-                </Link>
+              {hasPages ? (
+                canMark ? (
+                  <Link
+                    to={`/books/${bookId}/read?chapter=${chapter.index}`}
+                    className="text-blue-600 hover:text-blue-800"
+                    title="Follow the narration on the page itself, at full size"
+                    data-testid="chapter-read-along"
+                  >
+                    Read along on the page
+                  </Link>
+                ) : (
+                  <span className="text-(--text-faint) cursor-help" title={markReason} data-testid="chapter-read-along-off">
+                    Read along on the page
+                  </span>
+                )
               ) : null}
               {chapter.progress && chapter.status === "synthesizing" ? (
                 <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
@@ -676,7 +682,7 @@ export function ChapterModal({
                 viewMode={viewMode}
                 onSetViewMode={setViewMode}
                 hasCues={cues !== null}
-                hasPages={manifest !== null && readerChapter !== undefined}
+                hasPages={hasPages}
                 hasCleanText={chapter.hasCleanText}
                 hasCustomText={chapter.hasCustomText}
                 hasSourceBlocks={chapter.hasSourceBlocks}
@@ -715,12 +721,20 @@ export function ChapterModal({
                 onChange={(e) => setEditText(e.target.value)}
                 className="flex-1 min-h-0 w-full max-w-4xl mx-auto rounded bg-(--bg-card) border border-amber-300 px-6 py-5 text-[15px] text-(--text-primary) whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
-            ) : viewMode === "readalong" && cues && manifest && readerChapter ? (
+            ) : viewMode === "pages" && manifest && readerChapter ? (
               <div className="mx-auto flex w-full max-w-3xl flex-1 min-h-0 flex-col gap-4 overflow-y-auto">
+                {canMark ? null : (
+                  <p
+                    className="rounded border border-(--border) bg-(--bg-subtle) px-3 py-2 text-xs text-(--text-muted)"
+                    data-testid="pages-unmarked"
+                  >
+                    {markReason}
+                  </p>
+                )}
                 <CuePages
                   manifest={manifest}
                   chapter={readerChapter}
-                  cues={cues}
+                  cues={canMark ? cues : null}
                   ms={ms}
                   columns
                   onSeek={(at) => seekRef.current?.(at)}
@@ -1066,6 +1080,15 @@ function Divider() {
   return <span className="h-4 w-px bg-(--border) shrink-0" aria-hidden="true" />;
 }
 
+// Why the page below carries no highlight — the alternative is a reader waiting for one
+function unmarkedReason(variantName: string | null, chapter: ChapterRow, hasCues: boolean): string {
+  const pages = "These are the chapter's pages in the original.";
+  if (variantName) return `Audio for the ${variantName} text can't be marked on the page. ${pages}`;
+  if (chapter.hasCustomText) return `This chapter's text was edited after extraction, so the narration can't be lined up with the print. ${pages}`;
+  if (!hasCues) return `Synthesize this chapter to follow the narration on these pages.`;
+  return `This chapter's text can't be lined up with the print — re-extract the file to line it up. ${pages}`;
+}
+
 function ViewModeTabs({
   viewMode,
   onSetViewMode,
@@ -1084,7 +1107,7 @@ function ViewModeTabs({
   hasPages: boolean;
 }) {
   const modes: ViewMode[] = [];
-  if (hasPages) modes.push("readalong");
+  if (hasPages) modes.push("pages");
   if (hasCues) modes.push("text");
   if (hasCustomText) modes.push("custom");
   if (hasCleanText) modes.push("clean");

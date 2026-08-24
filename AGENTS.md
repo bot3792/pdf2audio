@@ -289,7 +289,9 @@ packages/web/src/
     EditableTitle.tsx   Click-to-rename book title
     ChapterTable.tsx    Chapter table (height-capped, sticky header) with filters, range selection, floating audio player with read-along chunk highlighting
     SynthesizeModal.tsx Voice/speed picker + start button behind the toolbar's Synthesize action
-    ChapterModal.tsx    Chapter detail modal: view tabs, text editing, per-chapter actions
+    ChapterModal.tsx    Chapter detail modal: view tabs (Pages reads along on the book's own
+                        pages, unmarked with a reason when the text no longer maps), text
+                        editing, per-chapter actions
     ChapterAiModal.tsx  Ask-AI prompt modal per chapter/book (presets, model pick)
     StructureModal.tsx  Heading-outline structure view, manual boundaries, LLM proposals
     VariantModal.tsx    Variant start/progress modal: language + rewrite-preset + custom-prompt targets, live side-by-side view

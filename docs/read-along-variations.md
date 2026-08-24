@@ -17,17 +17,31 @@ cut into a cue per sentence and each cue also carries its words. Where it doesn'
 is the cue, and the highlight is as coarse as the chunk was. Each chapter reports which of
 those it got through `granularity`, shown in the reader's toolbar.
 
+## Where you read along
+
+Two surfaces, one set of documents. The **reader** (`/books/:id/read`) is the full-size one:
+column, page and text views, phone-width presets. The **chapter modal** opens on the same pages
+for the chapter you are looking at, and is where most reading along actually starts.
+
+A chapter's pages are offered wherever the chapter has any — the Pages tab is there even when
+nothing can be marked on them, because where a chapter sits in the book is not something an
+edit or a translation takes away. What an edit does take away is the marking, and the tab says
+so in a line above the pages rather than leaving a reader waiting for a highlight. Marking is
+also what the tab's default status turns on: a chapter that can be followed opens on its pages,
+one that cannot opens on the transcript, where the words are still highlighted.
+
 ## Where the chapter's text came from
 
-| Case | What the reader does |
+| Case | What it gets |
 | --- | --- |
 | PDF chapter, normalized text | Highlights on the page: sentence rects, and word rects where the engine timed words |
-| **AI Cleanup ran on it** | **Text mode — the page mapping is lost.** Cleanup writes `customText`, which no longer corresponds to the PDF's blocks |
-| Manually edited text | Text mode, same reason: any `customText` breaks the correspondence |
-| Synthetic chapter (digest, external API, note → chapter) | Text mode, no pages. Cues and highlighting work; there is simply no page to draw on |
-| **Translated or rewritten lane** | **Not reachable.** The reader lists `chapters`; a variant's audio and sync map live on `chapter_translations`, which the manifest does not expose |
-| Extraction older than `chapters.text_map` | Text mode. `pnpm --filter server backfill:textmap` fixes these in place |
+| **AI Cleanup ran on it** | **The page mapping is lost.** Cleanup writes `customText`, which no longer corresponds to the PDF's blocks. The transcript still marks every word; the pages still open, unmarked |
+| Manually edited text | The same, for the same reason: any `customText` breaks the correspondence |
+| Synthetic chapter (digest, external API, note → chapter) | The transcript only — there is no page to draw on |
+| **Translated or rewritten lane** | The variant's own audio cannot be marked: its sync map lives on `chapter_translations`, which the manifest does not expose. The original's pages open unmarked, and the full reader does not list variants at all |
+| Extraction older than `chapters.text_map` | No mapping. `pnpm --filter server backfill:textmap` fixes these in place |
 | Audio with no sync map (predates them) | A notice on that chapter; the audio still plays, nothing highlights. Re-synthesizing writes one |
+| Not synthesized yet | The pages open unmarked, saying that synthesizing is what puts the narration on them |
 
 ## Which engines can time a word
 
