@@ -79,7 +79,8 @@ export function wholePage(page: ReaderPage): Rect {
 export const COMFORTABLE_BODY_PX = 17;
 
 export function bodyFit(medianBodyPt: number | null, cropWidthPt: number, renderedWidthPx: number) {
-  if (medianBodyPt === null || cropWidthPt <= 0) return null;
+  // Nothing measured yet is not the same as "renders at 0px, unreadable" — say nothing instead
+  if (medianBodyPt === null || cropWidthPt <= 0 || renderedWidthPx <= 0) return null;
   const px = medianBodyPt * (renderedWidthPx / cropWidthPt);
   return { px, percent: Math.round((px / COMFORTABLE_BODY_PX) * 100) };
 }

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
-import { blocksAtRange, chapterChunkPreviewDir, chapterChunkPreviewUrlBase, listChapterChunkPreviews, locateChunks, pageAtOffset } from "./chunk-previews.ts";
+import { blocksAtRange, chapterChunkPreviewDir, chapterChunkPreviewUrlBase, dropStaleChunks, listChapterChunkPreviews, locateChunks, pageAtOffset } from "./chunk-previews.ts";
 import { bookOutputDir } from "./paths.ts";
 import type { SourceBlock } from "./marker.ts";
 import type { ChapterTextMap } from "../schema.ts";
@@ -163,5 +165,35 @@ describe("blocksAtRange", () => {
 
   it("ignores the join gap between blocks", () => {
     expect(blocksAtRange(textMap, 10, 12)).toEqual([]);
+  });
+});
+
+describe("dropStaleChunks", () => {
+  it("keeps cached chunks while the same text still lands at the same index", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "chunks-"));
+    await writeFile(path.join(dir, "chunks.json"), JSON.stringify([
+      { index: 1, text: "One." },
+      { index: 2, text: "Two." },
+    ]));
+    await writeFile(path.join(dir, "chunk-001.wav"), "a");
+    await writeFile(path.join(dir, "chunk-002.wav"), "b");
+
+    await dropStaleChunks(dir, ["One.", "Two.", "Three."]);
+    expect((await readdir(dir)).sort()).toEqual(["chunk-001.wav", "chunk-002.wav", "chunks.json"]);
+  });
+
+  it("drops everything from the first chunk whose text changed, word timings included", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "chunks-"));
+    await writeFile(path.join(dir, "chunks.json"), JSON.stringify([
+      { index: 1, text: "One. Two." },
+      { index: 2, text: "Three." },
+    ]));
+    await writeFile(path.join(dir, "chunk-001.wav"), "a");
+    await writeFile(path.join(dir, "chunk-001.words.json"), "[]");
+    await writeFile(path.join(dir, "chunk-002.wav"), "b");
+
+    // The chunker now cuts a sentence at a time, so nothing after chunk 1 is the same audio
+    await dropStaleChunks(dir, ["One.", "Two.", "Three."]);
+    expect((await readdir(dir)).sort()).toEqual(["chunks.json"]);
   });
 });

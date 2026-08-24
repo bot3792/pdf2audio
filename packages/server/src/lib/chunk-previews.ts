@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 
 import { bookOutputDir } from "./paths.ts";
 import { readSyncMap } from "./sync-map.ts";
@@ -62,6 +62,24 @@ async function readChunkManifest(dir: string): Promise<Map<number, string>> {
     return new Map(entries.map((entry) => [entry.index, entry.text]));
   } catch {
     return new Map();
+  }
+}
+
+// A cached chunk WAV is only reusable while the same text still lands at the same index. A changed
+// chunker or edited text renumbers everything after the first difference, so reusing by index
+// alone splices the old audio into new slots — the sync map then describes audio that is not there.
+export async function dropStaleChunks(dir: string, texts: string[]): Promise<void> {
+  const manifest = await readChunkManifest(dir);
+  if (manifest.size === 0) return;
+
+  let keep = 0;
+  while (keep < texts.length && manifest.get(keep + 1) === texts[keep]) keep++;
+  if (keep === manifest.size) return;
+
+  const entries = await readdir(dir).catch(() => [] as string[]);
+  for (const fileName of entries) {
+    const index = Number(fileName.match(CHUNK_FILE_PATTERN)?.[1] ?? fileName.match(/^chunk-(\d+)\.words\.json$/)?.[1]);
+    if (index && index > keep) await unlink(path.join(dir, fileName)).catch(() => {});
   }
 }
 

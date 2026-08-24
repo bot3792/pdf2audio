@@ -83,7 +83,9 @@ export function Reader() {
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
-    if (audio?.src) void (audio.paused ? audio.play().catch(() => {}) : audio.pause());
+    if (!audio?.src) return false;
+    void (audio.paused ? audio.play().catch(() => {}) : audio.pause());
+    return true;
   }, []);
   usePlayPauseKey(togglePlay);
 
@@ -115,13 +117,24 @@ export function Reader() {
   // so the place being read has to be found again rather than left where the old scroll lands
   useFollowCue(cues, ms, READER_BAND, `${chapter?.id ?? ""}:${view}`);
 
+  // Measured rather than read off a ref during render, which is a frame behind on the first paint
+  // and never notices the window being resized
+  const [pagesWidth, setPagesWidth] = useState(0);
+  useEffect(() => {
+    const host = pagesRef.current;
+    if (!host) return;
+    const observer = new ResizeObserver(([entry]) => setPagesWidth(entry.contentRect.width));
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [manifest !== null]);
+
   const fit = useMemo(() => {
     // What the reader is actually looking at: a column in column view, the whole page otherwise
     const first = pages[0];
     const cropWidth = (view === "column" ? first?.columns[0]?.[2] : first?.w) ?? 0;
-    const rendered = width === "full" ? pagesRef.current?.clientWidth ?? 0 : WIDTHS.find((w) => w.id === width)!.px!;
+    const rendered = width === "full" ? pagesWidth : WIDTHS.find((w) => w.id === width)!.px!;
     return bodyFit(manifest?.book.medianBodyPt ?? null, cropWidth, rendered);
-  }, [pages, view, width, manifest?.book.medianBodyPt]);
+  }, [pages, view, width, pagesWidth, manifest?.book.medianBodyPt]);
 
   if (error) return <ReaderShell bookId={id}><p className="text-sm text-red-600">{error}</p></ReaderShell>;
   if (!manifest || !chapter) return <ReaderShell bookId={id}><p className="text-sm text-(--text-muted)">Loading…</p></ReaderShell>;

@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { env } from "../env.ts";
 import { chunkTextForTts, NARRATOR_CHUNKS, SENTENCE_CHUNKS, type ChunkLimits } from "./tts-chunks.ts";
+import { dropStaleChunks } from "./chunk-previews.ts";
 import { synthesize as kokoroSynthesize, KokoroAbortedError } from "./kokoro.ts";
 import { resolveSayVoice } from "./say-voices.ts";
 import { cartesiaSynthesize, CartesiaAbortedError, findCartesiaVoice } from "./cartesia.ts";
@@ -346,6 +347,8 @@ async function synthesizeChunkedBackend({
   if (chunks.length === 0) {
     throw new Error("Narrator input is empty after chunking");
   }
+
+  if (chunkPreviewDir) await dropStaleChunks(chunkPreviewDir, chunks);
 
   const textPath = outputPath.replace(/\.wav$/, ".txt");
   await writeFile(textPath, chunks.join("\f"), "utf-8");

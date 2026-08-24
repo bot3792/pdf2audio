@@ -26,6 +26,9 @@ def write_chunk_words(chunks_dir, index, tokens):
         if start is None or end is None:
             return
         if not token.text:
+            # Its spacing still belongs between the neighbours, or cues weld words together
+            if words:
+                words[-1]["after"] += token.whitespace or ""
             continue
         words.append({
             "text": token.text,

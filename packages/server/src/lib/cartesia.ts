@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { env } from "../env.ts";
 import { chunkTextForTts } from "./tts-chunks.ts";
-import { writeChunkWords, type ChunkWord } from "./chunk-previews.ts";
+import { dropStaleChunks, writeChunkWords, type ChunkWord } from "./chunk-previews.ts";
 
 const CARTESIA_URL = "https://api.cartesia.ai";
 const CARTESIA_VERSION = "2026-08-14";
@@ -132,6 +132,10 @@ async function synthesizeChunkPcm(voiceId: string, language: string | null, text
     if (event.type === "timestamps") words.push(...toChunkWords(event.word_timestamps));
   }
 
+  // A stream that ends without audio is a failure, not a silent chunk: the caller caches what it
+  // is given, so an empty buffer would become a permanent hole in the chapter
+  if (audio.length === 0) throw new Error("Cartesia TTS returned no audio for a chunk");
+
   return { pcm: Buffer.concat(audio), words };
 }
 
@@ -233,6 +237,7 @@ export async function cartesiaSynthesize({
   if (chunkPreviewDir) {
     await mkdir(chunkPreviewDir, { recursive: true });
     const manifest = chunks.map((text, i) => ({ index: i + 1, text }));
+    await dropStaleChunks(chunkPreviewDir, chunks);
     await writeFile(path.join(chunkPreviewDir, "chunks.json"), JSON.stringify(manifest), "utf-8");
   }
   if (chunkPreviewUrlBase) {

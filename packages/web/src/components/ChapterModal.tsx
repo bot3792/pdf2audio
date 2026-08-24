@@ -81,10 +81,11 @@ export function ChapterModal({
   const hasNext = chapterIndex < chapters.length - 1;
 
   const [picked, setPicked] = useState<ViewMode | null>(null);
+  const [speed, setSpeed] = useState(loadSpeed);
   const [cues, setCues] = useState<ReaderCues | null>(null);
   const [manifest, setManifest] = useState<ReaderManifest | null>(null);
   const [ms, setMs] = useState(0);
-  const playerRef = useRef<{ seek: (ms: number) => void; toggle: () => void } | null>(null);
+  const playerRef = useRef<{ seek: (ms: number) => void; toggle: () => boolean } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [selectedChunkPreviewUrl, setSelectedChunkPreviewUrl] = useState<string | null>(null);
@@ -302,7 +303,16 @@ export function ChapterModal({
     return () => { document.body.style.overflow = ""; };
   }, []);
 
-  const togglePlay = useCallback(() => playerRef.current?.toggle(), []);
+  // One speed for the chapter, not one per player: the whole-chapter element is a plain native
+  // control, so it is told the rate rather than asked for it
+  const wholeRef = useRef<HTMLAudioElement>(null);
+  const changeSpeed = useCallback((rate: number) => {
+    setSpeed(rate);
+    saveSpeed(rate);
+    if (wholeRef.current) wholeRef.current.playbackRate = rate;
+  }, []);
+
+  const togglePlay = useCallback(() => playerRef.current?.toggle() ?? false, []);
   usePlayPauseKey(togglePlay, !isEditing && !showCompare && pdfPage === null);
 
   useEffect(() => {
@@ -465,7 +475,14 @@ export function ChapterModal({
             <div className="flex items-center gap-2 mr-1">
               {/* Named because the chunk scrubber further down is an identical-looking control. */}
               <span className="text-xs text-(--text-faint) shrink-0">Whole chapter</span>
-              <audio key={`${chapter.id}-${variant?.key ?? "original"}`} controls preload="none" className="h-8">
+              <audio
+                key={`${chapter.id}-${variant?.key ?? "original"}`}
+                ref={wholeRef}
+                controls
+                preload="none"
+                className="h-8"
+                onPlay={(e) => { e.currentTarget.playbackRate = speed; }}
+              >
                 <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} />
               </audio>
             </div>
@@ -726,6 +743,8 @@ export function ChapterModal({
             onTime={setMs}
             playerRef={playerRef}
             follows={viewMode === "pages" || viewMode === "text"}
+            playbackRate={speed}
+            onPlaybackRate={changeSpeed}
           />
         ) : null}
 
@@ -857,6 +876,8 @@ function ChunkPreviewPanel({
   onTime,
   playerRef,
   follows,
+  playbackRate,
+  onPlaybackRate,
 }: {
   chunkPreviews: Array<{ index: number; fileName: string; url: string; page?: number; startMs?: number; endMs?: number }>;
   selectedUrl: string | null;
@@ -871,9 +892,11 @@ function ChunkPreviewPanel({
   canOpenPdf: boolean;
   onOpenPdf: (page: number) => void;
   onTime: (ms: number) => void;
-  playerRef: React.RefObject<{ seek: (ms: number) => void; toggle: () => void } | null>;
+  playerRef: React.RefObject<{ seek: (ms: number) => void; toggle: () => boolean } | null>;
   // Whether the open view marks the words, and so needs a position finer than timeupdate's
   follows: boolean;
+  playbackRate: number;
+  onPlaybackRate: (rate: number) => void;
 }) {
   const activeUrl = selectedUrl ?? chunkPreviews.at(-1)?.url ?? null;
   const activeIndex = chunkPreviews.findIndex((preview) => preview.url === activeUrl);
@@ -881,7 +904,6 @@ function ChunkPreviewPanel({
   const audioRef = useRef<HTMLAudioElement>(null);
   const activeButtonRef = useRef<HTMLButtonElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(loadSpeed);
 
   // After cleanup the chunk WAVs are gone: entries carry sync-map timings instead, and the
   // panel plays the chapter audio, seeking to each chunk's startMs.
@@ -928,9 +950,10 @@ function ChunkPreviewPanel({
     }
   }, [playNonce]);
 
-  // Only a view that marks the words needs a position finer than timeupdate's — and only that
-  // view is worth re-rendering for
-  useAudioTime(audioRef, isPlaying && follows, onTime);
+  // Only a view that marks the words needs a position finer than timeupdate's — and only that view
+  // is worth re-rendering for. Outside sync mode the element is one chunk's own file, so its clock
+  // is chunk-relative and says nothing about where the chapter's cues are.
+  useAudioTime(audioRef, isPlaying && follows && syncMode, onTime);
 
   useEffect(() => {
     playerRef.current = {
@@ -943,15 +966,20 @@ function ChunkPreviewPanel({
         pendingSeekRef.current = ms / 1000;
         playActive();
       },
-      toggle: togglePlay,
+      toggle: () => {
+        if (!audioSrc) return false;
+        togglePlay();
+        return true;
+      },
     };
     return () => { playerRef.current = null; };
-  }, [playerRef, onTime]);
+  }, [playerRef, onTime, audioSrc]);
 
   function handleTimeUpdate() {
     const audio = audioRef.current;
-    onTime((audio?.currentTime ?? 0) * 1000);
-    if (!syncMode || !audio || audio.paused) return;
+    if (!syncMode || !audio) return;
+    onTime(audio.currentTime * 1000);
+    if (audio.paused) return;
     const ms = audio.currentTime * 1000;
     const current = chunkPreviews.find(
       (preview) => preview.startMs! <= ms && ms < preview.endMs!,
@@ -1008,10 +1036,7 @@ function ChunkPreviewPanel({
           {activeUrl ? (
             <select
               value={playbackRate}
-              onChange={(e) => {
-                setPlaybackRate(Number(e.target.value));
-                saveSpeed(Number(e.target.value));
-              }}
+              onChange={(e) => onPlaybackRate(Number(e.target.value))}
               title="Playback speed"
               className="rounded border border-(--border) bg-(--bg-subtle) px-1 py-0.5 text-xs text-(--text-tertiary)"
             >
