@@ -106,6 +106,7 @@ export function ChapterModal({
     setViewMode(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
     setIsEditing(false);
     setSelectedChunkPreviewUrl(null);
+    setPlayNonce(0);
     setPdfPage(null);
   }, [chapterIndex, variant?.key]);
 
@@ -899,8 +900,14 @@ function ChunkPreviewPanel({
   }, [playbackRate]);
 
   // Auto-play whenever the user explicitly picks a chunk (playNonce changes), but not on the
-  // initial mount or the programmatic auto-select during synthesis (playNonce stays 0 then).
+  // programmatic auto-select during synthesis (playNonce stays 0 then) — and not on a mount, which
+  // is a panel rebuilt around another chapter rather than anyone asking to hear it.
+  const played = useRef(false);
   useEffect(() => {
+    if (!played.current) {
+      played.current = true;
+      return;
+    }
     if (playNonce > 0) {
       if (syncMode) {
         const target = chunkPreviews.find((preview) => preview.url === activeUrl);
