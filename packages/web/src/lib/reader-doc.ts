@@ -68,14 +68,31 @@ export function wordIndexAt(cue: ReaderCue, ms: number): number {
   return -1;
 }
 
-// Boxes are ten-thousandths of the page, which is exactly a percentage of the rendered page
-export function boxStyle(x: number, y: number, width: number, height: number) {
+// A rect is ten-thousandths of the whole page; a crop (in points) is what is actually on
+// screen. One conversion serves both, since the uncropped page is just the full-page crop.
+export function cropStyle(page: ReaderPage, crop: Rect, x: number, y: number, width: number, height: number) {
+  const left = (x / 10_000) * page.w;
+  const top = (y / 10_000) * page.h;
   return {
-    left: `${(x / 10_000) * 100}%`,
-    top: `${(y / 10_000) * 100}%`,
-    width: `${(width / 10_000) * 100}%`,
-    height: `${(height / 10_000) * 100}%`,
+    left: `${((left - crop[0]) / crop[2]) * 100}%`,
+    top: `${((top - crop[1]) / crop[3]) * 100}%`,
+    width: `${(((width / 10_000) * page.w) / crop[2]) * 100}%`,
+    height: `${(((height / 10_000) * page.h) / crop[3]) * 100}%`,
   };
+}
+
+export function wholePage(page: ReaderPage): Rect {
+  return [0, 0, page.w, page.h];
+}
+
+// iOS body text is 17 logical points, which is the same number of CSS pixels here — so the
+// rendered size of the book's own type against 17 says whether a phone could read it.
+export const COMFORTABLE_BODY_PX = 17;
+
+export function bodyFit(medianBodyPt: number | null, cropWidthPt: number, renderedWidthPx: number) {
+  if (medianBodyPt === null || cropWidthPt <= 0) return null;
+  const px = medianBodyPt * (renderedWidthPx / cropWidthPt);
+  return { px, percent: Math.round((px / COMFORTABLE_BODY_PX) * 100) };
 }
 
 export function cueAtPoint(cues: ReaderCue[], page: number, x: number, y: number): number {

@@ -23,25 +23,30 @@ export function loadPdf(url: string): Promise<PDFDocumentProxy> {
   return document;
 }
 
-// Renders one page at the width it is laid out at, and only once it is near the viewport —
-// a chapter can cover a hundred pages and rendering them all would stall the tab.
+// Renders one page — or one crop of it — at the width it is laid out at, and only once it is
+// near the viewport: a chapter can cover a hundred pages and rendering them all would stall the tab.
 export function PdfCanvas({
   url,
   pageNumber,
-  aspectRatio,
+  crop,
+  pageSize,
   children,
   onPointer,
 }: {
   url: string;
   pageNumber: number;
-  aspectRatio: number;
+  // [x, y, width, height] in PDF points; the whole page is just the full-page crop
+  crop: [number, number, number, number];
+  pageSize: { w: number; h: number };
   children?: React.ReactNode;
+  // Reports where the pointer landed on the whole page, in ten-thousandths
   onPointer?: (x: number, y: number) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
   const [rendered, setRendered] = useState(false);
+  const [x, y, width, height] = crop;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -65,31 +70,30 @@ export function PdfCanvas({
       const host = hostRef.current;
       if (cancelled || !canvas || !host) return;
 
-      const base = page.getViewport({ scale: 1 });
-      const scale = (host.clientWidth / base.width) * Math.min(window.devicePixelRatio || 1, 2);
-      const viewport = page.getViewport({ scale });
-      canvas.width = Math.round(viewport.width);
-      canvas.height = Math.round(viewport.height);
+      const scale = (host.clientWidth / width) * Math.min(window.devicePixelRatio || 1, 2);
+      const viewport = page.getViewport({ scale, offsetX: -x * scale, offsetY: -y * scale });
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
       await page.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport }).promise;
       if (!cancelled) setRendered(true);
     })().catch(() => {});
 
     return () => { cancelled = true; };
-  }, [url, pageNumber, visible]);
+  }, [url, pageNumber, visible, x, y, width, height]);
 
   return (
     <div
       ref={hostRef}
       className="relative w-full bg-white shadow-sm"
-      style={{ aspectRatio: String(aspectRatio) }}
+      style={{ aspectRatio: String(width / height) }}
       data-testid="reader-page"
       data-page={pageNumber}
       onClick={(event) => {
         if (!onPointer) return;
         const box = event.currentTarget.getBoundingClientRect();
         onPointer(
-          ((event.clientX - box.left) / box.width) * 10_000,
-          ((event.clientY - box.top) / box.height) * 10_000,
+          ((x + ((event.clientX - box.left) / box.width) * width) / pageSize.w) * 10_000,
+          ((y + ((event.clientY - box.top) / box.height) * height) / pageSize.h) * 10_000,
         );
       }}
     >
