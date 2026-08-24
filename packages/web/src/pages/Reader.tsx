@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { PdfCanvas } from "../components/reader/PdfCanvas.tsx";
 import { CueOverlay } from "../components/reader/CueOverlay.tsx";
+import { CueTranscript } from "../components/reader/CueTranscript.tsx";
 import {
   bodyFit,
   cueAtPoint,
@@ -316,7 +317,7 @@ export function Reader() {
 
       <div ref={pagesRef} className="mx-auto flex flex-col gap-4" style={maxWidth ? { maxWidth } : { maxWidth: "48rem" }}>
         {view === "text" ? (
-          <TextView cues={cues} activeIndex={activeIndex} activeWord={activeWord} onSeek={seek} />
+          <CueTranscript cues={cues} ms={ms} onSeek={seek} />
         ) : (
           spreads.map((spread) => (
             <div key={spread.key} data-page-index={spread.page.i}>
@@ -351,59 +352,6 @@ export function Reader() {
         )}
       </div>
     </ReaderShell>
-  );
-}
-
-// The cue list is the chapter's spoken text in order, so text view needs no second document
-function TextView({
-  cues,
-  activeIndex,
-  activeWord,
-  onSeek,
-}: {
-  cues: ReaderCues | null;
-  activeIndex: number;
-  activeWord: number;
-  onSeek: (ms: number) => void;
-}) {
-  if (!cues) return <p className="text-sm text-(--text-muted)">No narration to read along with yet.</p>;
-
-  return (
-    <article className="rounded-lg bg-(--bg-card) p-6 text-lg leading-relaxed text-(--text-primary)" data-testid="reader-text-view">
-      {cues.cues.map((cue, i) => (
-        <span
-          key={i}
-          onClick={() => onSeek(cue.t[0])}
-          className={`cursor-pointer ${i === activeIndex ? "bg-amber-200/60 dark:bg-amber-500/30" : "hover:bg-(--bg-subtle)"}`}
-          data-testid={i === activeIndex ? "text-cue-active" : "text-cue"}
-        >
-          {i === activeIndex ? <CueText cue={cue} word={activeWord} /> : cue.s}{" "}
-        </span>
-      ))}
-    </article>
-  );
-}
-
-// Marking a slice of the cue's own text, rather than re-joining the words, keeps the spacing
-// the book has — the words carry no punctuation spacing of their own.
-function CueText({ cue, word }: { cue: ReaderCue; word: number }) {
-  const spoken = word >= 0 ? cue.w?.[word]?.[2] : undefined;
-  if (!spoken) return <>{cue.s}</>;
-
-  let cursor = 0;
-  for (let i = 0; i < word; i++) {
-    const at = cue.s.indexOf(cue.w![i][2], cursor);
-    if (at >= 0) cursor = at + cue.w![i][2].length;
-  }
-  const start = cue.s.indexOf(spoken, cursor);
-  if (start < 0) return <>{cue.s}</>;
-
-  return (
-    <>
-      {cue.s.slice(0, start)}
-      <mark className="bg-amber-300 dark:bg-amber-500/50" data-testid="reader-word">{spoken}</mark>
-      {cue.s.slice(start + spoken.length)}
-    </>
   );
 }
 

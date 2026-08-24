@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
+import { Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
@@ -8,6 +9,8 @@ import { VoicePickerChip } from "./VoicePicker.tsx";
 import { TOOLBAR_BUTTON } from "../lib/button-classes.ts";
 import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
+import { CueTranscript } from "./reader/CueTranscript.tsx";
+import { fetchCues, type ReaderCues } from "../lib/reader-doc.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
@@ -47,7 +50,7 @@ type SourceBlock = {
   polygon?: number[][];
 };
 
-type ViewMode = "custom" | "clean" | "raw" | "split" | "blocks";
+type ViewMode = "readalong" | "custom" | "clean" | "raw" | "split" | "blocks";
 
 export function ChapterModal({
   bookId,
@@ -70,6 +73,9 @@ export function ChapterModal({
   const hasNext = chapterIndex < chapters.length - 1;
 
   const [viewMode, setViewMode] = useState<ViewMode>(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
+  const [cues, setCues] = useState<ReaderCues | null>(null);
+  const [ms, setMs] = useState(0);
+  const seekRef = useRef<((ms: number) => void) | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [selectedChunkPreviewUrl, setSelectedChunkPreviewUrl] = useState<string | null>(null);
@@ -97,6 +103,19 @@ export function ChapterModal({
   }, [chapterIndex, variant?.key]);
 
   const isVariant = !!variant;
+
+  useEffect(() => {
+    setCues(null);
+    setMs(0);
+    if (isVariant || chapter.status !== "done") return;
+    fetchCues(`/read/chapter/${chapter.id}/cues.json`).then(setCues).catch(() => setCues(null));
+  }, [chapter.id, chapter.status, isVariant]);
+
+  // Reading along is the point of the chapter's audio, so it opens on it when there is any
+  useEffect(() => {
+    if (cues) setViewMode("readalong");
+  }, [cues]);
+
   const isTranslationKind = variant?.kind === "translation";
   const variantName = variant ? variant.label ?? variant.key : null;
   const { data: originalChapter, isLoading: originalLoading } = trpc.chapters.get.useQuery(
@@ -354,6 +373,16 @@ export function ChapterModal({
                     p.{chapter.pageStart}{chapter.pageEnd && chapter.pageEnd !== chapter.pageStart ? `–${chapter.pageEnd}` : ""}
                   </span>
                 )
+              ) : null}
+              {cues ? (
+                <Link
+                  to={`/books/${bookId}/read?chapter=${chapter.index}`}
+                  className="text-blue-600 hover:text-blue-800"
+                  title="Follow the narration on the page itself, at full size"
+                  data-testid="chapter-read-along"
+                >
+                  Read along on the page
+                </Link>
               ) : null}
               {chapter.progress && chapter.status === "synthesizing" ? (
                 <span className="text-blue-600 font-medium">Chunk {chapter.progress}</span>
@@ -619,6 +648,7 @@ export function ChapterModal({
               <ViewModeTabs
                 viewMode={viewMode}
                 onSetViewMode={setViewMode}
+                hasCues={cues !== null}
                 hasCleanText={chapter.hasCleanText}
                 hasCustomText={chapter.hasCustomText}
                 hasSourceBlocks={chapter.hasSourceBlocks}
@@ -640,6 +670,8 @@ export function ChapterModal({
             sourcePage={activeChunkPage}
             canOpenPdf={sourceFile !== undefined}
             onOpenPdf={setPdfPage}
+            onTime={setMs}
+            seekRef={seekRef}
           />
         ) : null}
 
@@ -654,6 +686,13 @@ export function ChapterModal({
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
                 className="flex-1 min-h-0 w-full max-w-4xl mx-auto rounded bg-(--bg-card) border border-amber-300 px-6 py-5 text-[15px] text-(--text-primary) whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+            ) : viewMode === "readalong" && cues ? (
+              <CueTranscript
+                cues={cues}
+                ms={ms}
+                onSeek={(at) => seekRef.current?.(at)}
+                className="mx-auto w-full max-w-4xl text-[15px] leading-relaxed text-(--text-primary)"
               />
             ) : viewMode === "blocks" && fullChapter.sourceBlocks ? (
               <BlocksPreview
@@ -738,6 +777,8 @@ function ChunkPreviewPanel({
   sourcePage,
   canOpenPdf,
   onOpenPdf,
+  onTime,
+  seekRef,
 }: {
   chunkPreviews: Array<{ index: number; fileName: string; url: string; page?: number; startMs?: number; endMs?: number }>;
   selectedUrl: string | null;
@@ -751,6 +792,8 @@ function ChunkPreviewPanel({
   sourcePage: number | null;
   canOpenPdf: boolean;
   onOpenPdf: (page: number) => void;
+  onTime?: (ms: number) => void;
+  seekRef?: React.RefObject<((ms: number) => void) | null>;
 }) {
   const activeUrl = selectedUrl ?? chunkPreviews.at(-1)?.url ?? null;
   const activeIndex = chunkPreviews.findIndex((preview) => preview.url === activeUrl);
@@ -799,8 +842,35 @@ function ChunkPreviewPanel({
     }
   }, [playNonce]);
 
+  // timeupdate fires a few times a second, which is enough to follow a chunk but not a word
+  useEffect(() => {
+    if (!onTime || !isPlaying) return;
+    let frame = 0;
+    const tick = () => {
+      if (audioRef.current) onTime(audioRef.current.currentTime * 1000);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [onTime, isPlaying]);
+
+  useEffect(() => {
+    if (!seekRef) return;
+    seekRef.current = (ms: number) => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      onTime?.(ms);
+      // preload="none" means currentTime is ignored until metadata arrives; the pending seek
+      // is applied by playActive and by loadedmetadata, whichever gets there first
+      pendingSeekRef.current = ms / 1000;
+      playActive();
+    };
+    return () => { seekRef.current = null; };
+  }, [seekRef, onTime]);
+
   function handleTimeUpdate() {
     const audio = audioRef.current;
+    onTime?.((audio?.currentTime ?? 0) * 1000);
     if (!syncMode || !audio || audio.paused) return;
     const ms = audio.currentTime * 1000;
     const current = chunkPreviews.find(
@@ -963,14 +1033,17 @@ function ViewModeTabs({
   hasCleanText,
   hasCustomText,
   hasSourceBlocks,
+  hasCues,
 }: {
   viewMode: ViewMode;
   onSetViewMode: (mode: ViewMode) => void;
   hasCleanText: boolean;
   hasCustomText: boolean;
   hasSourceBlocks: boolean;
+  hasCues: boolean;
 }) {
   const modes: ViewMode[] = [];
+  if (hasCues) modes.push("readalong");
   if (hasCustomText) modes.push("custom");
   if (hasCleanText) modes.push("clean");
   modes.push("raw");
