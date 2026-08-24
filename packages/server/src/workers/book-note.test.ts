@@ -5,12 +5,12 @@ import { eq } from "drizzle-orm";
 
 const { mockDeepseekChat, mockEnv } = vi.hoisted(() => ({
   mockDeepseekChat: vi.fn(async (..._args: unknown[]) => "AI answer"),
-  mockEnv: { DEEPSEEK_API_KEY: "test-key" as string | undefined },
+  mockEnv: { DEEPSEEK_API_KEY: "test-key" as string | undefined, DATA_DIR: "/nonexistent" },
 }));
 
-vi.mock("../lib/deepseek.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../lib/deepseek.ts")>();
-  return { ...actual, deepseekChat: mockDeepseekChat };
+vi.mock("../lib/llm.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/llm.ts")>();
+  return { ...actual, llmChat: mockDeepseekChat };
 });
 
 vi.mock("../env.ts", () => ({ env: mockEnv }));

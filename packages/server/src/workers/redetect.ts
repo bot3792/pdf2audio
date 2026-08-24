@@ -73,6 +73,7 @@ export async function redetect(payload: RedetectPayload) {
       if (!book.pdfPath) throw new Error("Book has no PDF files");
       const { chapters: detected, method } = await redetectChaptersFromExistingMarkerOutput(bookTmpDir(bookId), book.pdfPath, log, {
         llmChapterDetection: book.llmChapterDetection,
+        chapterModel: book.chapterModel ?? undefined,
       });
       totalDetected = detected.length;
       detectionMethod = method;
@@ -85,6 +86,7 @@ export async function redetect(payload: RedetectPayload) {
         try {
           const { chapters: detected, method } = await redetectChaptersFromExistingMarkerOutput(fileTmpDir, file.pdfPath, log, {
             llmChapterDetection: book.llmChapterDetection,
+            chapterModel: book.chapterModel ?? undefined,
           });
           await insertSuspendedChapters(bookId, detected, chapterOffset, file.index);
           chapterOffset += detected.length;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { modelKeySchema } from "../lib/llm.ts";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, chapters, chapterVariants, type VariantParams } from "../schema.ts";
@@ -188,6 +189,7 @@ export const variantsRouter = router({
       key: z.string().min(1),
       restart: z.boolean().optional(),
       thinking: z.boolean().optional(),
+      model: modelKeySchema.optional(),
     }))
     .mutation(async ({ input }) => {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.chapterId));
@@ -219,7 +221,11 @@ export const variantsRouter = router({
             error: null,
             updatedAt: new Date(),
             ...(reset ? { text: "", progress: null, title: null } : {}),
-            ...(input.thinking === undefined ? {} : { params: { ...existing.params, thinking: input.thinking } }),
+            params: {
+              ...existing.params,
+              ...(input.thinking !== undefined && { thinking: input.thinking }),
+              ...(input.model !== undefined && { model: input.model }),
+            },
           })
           .where(eq(chapterVariants.id, existing.id))
           .returning({ id: chapterVariants.id });
@@ -228,7 +234,11 @@ export const variantsRouter = router({
         await appendLog(chapter.bookId, `[Ch ${chapter.index + 1}] ${queuedLogLine(existing, input.key)}`);
       } else {
         const spec = await resolveSpec(chapter.bookId, input.key);
-        if (input.thinking !== undefined) spec.params = { ...spec.params, thinking: input.thinking };
+        spec.params = {
+          ...spec.params,
+          ...(input.thinking !== undefined && { thinking: input.thinking }),
+          ...(input.model !== undefined && { model: input.model }),
+        };
         const [created] = await db
           .insert(chapterVariants)
           .values({ chapterId: input.chapterId, key: input.key, ...spec })
@@ -255,6 +265,7 @@ export const variantsRouter = router({
       prompt: z.string().min(1),
       label: z.string().optional(),
       thinking: z.boolean().optional(),
+      model: modelKeySchema.optional(),
     }))
     .mutation(async ({ input }) => {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, input.chapterId));
@@ -269,7 +280,8 @@ export const variantsRouter = router({
       const params: VariantParams = {
         temperature: preset?.temperature ?? 0.8,
         mode: preset?.mode ?? "chunked",
-        ...(input.thinking === undefined ? {} : { thinking: input.thinking }),
+        ...(input.thinking !== undefined && { thinking: input.thinking }),
+        ...(input.model !== undefined && { model: input.model }),
       };
       const spec: VariantSpec = { kind: "transform", label, prompt: input.prompt, params };
 

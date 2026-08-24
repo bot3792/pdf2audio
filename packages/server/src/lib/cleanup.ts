@@ -1,4 +1,4 @@
-import { deepseekChat } from "./deepseek.ts";
+import { llmChat } from "./llm.ts";
 
 export type CleanupChunkArgs = {
   text: string;
@@ -31,5 +31,5 @@ export const cleanupChunk: CleanupChunkFn = async ({ text }) => {
   ].join("\n\n");
 
   // Reasoning occasionally runs long on garbled chunks — the 120s default times out
-  return deepseekChat(system, text, { temperature: 0.3, allowEmpty: true, timeoutMs: 600_000 });
+  return llmChat(system, text, { temperature: 0.3, allowEmpty: true, timeoutMs: 600_000 });
 };

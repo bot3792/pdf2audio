@@ -3,7 +3,7 @@ import { chapters, chapterVariants } from "../schema.ts";
 import { eq, and, ne } from "drizzle-orm";
 import { translateTitle } from "../lib/translate.ts";
 import { chunksForVariant, variantChunkFn, variantLabel } from "../lib/transform.ts";
-import { describeError } from "../lib/deepseek.ts";
+import { describeError } from "../lib/errors.ts";
 import { appendLog } from "../lib/log.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type { WorkerUtils } from "graphile-worker";
@@ -111,6 +111,7 @@ export async function translate(
           language: row.key,
           translatedOpening: translated.slice(0, 1000),
           thinking: row.params?.thinking ?? false,
+          model: row.params?.model,
         })
       : chapter.title);
 

@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import type { FlatBlock } from "./marker.ts";
-import { deepseekChat, describeError } from "./deepseek.ts";
+import { llmChat } from "./llm.ts";
+import { describeError } from "./errors.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -253,13 +254,16 @@ type SourceBlocks = { fileIndex: number | null; blocks: FlatBlock[]; pdfPath?: s
 // No maxTokens: deepseek-v4-flash spends its budget on reasoning first and a cap
 // can leave zero tokens for content (finish_reason "length", empty response).
 // Long timeout for the same reason — reasoning over a whole TOC can take minutes.
-const CHAT_OPTS = { temperature: 0.3, responseFormat: "json_object" as const, timeoutMs: 600_000 };
+// Low reasoning effort: TOC extraction and heading selection are structured tasks, and
+// local models decode slowly — full-depth thinking blows the timeout (ignored by cloud APIs)
+const CHAT_OPTS = { temperature: 0.3, responseFormat: "json_object" as const, timeoutMs: 600_000, reasoningEffort: "low" as const };
 
-export async function detectChaptersWithDeepseek(
+export async function detectChaptersWithLlm(
   files: SourceBlocks[],
   log: LogFn,
-  opts: { translateTo?: string } = {}
+  opts: { translateTo?: string; model?: string } = {}
 ): Promise<Map<number | null, HeadingSelection[]> | null> {
+  const chatOpts = { ...CHAT_OPTS, model: opts.model };
   const selected = new Map<number | null, HeadingSelection[]>();
   let total = 0;
   let lastError: unknown = null;
@@ -269,7 +273,7 @@ export async function detectChaptersWithDeepseek(
     const where = files.length > 1 ? ` in file ${fileIndex ?? 0}` : "";
     const front = buildPageWindow(blocks, "head");
     const back = buildPageWindow(blocks, "tail");
-    await log(`[DeepSeek] Reading the first/last pages${where} to find a table of contents (takes a minute or two)...`);
+    await log(`[AI] Reading the first/last pages${where} to find a table of contents (takes a minute or two)...`);
     const tocPrompt = buildTocPrompt(
       await buildTocWindowText(front, pdfPath),
       await buildTocWindowText(back, pdfPath)
@@ -279,19 +283,19 @@ export async function detectChaptersWithDeepseek(
     let toc: TocResult | null = null;
     let tocCallError: string | null = null;
     try {
-      toc = parseTocResponse(await deepseekChat(tocPrompt.system, tocPrompt.user, CHAT_OPTS));
+      toc = parseTocResponse(await llmChat(tocPrompt.system, tocPrompt.user, chatOpts));
     } catch (err) {
       tocCallError = describeError(err);
     }
 
     if (toc?.found) {
-      await log(`[DeepSeek] Found table of contents on page(s) ${toc.tocPages.join(", ") || "?"}${where}: ${toc.entries.length} entries`);
+      await log(`[AI] Found table of contents on page(s) ${toc.tocPages.join(", ") || "?"}${where}: ${toc.entries.length} entries`);
     } else if (tocCallError) {
-      await log(`[DeepSeek] Table-of-contents call failed${where} (${tocCallError}), selecting from headings alone`);
+      await log(`[AI] Table-of-contents call failed${where} (${tocCallError}), selecting from headings alone`);
     } else if (toc === null) {
-      await log(`[DeepSeek] Table-of-contents response was not valid JSON${where}, selecting from headings alone`);
+      await log(`[AI] Table-of-contents response was not valid JSON${where}, selecting from headings alone`);
     } else {
-      await log(`[DeepSeek] No table of contents found${where}, selecting from headings alone`);
+      await log(`[AI] No table of contents found${where}, selecting from headings alone`);
     }
 
     const tocPageSet = new Set(toc?.tocPages ?? []);
@@ -299,40 +303,40 @@ export async function detectChaptersWithDeepseek(
 
     const catalog = buildHeadingCatalog(blocks, excludePages);
     if (catalog.length === 0) {
-      await log(`[DeepSeek] No headings${where}, skipping`);
+      await log(`[AI] No headings${where}, skipping`);
       continue;
     }
 
-    await log(`[DeepSeek] Choosing chapter starts among ${catalog.length} headings${where} (takes a few minutes)...`);
+    await log(`[AI] Choosing chapter starts among ${catalog.length} headings${where} (takes a few minutes)...`);
     let selections: HeadingSelection[] | null = null;
     try {
       const prompt = buildSelectionPrompt(toc, catalog, { translateTo: opts.translateTo });
-      selections = parseSelectionResponse(await deepseekChat(prompt.system, prompt.user, CHAT_OPTS), catalog);
+      selections = parseSelectionResponse(await llmChat(prompt.system, prompt.user, chatOpts), catalog);
 
       // Conservative selections (e.g. only front matter) get one corrective retry.
       // Fall back to the full entry count when OCR left most TOC page numbers unreadable.
       const paged = toc?.found ? toc.entries.filter((e) => e.page !== null).length : 0;
       const expected = toc?.found ? (paged >= 10 ? paged : toc.entries.length) : 0;
       if (selections !== null && expected >= 10 && selections.length < expected / 3) {
-        await log(`[DeepSeek] Only ${selections.length} headings selected vs ${expected} table-of-contents entries${where}, retrying with feedback`);
+        await log(`[AI] Only ${selections.length} headings selected vs ${expected} table-of-contents entries${where}, retrying with feedback`);
         const retry = buildSelectionPrompt(toc, catalog, {
           translateTo: opts.translateTo,
           feedback: `A previous attempt selected only ${selections.length} headings, far fewer than the ${expected} entries in the table of contents. Most of those entries are chapters — select a heading for each of them.`,
         });
-        const retried = parseSelectionResponse(await deepseekChat(retry.system, retry.user, CHAT_OPTS), catalog);
+        const retried = parseSelectionResponse(await llmChat(retry.system, retry.user, chatOpts), catalog);
         if (retried !== null && retried.length > selections.length) selections = retried;
       }
     } catch (err) {
       lastError = err;
-      await log(`[DeepSeek] Selection call failed${where}: ${describeError(err)}`);
+      await log(`[AI] Selection call failed${where}: ${describeError(err)}`);
       continue;
     }
 
     if (selections === null) {
-      await log(`[DeepSeek] Selection covered nearly all ${catalog.length} headings${where}, treating as failure`);
+      await log(`[AI] Selection covered nearly all ${catalog.length} headings${where}, treating as failure`);
       continue;
     }
-    await log(`[DeepSeek] Selected ${selections.length} of ${catalog.length} headings${where}`);
+    await log(`[AI] Selected ${selections.length} of ${catalog.length} headings${where}`);
     selected.set(fileIndex, selections);
     total += selections.length;
   }

@@ -13,7 +13,7 @@ vi.mock("../lib/marker.ts", async (importOriginal) => {
 });
 
 vi.mock("../lib/toc-detect.ts", () => ({
-  detectChaptersWithDeepseek: vi.fn(),
+  detectChaptersWithLlm: vi.fn(),
 }));
 
 vi.mock("../lib/log.ts", () => ({
@@ -31,10 +31,10 @@ vi.mock("../db.ts", async () => {
 
 import { propose } from "./propose.ts";
 import { collectBlocksFromMarkerOutput, type FlatBlock } from "../lib/marker.ts";
-import { detectChaptersWithDeepseek } from "../lib/toc-detect.ts";
+import { detectChaptersWithLlm } from "../lib/toc-detect.ts";
 
 const mockCollectBlocks = vi.mocked(collectBlocksFromMarkerOutput);
-const mockLlm = vi.mocked(detectChaptersWithDeepseek);
+const mockLlm = vi.mocked(detectChaptersWithLlm);
 
 function heading(text: string, page: number): FlatBlock {
   return { type: "SectionHeader", text, hierarchy: null, page, included: true };

@@ -2,7 +2,7 @@ import { db } from "../db.ts";
 import { books, type ChapterProposal, type ChapterProposalBoundary } from "../schema.ts";
 import { eq } from "drizzle-orm";
 import { collectBlocksFromMarkerOutput, detectBoundaryIndices, type FlatBlock } from "../lib/marker.ts";
-import { detectChaptersWithDeepseek } from "../lib/toc-detect.ts";
+import { detectChaptersWithLlm } from "../lib/toc-detect.ts";
 import { listMarkerSources } from "../lib/marker-sources.ts";
 import { appendLog } from "../lib/log.ts";
 
@@ -34,8 +34,9 @@ export async function propose(payload: ProposePayload) {
           pdfPath: source.pdfPath,
         });
       }
-      const selected = await detectChaptersWithDeepseek(files, log, {
+      const selected = await detectChaptersWithLlm(files, log, {
         translateTo: book.translationLanguage ?? undefined,
+        model: book.chapterModel ?? undefined,
       });
       if (selected) {
         detection = "llm";
@@ -52,7 +53,7 @@ export async function propose(payload: ProposePayload) {
           }
         }
       } else {
-        await log("DeepSeek returned no usable chapters");
+        await log("AI chapter detection returned no usable chapters");
       }
     } else {
       for (const source of sources) {

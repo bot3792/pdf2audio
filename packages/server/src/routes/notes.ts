@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { modelKeySchema } from "../lib/llm.ts";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, chapters, notes, DEFAULT_PROFILE_ID } from "../schema.ts";
@@ -26,7 +27,7 @@ export const notesRouter = router({
     .input(z.object({
       question: z.string().min(1).max(4000),
       markdown: z.string().min(1),
-      model: z.enum(["flash", "pro"]).default("flash"),
+      model: modelKeySchema.default("flash"),
       folderId: z.string().uuid().optional(),
     }))
     .mutation(async ({ input, ctx }) => {

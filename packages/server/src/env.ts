@@ -5,7 +5,8 @@ import { z } from "zod";
 const repoRoot = import.meta.dirname
   ? path.resolve(import.meta.dirname, "../../..")
   : path.resolve(process.cwd(), "../..");
-dotenv.config({ path: path.join(repoRoot, ".env") });
+export const envFilePath = path.join(repoRoot, ".env");
+dotenv.config({ path: envFilePath });
 
 const envSchema = z.object({
   DATABASE_URL: z.string(),
@@ -14,6 +15,17 @@ const envSchema = z.object({
   CONDA_ENV_PATH: z.string().default(path.join(repoRoot, ".venv", "bin")),
   POCKET_ENV_PATH: z.string().default(path.join(repoRoot, ".venv-pocket", "bin")),
   DEEPSEEK_API_KEY: z.string().optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
+  LOCAL_LLM_URL: z.string().optional(),
+  LOCAL_LLM_MODEL: z.string().optional(),
+  LOCAL_LLM_LABEL: z.string().optional(),
+  LOCAL_LLM_CONTEXT_TOKENS: z.coerce.number().default(32_768),
+  LOCAL_LLM_TOOLS: z
+    .string()
+    .optional()
+    .transform((v) => v !== "false" && v !== "0"),
   CARTESIA_API_KEY: z.string().optional(),
   READALOUD_DROP_DIR: z.string().optional(),
 });

@@ -1,4 +1,4 @@
-import { deepseekChat, deepseekChatStream } from "./deepseek.ts";
+import { llmChat, llmChatStream } from "./llm.ts";
 import { translateChunk } from "./translate.ts";
 import type { ChapterVariant } from "../schema.ts";
 
@@ -41,13 +41,14 @@ export type TransformChunkArgs = {
   temperature?: number;
   previousOutput?: string;
   thinking?: boolean;
+  model?: string;
   onDelta?: (delta: string) => void;
   onThinking?: (delta: string) => void;
 };
 
 export type TransformChunkFn = (args: TransformChunkArgs) => Promise<string>;
 
-export const transformChunk: TransformChunkFn = async ({ text, prompt, temperature, previousOutput, thinking, onDelta, onThinking }) => {
+export const transformChunk: TransformChunkFn = async ({ text, prompt, temperature, previousOutput, thinking, model, onDelta, onThinking }) => {
   const system = [
     prompt,
     "The result will be read aloud by text-to-speech: write plain flowing prose — no markdown, no headings, no bullet points, no numbered lists.",
@@ -58,7 +59,8 @@ export const transformChunk: TransformChunkFn = async ({ text, prompt, temperatu
   ].filter(Boolean).join("\n\n");
 
   // Reasoning can run long on dense chunks — the 120s default times out
-  return deepseekChatStream(system, text, {
+  return llmChatStream(system, text, {
+    model,
     temperature: temperature ?? 0.8,
     thinking,
     timeoutMs: 600_000,
@@ -76,9 +78,10 @@ export type VariantChunkFn = (args: {
 
 export function variantChunkFn(variant: ChapterVariant): VariantChunkFn {
   const thinking = variant.params?.thinking ?? false;
+  const model = variant.params?.model;
   if (variant.kind === "translation") {
     return ({ text, previousOutput, onDelta, onThinking }) =>
-      translateChunk({ text, language: variant.key, previousTranslation: previousOutput, thinking, onDelta, onThinking });
+      translateChunk({ text, language: variant.key, previousTranslation: previousOutput, thinking, model, onDelta, onThinking });
   }
   if (!variant.prompt) throw new Error(`Transform variant "${variant.key}" has no prompt`);
   return ({ text, previousOutput, onDelta, onThinking }) =>
@@ -88,6 +91,7 @@ export function variantChunkFn(variant: ChapterVariant): VariantChunkFn {
       temperature: variant.params?.temperature,
       previousOutput,
       thinking,
+      model,
       onDelta,
       onThinking,
     });
@@ -106,7 +110,7 @@ export function variantKeySlug(label: string): string {
 }
 
 export async function inferVariantLabel(prompt: string): Promise<string> {
-  const label = await deepseekChat(
+  const label = await llmChat(
     "The user wrote an instruction for rewriting book chapters. Name this transformation in 1-3 plain words (e.g. \"ELI5\", \"With proofs\", \"Noir retelling\"). Output ONLY the name — no quotes, no punctuation.",
     prompt,
     { temperature: 0.5 },

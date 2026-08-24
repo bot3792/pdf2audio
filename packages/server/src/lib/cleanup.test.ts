@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupChunk } from "./cleanup.ts";
-import { deepseekChat } from "./deepseek.ts";
+import { llmChat } from "./llm.ts";
 
-vi.mock("./deepseek.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./deepseek.ts")>()),
-  deepseekChat: vi.fn(),
+vi.mock("./llm.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./llm.ts")>()),
+  llmChat: vi.fn(),
 }));
 
-const chatMock = vi.mocked(deepseekChat);
+const chatMock = vi.mocked(llmChat);
 
 beforeEach(() => {
   chatMock.mockReset();

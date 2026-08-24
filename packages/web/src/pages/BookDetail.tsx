@@ -472,6 +472,7 @@ export function BookDetail() {
             isProcessing={isProcessing}
             forceOcr={book.forceOcr}
             llmChapterDetection={book.llmChapterDetection}
+            chapterModel={book.chapterModel ?? null}
             language={book.language ?? null}
             onUpdateExtractionSettings={(settings) => updateSettingsMutation.mutate({ id: book.id, ...settings })}
             onSetSelected={(fid, selected) => setFileSelectedMutation.mutate({ id: fid, selected })}
@@ -508,7 +509,7 @@ export function BookDetail() {
                 <span
                   className="text-xs px-2 py-0.5 rounded-full bg-(--bg-subtle) text-(--text-muted)"
                   title={{
-                    "llm": "Boundaries picked by DeepSeek from the table of contents",
+                    "llm": "Boundaries picked by AI from the table of contents",
                     "numbered-headings": "Numbered chapter headings (Chapter N) found in the document",
                     "heading-levels": "Split at the most plausible heading level",
                     "word-split": "No usable headings — split every ~5000 words",
@@ -680,7 +681,7 @@ export function BookDetail() {
                 title={
                   activeVariant ? "Switch to the Original view — cleanup runs on the original text" :
                   selectedCleanable === 0 ? "No selected chapters need cleanup — already-cleaned and running ones are skipped" :
-                  "Ask DeepSeek to strip OCR artifacts from the selected chapters without altering the prose (cleaned ones are skipped)"
+                  "Ask AI to strip OCR artifacts from the selected chapters without altering the prose (cleaned ones are skipped)"
                 }
                 className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 data-testid="cleanup-selected"
@@ -1068,6 +1069,7 @@ export function BookDetail() {
             bookId={book.id}
             isProcessing={isProcessing}
             chapterProposal={book.chapterProposal ?? null}
+            chapterModel={book.chapterModel ?? null}
             files={book.files?.map((f) => ({ id: f.id, index: f.index, filename: f.filename }))}
             onClose={() => setShowStructure(false)}
             onChanged={invalidate}

@@ -5,14 +5,9 @@ import { trpc } from "../trpc.ts";
 import { profileHeaders } from "../lib/profile.ts";
 import { MarkdownBlock } from "./MarkdownBlock.tsx";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
-import {
-  AI_MODELS,
-  AI_PRESETS,
-  estimateTokens,
-  estimateTokensFromCounts,
-  formatTokens,
-  type AiModelKey,
-} from "../lib/ai-presets.ts";
+import { AI_PRESETS, estimateTokens, estimateTokensFromCounts, formatTokens } from "../lib/ai-presets.ts";
+import { ModelPicker } from "./ModelPicker.tsx";
+import { useActiveLlmModel } from "../lib/use-llm-models.ts";
 
 export type AiScope =
   | { kind: "chapters"; bookId: string; chapters: { id: string; title: string }[] }
@@ -58,7 +53,7 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
   const subject = kind === "book-raw" ? "book" : chapterSelection.length === 1 ? "chapter" : "chapters";
   const [activePreset, setActivePreset] = useState<string>("summarize");
   const [prompt, setPrompt] = useState<string>(AI_PRESETS[0].prompt(subject));
-  const [model, setModel] = useState<AiModelKey>("flash");
+  const [model, setModel] = useState<string>("flash");
 
   const transport = useMemo(
     () => new DefaultChatTransport({ api: "/chat/ask", headers: () => profileHeaders() }),
@@ -87,11 +82,11 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
   );
   const textStats = kind === "book-raw" ? rawStats : chapterStats;
 
-  const activeModel = AI_MODELS.find((m) => m.key === model)!;
+  const activeModel = useActiveLlmModel(model);
   const contentTokens = textStats
     ? estimateTokensFromCounts(textStats.ascii, textStats.nonAscii) + estimateTokens(prompt)
     : null;
-  const contextPct = contentTokens ? (contentTokens / activeModel.contextTokens) * 100 : null;
+  const contextPct = contentTokens && activeModel ? (contentTokens / activeModel.contextTokens) * 100 : null;
   const overContext = contextPct !== null && contextPct > 100;
 
   const scopeOptions = [
@@ -198,7 +193,7 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
               placeholder={`Ask anything about this ${subject === "chapters" ? "selection" : subject}...`}
               data-testid="ai-prompt-input"
             />
-            {contentTokens !== null && contextPct !== null && (
+            {contentTokens !== null && contextPct !== null && activeModel && (
               <div className="shrink-0" data-testid="ai-context-usage" title={`Rough estimate — the ${subject === "book" ? "book's raw text" : "chapter text"} plus your prompt, sent in full to ${activeModel.label}`}>
                 <div className="flex items-baseline justify-between text-xs text-(--text-faint) mb-1">
                   <span>
@@ -219,22 +214,7 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
               </div>
             )}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="inline-flex rounded-md border border-(--border) p-0.5 gap-0.5" data-testid="ai-model-toggle">
-                {AI_MODELS.map((m) => (
-                  <button
-                    key={m.key}
-                    onClick={() => setModel(m.key)}
-                    title={m.hint}
-                    className={`px-2.5 py-1.5 rounded text-xs font-medium ${
-                      model === m.key
-                        ? "bg-(--bg-subtle) text-(--text-primary)"
-                        : "text-(--text-muted) hover:text-(--text-secondary)"
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+              <ModelPicker value={model} onChange={setModel} testId="ai-model-toggle" />
               <button
                 onClick={run}
                 disabled={!prompt.trim() || pending || overContext}
@@ -253,7 +233,7 @@ export function ChapterAiModal({ scope, onClose }: { scope: AiScope; onClose: ()
               {pending && !result ? (
                 <div className="flex items-center gap-2 text-sm text-(--text-muted)">
                   <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                  DeepSeek is reading the {subject === "book" ? "book" : "chapter"}...
+                  {activeModel?.label ?? "The model"} is reading the {subject === "book" ? "book" : "chapter"}...
                   <button onClick={() => stop()} className="text-xs underline text-(--text-faint) hover:text-(--text-secondary)">Stop</button>
                 </div>
               ) : error && !result ? (

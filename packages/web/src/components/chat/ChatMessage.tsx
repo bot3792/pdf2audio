@@ -3,7 +3,6 @@ import type { UIMessage } from "ai";
 import { trpc } from "../../trpc.ts";
 import { MarkdownBlock } from "../MarkdownBlock.tsx";
 import { SourceChips, type ChatSource } from "./SourceChips.tsx";
-import type { AiModelKey } from "../../lib/ai-presets.ts";
 
 function messageText(message: UIMessage): string {
   return (message.parts ?? [])
@@ -44,7 +43,7 @@ export function ChatMessage({
 }: {
   message: UIMessage;
   question: string;
-  model: AiModelKey;
+  model: string;
   folderId?: string;
   onOpenPdf: (args: { fileId: string; page?: number; filename?: string }) => void;
 }) {

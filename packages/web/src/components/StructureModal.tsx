@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { trpc } from "../trpc.ts";
 import { PdfPreviewModal } from "./PdfPreviewModal.tsx";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
+import { ModelPicker } from "./ModelPicker.tsx";
 
 type ChapterProposal = {
   status: "running" | "done" | "failed";
@@ -36,6 +37,7 @@ export function StructureModal({
   bookId,
   isProcessing,
   chapterProposal,
+  chapterModel,
   files,
   onClose,
   onChanged,
@@ -43,12 +45,14 @@ export function StructureModal({
   bookId: string;
   isProcessing: boolean;
   chapterProposal: ChapterProposal | null;
+  chapterModel: string | null;
   files?: { id: string; index: number; filename: string }[];
   onClose: () => void;
   onChanged: () => void;
 }) {
   useBodyScrollLock();
   const { data: structure, isLoading } = trpc.books.structure.useQuery({ id: bookId });
+  const [model, setModel] = useState<string>(chapterModel ?? "flash");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; page: number; filename?: string } | null>(null);
   const initialized = useRef(false);
@@ -93,14 +97,14 @@ export function StructureModal({
     ? runningLogs
         ?.filter(
           (l) =>
-            l.message.startsWith("[DeepSeek]") &&
+            l.message.startsWith("[AI]") &&
             chapterProposal &&
             new Date(l.createdAt) >= new Date(chapterProposal.createdAt)
         )
         .at(-1)?.message
     : undefined;
 
-  // DeepSeek proposals carry cleaned-up (and optionally translated) titles; keep them through preview and apply
+  // LLM proposals carry cleaned-up (and optionally translated) titles; keep them through preview and apply
   const proposalBoundaries = chapterProposal?.status === "done" ? chapterProposal.boundaries ?? [] : [];
   const proposalTitles = new Map(proposalBoundaries.map((b) => [boundaryKey(b.fileIndex, b.blockIndex), b.title]));
   const proposalTranslations = new Map(
@@ -398,17 +402,18 @@ export function StructureModal({
             Propose (heuristic)
           </button>
           <button
-            onClick={() => proposeMutation.mutate({ id: bookId, method: "llm" })}
+            onClick={() => proposeMutation.mutate({ id: bookId, method: "llm", model })}
             disabled={proposalRunning || proposeMutation.isPending}
             className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-sm font-medium hover:bg-(--border) disabled:opacity-50"
-            title="Ask DeepSeek to find the table of contents and propose chapter boundaries (takes a few minutes on big or multi-file books)"
+            title="Ask the selected AI model to find the table of contents and propose chapter boundaries (takes a few minutes on big or multi-file books)"
           >
             Propose (LLM)
           </button>
+          <ModelPicker value={model} onChange={setModel} testId="structure-chapter-model" />
           {proposalRunning ? (
             <span className="text-sm text-blue-600 truncate" data-testid="proposal-running" title={proposalProgress}>
-              {proposalProgress?.replace(/^\[DeepSeek\]\s*/, "") ??
-                `Proposal running${chapterProposal?.method === "llm" ? " (asking DeepSeek)" : ""}...`}
+              {proposalProgress?.replace(/^\[AI\]\s*/, "") ??
+                `Proposal running${chapterProposal?.method === "llm" ? " (asking the model)" : ""}...`}
             </span>
           ) : null}
           {applyMutation.error || proposeMutation.error ? (

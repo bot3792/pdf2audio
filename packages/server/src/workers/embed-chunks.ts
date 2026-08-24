@@ -2,7 +2,7 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db.ts";
 import { books, bookChunks, type SearchIndexJob } from "../schema.ts";
 import { embedTexts } from "../lib/embeddings.ts";
-import { describeError } from "../lib/deepseek.ts";
+import { describeError } from "../lib/errors.ts";
 
 export type EmbedChunksPayload = { bookId: string };
 

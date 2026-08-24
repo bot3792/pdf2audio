@@ -16,6 +16,9 @@
     "cleanup:chunks": "tsx src/scripts/cleanup-chunk-wavs.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.41",
+    "@ai-sdk/google": "^4.0.50",
+    "@ai-sdk/openai": "^4.0.46",
     "@ai-sdk/openai-compatible": "^3.0.27",
     "@fastify/cors": "^11.0.0",
     "@fastify/multipart": "^9.0.0",

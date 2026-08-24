@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { trpc } from "../trpc.ts";
 import { TRANSLATION_LANGUAGES } from "../lib/languages.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
+import { ModelPicker } from "./ModelPicker.tsx";
 
 type ChapterSummary = { id: string; index: number; title: string };
 
@@ -29,6 +30,7 @@ export function VariantModal({
   const [activeKey, setActiveKey] = useState<string | null>(initialKey ?? "Bulgarian");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [model, setModel] = useState<string>("flash");
   const [selectedId, setSelectedId] = useState<string | null>(initialChapterId ?? chapters[0]?.id ?? null);
   const outputPane = useRef<HTMLDivElement>(null);
   const selectedChapterRef = useRef<HTMLButtonElement>(null);
@@ -195,6 +197,7 @@ export function VariantModal({
         prompt: draft.prompt,
         label: draft.presetId ? undefined : draft.label.trim() || undefined,
         thinking: thinkingEnabled,
+        model,
       });
     } else if (activeKey) {
       startMutation.mutate({
@@ -202,6 +205,7 @@ export function VariantModal({
         key: activeKey,
         restart: variant?.status === "done",
         thinking: thinkingEnabled,
+        model,
       });
     }
   };
@@ -255,6 +259,8 @@ export function VariantModal({
             />
             Reasoning
           </label>
+
+          <ModelPicker value={model} onChange={setModel} testId="variant-model" />
 
           <button
             onClick={handleStart}

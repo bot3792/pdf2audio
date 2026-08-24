@@ -97,6 +97,7 @@ async function extractSinglePdf(
   const { chapters: extractedChapters, method } = await extractPdf(book.pdfPath, tmpOut, log, {
     forceOcr: book.forceOcr,
     llmChapterDetection: book.llmChapterDetection,
+    chapterModel: book.chapterModel ?? undefined,
     signal,
   });
 

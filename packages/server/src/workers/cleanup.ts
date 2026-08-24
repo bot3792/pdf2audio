@@ -3,7 +3,7 @@ import { chapters, type ChapterCleanup } from "../schema.ts";
 import { and, eq, sql } from "drizzle-orm";
 import { splitIntoChunks } from "../lib/transform.ts";
 import { cleanupChunk } from "../lib/cleanup.ts";
-import { describeError } from "../lib/deepseek.ts";
+import { describeError } from "../lib/errors.ts";
 import { appendLog } from "../lib/log.ts";
 import { randomUUID } from "node:crypto";
 import { queueIndexBook } from "../lib/search-index.ts";

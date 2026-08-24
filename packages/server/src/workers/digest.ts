@@ -1,10 +1,10 @@
 import { db } from "../db.ts";
 import { books, chapters, bookFiles, type DigestJob } from "../schema.ts";
 import { eq, and, isNotNull, sql } from "drizzle-orm";
-import { env } from "../env.ts";
-import { deepseekChat, describeError, DEEPSEEK_MODELS } from "../lib/deepseek.ts";
+import { llmChat, resolveLlm, type LlmModelDef } from "../lib/llm.ts";
+import { describeError } from "../lib/errors.ts";
 import { getBookSummaryText } from "../lib/book-source-text.ts";
-import { estimateTokens, MODEL_CONTEXT_TOKENS } from "../lib/token-estimate.ts";
+import { estimateTokens } from "../lib/token-estimate.ts";
 import { saveNote } from "../lib/notes.ts";
 import { insertSuspendedChapters } from "../lib/insert-chapters.ts";
 import { normalizeForTts } from "../lib/normalizer.ts";
@@ -39,8 +39,11 @@ export async function digest(payload: DigestPayload) {
       })
       .where(eq(books.id, bookId));
 
-  if (!env.DEEPSEEK_API_KEY) {
-    const error = "DEEPSEEK_API_KEY is not set — add it to .env";
+  let def: LlmModelDef;
+  try {
+    def = (await resolveLlm(origin.model)).def;
+  } catch (err) {
+    const error = describeError(err);
     await setJob({ status: "failed", error });
     await log(`Digest failed: ${error}`);
     throw new Error(error);
@@ -81,7 +84,7 @@ export async function digest(payload: DigestPayload) {
     }
 
     const tokens = estimateTokens(text) + estimateTokens(origin.prompt);
-    if (tokens > MODEL_CONTEXT_TOKENS) {
+    if (tokens > def.contextTokens) {
       failures++;
       await log(`Digest ${processed}/${total}: "${source.title}" exceeds the model's context (~${Math.round(tokens / 1000)}k tokens), skipping`);
       continue;
@@ -92,8 +95,8 @@ export async function digest(payload: DigestPayload) {
 
     let result: string;
     try {
-      result = await deepseekChat(SYSTEM_PROMPT, `${origin.prompt}\n\n---\n${text}`, {
-        model: DEEPSEEK_MODELS[origin.model],
+      result = await llmChat(SYSTEM_PROMPT, `${origin.prompt}\n\n---\n${text}`, {
+        model: origin.model,
         temperature: 0.7,
         timeoutMs: 600_000,
       });

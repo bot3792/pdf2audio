@@ -4,7 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { trpc } from "../trpc.ts";
 import { profileHeaders } from "../lib/profile.ts";
-import { AI_MODELS, type AiModelKey } from "../lib/ai-presets.ts";
+import { ModelPicker } from "../components/ModelPicker.tsx";
 import { ChatMessage } from "../components/chat/ChatMessage.tsx";
 import { SavedAnswers } from "../components/chat/SavedAnswers.tsx";
 import { PdfPreviewModal } from "../components/PdfPreviewModal.tsx";
@@ -39,7 +39,7 @@ export function Chat() {
   const folderId = searchParams.get("folderId") ?? undefined;
   const bookId = searchParams.get("bookId") ?? undefined;
   const { data: scopedBook } = trpc.books.get.useQuery({ id: bookId! }, { enabled: !!bookId });
-  const [model, setModel] = useState<AiModelKey>("flash");
+  const [model, setModel] = useState<string>("flash");
   const [input, setInput] = useState("");
   const [pdfPreview, setPdfPreview] = useState<{ fileId: string; page?: number; filename?: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -131,16 +131,7 @@ export function Chat() {
               ))}
             </select>
             )}
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value as AiModelKey)}
-              className="text-sm rounded-md border border-(--border) bg-(--bg-card) text-(--text-primary) px-2 py-1.5"
-              data-testid="chat-model"
-            >
-              {AI_MODELS.map((m) => (
-                <option key={m.key} value={m.key}>{m.label}</option>
-              ))}
-            </select>
+            <ModelPicker value={model} onChange={setModel} requireTools testId="chat-model" />
           </div>
         </div>
 

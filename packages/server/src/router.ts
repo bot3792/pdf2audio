@@ -1,4 +1,4 @@
-import type { inferRouterOutputs } from "@trpc/server";
+import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { router } from "./trpc.ts";
 import { booksRouter } from "./routes/books.ts";
 import { chaptersRouter } from "./routes/chapters.ts";
@@ -11,6 +11,7 @@ import { searchRouter } from "./routes/search.ts";
 import { sayVoicesRouter } from "./routes/say-voices.ts";
 import { cartesiaVoicesRouter } from "./routes/cartesia-voices.ts";
 import { pocketVoicesRouter } from "./routes/pocket-voices.ts";
+import { llmModelsRouter } from "./routes/llm-models.ts";
 
 export const appRouter = router({
   books: booksRouter,
@@ -24,8 +25,11 @@ export const appRouter = router({
   sayVoices: sayVoicesRouter,
   cartesiaVoices: cartesiaVoicesRouter,
   pocketVoices: pocketVoicesRouter,
+  llmModels: llmModelsRouter,
 });
 
 export type AppRouter = typeof appRouter;
 
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
+
+export type RouterInputs = inferRouterInputs<AppRouter>;

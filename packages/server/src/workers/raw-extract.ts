@@ -7,7 +7,7 @@ import { appendLog } from "../lib/log.ts";
 
 export type RawExtractPayload = {
   bookId: string;
-  note?: { prompt: string; model: "flash" | "pro" };
+  note?: { prompt: string; model: string };
 };
 
 export async function rawExtract(payload: RawExtractPayload, { addJob }: { addJob: WorkerUtils["addJob"] }) {

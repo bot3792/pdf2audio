@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { trpc } from "../trpc.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
-import { AI_MODELS, DIGEST_LISTENING_PROMPT, DIGEST_PRESETS, type AiModelKey } from "../lib/ai-presets.ts";
+import { DIGEST_LISTENING_PROMPT, DIGEST_PRESETS } from "../lib/ai-presets.ts";
+import { ModelPicker } from "./ModelPicker.tsx";
 
 export function DigestModal({
   sourceBooks,
@@ -17,7 +18,7 @@ export function DigestModal({
   const navigate = useNavigate();
   const [title, setTitle] = useState(`Digest — ${sourceBooks.length} books`);
   const [prompt, setPrompt] = useState(DIGEST_LISTENING_PROMPT);
-  const [model, setModel] = useState<AiModelKey>("flash");
+  const [model, setModel] = useState<string>("flash");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
 
   const { data: availability } = trpc.books.textAvailability.useQuery({
@@ -108,22 +109,7 @@ export function DigestModal({
 
           <div className="flex items-center gap-2">
             <span className="text-sm text-(--text-secondary)">Model</span>
-            <div className="inline-flex rounded-md border border-(--border) p-0.5 gap-0.5">
-              {AI_MODELS.map((m) => (
-                <button
-                  key={m.key}
-                  onClick={() => setModel(m.key)}
-                  title={m.hint}
-                  className={`px-2.5 py-1.5 rounded text-xs font-medium ${
-                    model === m.key
-                      ? "bg-(--bg-subtle) text-(--text-primary)"
-                      : "text-(--text-muted) hover:text-(--text-secondary)"
-                  }`}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            <ModelPicker value={model} onChange={setModel} testId="digest-model" />
           </div>
 
           {unusable.length > 0 && (

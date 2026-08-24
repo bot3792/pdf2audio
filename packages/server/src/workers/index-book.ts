@@ -4,7 +4,7 @@ import { and, asc, eq, isNotNull, ne, or, sql } from "drizzle-orm";
 import { db } from "../db.ts";
 import { books, bookFiles, bookChunks, chapters, chapterVariants, type Book, type SearchIndexJob, type NewBookChunk } from "../schema.ts";
 import { chunkPagedText, chunkPlainText, pageMapFromBlocks, type ChunkDraft, type PageBlock } from "../lib/search-chunks.ts";
-import { describeError } from "../lib/deepseek.ts";
+import { describeError } from "../lib/errors.ts";
 
 export type IndexBookPayload = { bookId: string };
 

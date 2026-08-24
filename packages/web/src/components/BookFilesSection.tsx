@@ -25,6 +25,7 @@ export function BookFilesSection({
   isProcessing,
   forceOcr,
   llmChapterDetection,
+  chapterModel,
   language,
   voiceLabel,
   onStartExtraction,
@@ -44,10 +45,11 @@ export function BookFilesSection({
   isProcessing: boolean;
   forceOcr: boolean;
   llmChapterDetection: boolean;
+  chapterModel: string | null;
   language: string | null;
   voiceLabel: string;
   onStartExtraction: (scope: ExtractScope, autoSynthesize: boolean) => void;
-  onUpdateExtractionSettings: (settings: { forceOcr?: boolean; llmChapterDetection?: boolean; language?: string | null }) => void;
+  onUpdateExtractionSettings: (settings: { forceOcr?: boolean; llmChapterDetection?: boolean; chapterModel?: string; language?: string | null }) => void;
   onSetSelected: (id: string, selected: boolean) => void;
   onSetAllSelected: (selected: boolean) => void;
   onSetSelectedBatch: (ids: string[], selected: boolean) => void;
@@ -278,6 +280,7 @@ export function BookFilesSection({
           isProcessing={isProcessing}
           forceOcr={forceOcr}
           llmChapterDetection={llmChapterDetection}
+          chapterModel={chapterModel}
           language={language}
           voiceLabel={voiceLabel}
           onUpdateBook={onUpdateExtractionSettings}

@@ -471,7 +471,7 @@ export function ChapterModal({
                   cleanupRunning ? "Cleanup is running" :
                   cleanupStatus === "failed" ? "Retry the failed cleanup" :
                   cleanupStatus === "done" ? "Run the AI cleanup again on the current text" :
-                  "Ask DeepSeek to strip OCR artifacts from this chapter without altering the prose"
+                  "Ask AI to strip OCR artifacts from this chapter without altering the prose"
                 }
                 className={TOOLBAR_BUTTON}
                 data-testid="chapter-cleanup"

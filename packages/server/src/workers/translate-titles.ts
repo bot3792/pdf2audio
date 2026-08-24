@@ -2,7 +2,7 @@ import { db } from "../db.ts";
 import { chapters, chapterVariants } from "../schema.ts";
 import { eq, and, asc, isNull } from "drizzle-orm";
 import { translateTitle } from "../lib/translate.ts";
-import { describeError } from "../lib/deepseek.ts";
+import { describeError } from "../lib/errors.ts";
 import { appendLog } from "../lib/log.ts";
 
 export type TranslateTitlesPayload = {

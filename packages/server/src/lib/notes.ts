@@ -6,7 +6,7 @@ export async function saveNote(input: {
   bookId: string | null;
   profileId?: string;
   prompt: string;
-  model: "flash" | "pro";
+  model: string;
   result: string;
   scope: NoteScope;
 }): Promise<string> {

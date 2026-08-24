@@ -1,23 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./deepseek.ts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./deepseek.ts")>()),
-  deepseekChat: vi.fn(),
+vi.mock("./llm.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./llm.ts")>()),
+  llmChat: vi.fn(),
 }));
 
-import { deepseekChat } from "./deepseek.ts";
+import { llmChat } from "./llm.ts";
 import {
   buildHeadingCatalog,
   buildPageWindow,
   buildSelectionPrompt,
-  detectChaptersWithDeepseek,
+  detectChaptersWithLlm,
   mergePageTexts,
   parseSelectionResponse,
   parseTocResponse,
 } from "./toc-detect.ts";
 import type { FlatBlock } from "./marker.ts";
 
-const mockChat = vi.mocked(deepseekChat);
+const mockChat = vi.mocked(llmChat);
 const noopLog = async () => {};
 
 function block(overrides: Partial<FlatBlock>): FlatBlock {
@@ -226,7 +226,7 @@ describe("buildSelectionPrompt", () => {
   });
 });
 
-describe("detectChaptersWithDeepseek", () => {
+describe("detectChaptersWithLlm", () => {
   beforeEach(() => {
     mockChat.mockReset();
   });
@@ -243,7 +243,7 @@ describe("detectChaptersWithDeepseek", () => {
       .mockResolvedValueOnce('{"found": true, "tocPages": [2], "entries": [{"title": "Chapter 1", "page": 5}]}')
       .mockResolvedValueOnce('{"selections": [{"id": "h_0001", "title": "Chapter 1"}, {"id": "h_0003", "title": "Chapter 2"}]}');
 
-    const result = await detectChaptersWithDeepseek([{ fileIndex: null, blocks }], noopLog);
+    const result = await detectChaptersWithLlm([{ fileIndex: null, blocks }], noopLog);
 
     expect(result?.get(null)).toEqual([
       { blockIndex: 1, title: "Chapter 1", titleTranslated: null },
@@ -260,7 +260,7 @@ describe("detectChaptersWithDeepseek", () => {
       .mockResolvedValueOnce('{"found": false, "tocPages": [], "entries": []}')
       .mockResolvedValueOnce('{"ids": ["h_0001"]}');
 
-    expect(await detectChaptersWithDeepseek([{ fileIndex: null, blocks }], noopLog)).toBeNull();
+    expect(await detectChaptersWithLlm([{ fileIndex: null, blocks }], noopLog)).toBeNull();
   });
 
   it("degrades to headings-alone when the toc call errors, and fails only when all selection calls error", async () => {
@@ -268,7 +268,7 @@ describe("detectChaptersWithDeepseek", () => {
       .mockRejectedValueOnce(new Error("DeepSeek returned an empty response"))
       .mockResolvedValueOnce('{"ids": ["h_0001", "h_0003"]}');
 
-    const result = await detectChaptersWithDeepseek([{ fileIndex: null, blocks }], noopLog);
+    const result = await detectChaptersWithLlm([{ fileIndex: null, blocks }], noopLog);
     expect(result?.get(null)?.map((s) => s.blockIndex)).toEqual([1, 3]);
 
     mockChat.mockReset();
@@ -276,7 +276,7 @@ describe("detectChaptersWithDeepseek", () => {
       .mockResolvedValueOnce('{"found": false, "tocPages": [], "entries": []}')
       .mockRejectedValueOnce(new Error("DeepSeek API error 500"));
 
-    await expect(detectChaptersWithDeepseek([{ fileIndex: null, blocks }], noopLog)).rejects.toThrow("500");
+    await expect(detectChaptersWithLlm([{ fileIndex: null, blocks }], noopLog)).rejects.toThrow("500");
   });
 
   it("retries with feedback when far fewer headings than toc entries were selected", async () => {
@@ -287,7 +287,7 @@ describe("detectChaptersWithDeepseek", () => {
       .mockResolvedValueOnce('{"ids": ["h_0000", "h_0001"]}')
       .mockResolvedValueOnce(`{"ids": ${JSON.stringify(many.map((_, i) => `h_${String(i).padStart(4, "0")}`))}}`);
 
-    const result = await detectChaptersWithDeepseek([{ fileIndex: null, blocks: many }], noopLog);
+    const result = await detectChaptersWithLlm([{ fileIndex: null, blocks: many }], noopLog);
 
     expect(mockChat).toHaveBeenCalledTimes(3);
     expect(mockChat.mock.calls[2][1]).toContain("A previous attempt selected only 2 headings");
@@ -301,7 +301,7 @@ describe("detectChaptersWithDeepseek", () => {
       .mockResolvedValueOnce('{"found": false, "tocPages": [], "entries": []}')
       .mockResolvedValueOnce('{"ids": ["h_0000"]}');
 
-    const result = await detectChaptersWithDeepseek(
+    const result = await detectChaptersWithLlm(
       [
         { fileIndex: 0, blocks },
         { fileIndex: 1, blocks: [heading("Part II", 1)] },

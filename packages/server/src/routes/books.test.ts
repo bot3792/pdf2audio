@@ -13,9 +13,9 @@ vi.mock("graphile-worker", () => ({
   quickAddJob: mockQuickAddJob,
 }));
 
-vi.mock("../lib/deepseek.ts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../lib/deepseek.ts")>();
-  return { ...actual, deepseekChat: mockDeepseekChat };
+vi.mock("../lib/llm.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/llm.ts")>();
+  return { ...actual, llmChat: mockDeepseekChat };
 });
 
 vi.mock("../db.ts", async () => {

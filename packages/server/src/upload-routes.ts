@@ -39,13 +39,13 @@ async function saveUploadedFiles(request: FastifyRequest, pdfDir: string, startI
   return { files, fields };
 }
 
-function parseNoteRequest(fields: Record<string, string>): { prompt: string; model: "flash" | "pro" } | { error: string } | null {
+function parseNoteRequest(fields: Record<string, string>): { prompt: string; model: string } | { error: string } | null {
   const prompt = fields.notePrompt?.trim();
   if (!prompt) return null;
   if (prompt.length > MAX_NOTE_PROMPT_CHARS) {
     return { error: `notePrompt exceeds ${MAX_NOTE_PROMPT_CHARS} characters` };
   }
-  const model = fields.noteModel === "pro" ? "pro" : "flash";
+  const model = fields.noteModel?.trim().slice(0, 64) || "flash";
   return { prompt, model };
 }
 
@@ -75,6 +75,7 @@ export function registerUploadRoutes(fastify: FastifyInstance) {
     const speed = parseFloat(fields.speed ?? "1.0");
     const forceOcr = fields.forceOcr === "true";
     const llmChapterDetection = fields.llmChapterDetection === "true";
+    const chapterModel = fields.chapterModel?.trim().slice(0, 64) || null;
     const skipSynthesis = fields.skipSynthesis === "true";
     const fullExtract = fields.fullExtract === "true";
 
@@ -104,6 +105,7 @@ export function registerUploadRoutes(fastify: FastifyInstance) {
         speed,
         forceOcr,
         llmChapterDetection,
+        chapterModel,
         skipSynthesis,
         folderId,
         profileId,

@@ -32,7 +32,7 @@ export type ChapterCleanup = {
 export type NoteJob = {
   status: "queued" | "running" | "done" | "failed";
   prompt: string;
-  model: "flash" | "pro";
+  model: string;
   error?: string;
   noteId?: string;
   createdAt: string;
@@ -52,7 +52,7 @@ export type SearchIndexJob = {
 };
 
 export type BookOrigin =
-  | { type: "digest"; sourceBookIds: string[]; prompt: string; model: "flash" | "pro" }
+  | { type: "digest"; sourceBookIds: string[]; prompt: string; model: string }
   | { type: "api"; client?: string };
 
 export type DigestJob = {
@@ -68,6 +68,7 @@ export type VariantParams = {
   // "whole" sends the entire chapter as one chunk (for outputs much shorter than the source)
   mode?: "chunked" | "whole";
   thinking?: boolean;
+  model?: string;
 };
 
 // Per-lane (variant key) voice/speed overrides; absent fields fall back to books.voice/speed
@@ -115,6 +116,8 @@ export const books = pgTable("books", {
   error: text("error"),
   forceOcr: boolean("force_ocr").notNull().default(false),
   llmChapterDetection: boolean("llm_chapter_detection").notNull().default(false),
+  // null = default model; registry key from lib/llm.ts
+  chapterModel: text("chapter_model"),
   chapterDetection: text("chapter_detection").$type<"llm" | "numbered-headings" | "heading-levels" | "word-split" | "manual">(),
   chapterProposal: jsonb("chapter_proposal").$type<ChapterProposal>(),
   translationLanguage: text("translation_language"),
@@ -248,7 +251,7 @@ export const notes = pgTable("notes", {
   bookId: uuid("book_id").references(() => books.id, { onDelete: "cascade" }),
   profileId: uuid("profile_id").notNull().default(DEFAULT_PROFILE_ID).references(() => profiles.id),
   prompt: text("prompt").notNull(),
-  model: text("model", { enum: ["flash", "pro"] }).notNull(),
+  model: text("model").notNull(),
   result: text("result").notNull(),
   scope: jsonb("scope").$type<NoteScope>().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

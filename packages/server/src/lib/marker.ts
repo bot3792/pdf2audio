@@ -5,8 +5,8 @@ import path from "node:path";
 import os from "node:os";
 
 import { env } from "../env.ts";
-import { describeError } from "./deepseek.ts";
-import { detectChaptersWithDeepseek } from "./toc-detect.ts";
+import { describeError } from "./errors.ts";
+import { detectChaptersWithLlm } from "./toc-detect.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
 
@@ -445,6 +445,7 @@ function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu",
 export type ExtractOptions = {
   forceOcr?: boolean;
   llmChapterDetection?: boolean;
+  chapterModel?: string;
   signal?: AbortSignal;
 };
 
@@ -517,16 +518,16 @@ async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath:
 
   if (options.llmChapterDetection) {
     try {
-      const selected = await detectChaptersWithDeepseek([{ fileIndex: null, blocks: allBlocks, pdfPath }], log);
+      const selected = await detectChaptersWithLlm([{ fileIndex: null, blocks: allBlocks, pdfPath }], log, { model: options.chapterModel });
       const selections = selected?.get(null) ?? [];
       if (selections.length >= 2) {
         const titles = new Map(selections.filter((s) => s.title).map((s) => [s.blockIndex, s.title!]));
         const chapters = sliceChaptersAtIndices(allBlocks, selections.map((s) => s.blockIndex), titles);
         if (chapters.length >= 2) return { chapters, method: "llm" };
       }
-      await log("DeepSeek returned no usable chapters, falling back to heuristic");
+      await log("AI chapter detection returned no usable chapters, falling back to heuristic");
     } catch (err) {
-      await log(`DeepSeek chapter detection failed: ${describeError(err)} — falling back to heuristic`);
+      await log(`AI chapter detection failed: ${describeError(err)} — falling back to heuristic`);
     }
   }
 

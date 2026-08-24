@@ -63,13 +63,6 @@ export const DIGEST_PRESETS = [
   { key: "didyouknow", label: "Did you know?", prompt: DIGEST_DID_YOU_KNOW_PROMPT },
 ] as const;
 
-export const AI_MODELS = [
-  { key: "flash", label: "V4 Flash", hint: "Fast and cheap — good default", contextTokens: 1_000_000 },
-  { key: "pro", label: "V4 Pro", hint: "Flagship reasoning model — slower, for harder questions", contextTokens: 1_000_000 },
-] as const;
-
-export type AiModelKey = (typeof AI_MODELS)[number]["key"];
-
 // No DeepSeek tokenizer here — deliberately pessimistic BPE rule of thumb
 // (~3.4 chars/token for ASCII, ~1.4 for non-Latin scripts) so estimates overestimate.
 export function estimateTokensFromCounts(ascii: number, nonAscii: number): number {

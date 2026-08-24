@@ -2,16 +2,16 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { trpc } from "../trpc.ts";
 import { MarkdownBlock } from "./MarkdownBlock.tsx";
+import { useLlmModels } from "../lib/use-llm-models.ts";
 
 export type NoteJobView = {
   status: "queued" | "running" | "done" | "failed";
   prompt: string;
-  model: "flash" | "pro";
+  model: string;
   error?: string;
   updatedAt: string;
 };
 
-const MODEL_LABELS = { flash: "V4 Flash", pro: "V4 Pro" } as const;
 
 function noteJobActive(noteJob: NoteJobView | null): boolean {
   if (!noteJob) return false;
@@ -21,6 +21,8 @@ function noteJobActive(noteJob: NoteJobView | null): boolean {
 
 export function NotesSection({ bookId, noteJob }: { bookId: string; noteJob: NoteJobView | null }) {
   const utils = trpc.useUtils();
+  const models = useLlmModels();
+  const labelFor = (key: string) => models.find((m) => m.key === key)?.label ?? key;
   const jobActive = noteJobActive(noteJob);
   const { data: notes = [] } = trpc.notes.list.useQuery(
     { bookId },
@@ -93,7 +95,7 @@ export function NotesSection({ bookId, noteJob }: { bookId: string; noteJob: Not
                   <span className="text-xs px-2 py-0.5 rounded-full bg-(--bg-subtle) text-(--text-muted) shrink-0" title={scopeTitle}>
                     {scopeLabel}
                   </span>
-                  <span className="text-xs text-(--text-faint) shrink-0">{MODEL_LABELS[note.model]}</span>
+                  <span className="text-xs text-(--text-faint) shrink-0">{labelFor(note.model)}</span>
                   <span className="text-xs text-(--text-faint) shrink-0">
                     {new Date(note.createdAt).toLocaleDateString()}
                   </span>

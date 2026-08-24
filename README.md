@@ -2,7 +2,7 @@
 
 Turns PDF books into audiobooks — and more. Upload PDFs, pick a voice, and get chapter-marked M4B audiobooks, AI digests, translations, AI rewrites (ELI5, summaries, custom prompts), PDF/EPUB exports, and read-along synced EPUBs (audio + highlighted text) you can listen to offline on a phone.
 
-Built for local use on Apple Silicon Macs. Fully offline after the initial model downloads (AI features need a DeepSeek API key).
+Built for local use on Apple Silicon Macs. Fully offline after the initial model downloads — AI features run on a local model (Ollama and LM Studio are auto-discovered, no configuration) or a cloud provider (DeepSeek, OpenAI, Anthropic, Gemini) if you add an API key.
 
 ## Intro videos
 
@@ -21,7 +21,7 @@ Short standalone tours, narrated by the app's own synthesized voice — the scri
 - **PDF → audiobook**: chapter detection (deterministic tiers + optional LLM TOC detection), per-chapter TTS synthesis, single M4B assembly with native chapter markers and cover.
 - **Raw-first uploads**: every upload gets instant `pdftotext` raw text; the slow Marker extraction (OCR-capable) is opt-in and can run later.
 - **Per-chapter control**: edit text, re-synthesize, include/exclude, suspend/queue, AI cleanup of OCR artifacts, manual or LLM-proposed chapter boundaries.
-- **Translations & transforms**: first-class per-chapter variants (DeepSeek) with their own TTS audio and assemblies; the original text is always preserved. A variant is either a translation (per language) or a rewrite — ELI5, shortened, summary, enriched-with-examples presets, or any custom prompt. Generation streams live into the side-by-side view, token by token (model reasoning is off by default for speed — a Reasoning checkbox turns it on and streams the thinking too).
+- **Translations & transforms**: first-class per-chapter variants (any configured AI model) with their own TTS audio and assemblies; the original text is always preserved. A variant is either a translation (per language) or a rewrite — ELI5, shortened, summary, enriched-with-examples presets, or any custom prompt. Generation streams live into the side-by-side view, token by token (model reasoning is off by default for speed — a Reasoning checkbox turns it on and streams the thinking too).
 - **Ask AI + notes**: whole-book or per-chapter prompts; every answer is auto-saved as a note on the book, and any note can be appended to the book as a chapter of its own — ready to reorder and synthesize.
 - **Digest books**: select N books → one synthetic book with an AI summary chapter per source, ready to synthesize.
 - **External API**: plain JSON endpoints (`POST /api/books`, see `docs/synthetic-books-api.md`) so scripts and other projects can create synthetic books and chapters — with optional straight-to-audio synthesis. Ships with `scripts/hn-top10.mjs`, which turns any day's top Hacker News stories (via hckrnews.com archives) into a podcast-style book — one chapter per story in an American network-news register (anchor slug with the day and that day's rank, hook, headline reveal), article text extracted with Defuddle, community reaction capped at 20%.
@@ -133,7 +133,7 @@ An Apple Silicon Mac (the MLX TTS engines need Metal) with:
 
 - [Homebrew](https://brew.sh), then: `brew install ffmpeg poppler espeak-ng python@3.12 node pnpm`
 - Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (for Postgres and optionally Storyteller; fine to install while setup downloads models — the setup script prints the two commands to finish the database step)
-- Optional: a [DeepSeek](https://platform.deepseek.com/) API key for translation, rewrites, cleanup, digests, Ask AI, and LLM chapter detection
+- Optional: an AI model for translation, rewrites, cleanup, digests, Ask AI, chat, and LLM chapter detection — [Ollama](https://ollama.com) or LM Studio running locally (auto-discovered, fully offline), or a [DeepSeek](https://platform.deepseek.com/) / OpenAI / Anthropic / Gemini API key
 - Optional: a [Cartesia](https://cartesia.ai) API key for the Sonic cloud TTS voices
 - Optional: a [HuggingFace](https://huggingface.co) account for Pocket TTS **voice cloning** — accept the terms at
   [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) and put a read token in `HF_TOKEN`. The 26 built-in
@@ -147,7 +147,7 @@ pnpm run setup    # checks deps, builds .venv (pinned Python deps), caches model
 pnpm dev          # server on :3034, web on :3033
 ```
 
-`pnpm run setup` is idempotent — rerun it after failures. (Note: it must be `pnpm run setup`; bare `pnpm setup` triggers pnpm's unrelated builtin.) It creates `.env` with working defaults and skips the ~17 GB KugelAudio narrator download unless you answer yes (or run `pnpm run setup --kugel`). Python packages install into a repo-local `.venv` from `scripts/requirements.txt` (pinned to a known-good set; point `CONDA_ENV_PATH` in `.env` at another env's `bin` dir if you manage your own). Add `DEEPSEEK_API_KEY` to `.env` for the AI features.
+`pnpm run setup` is idempotent — rerun it after failures. (Note: it must be `pnpm run setup`; bare `pnpm setup` triggers pnpm's unrelated builtin.) It creates `.env` with working defaults and skips the ~17 GB KugelAudio narrator download unless you answer yes (or run `pnpm run setup --kugel`). Python packages install into a repo-local `.venv` from `scripts/requirements.txt` (pinned to a known-good set; point `CONDA_ENV_PATH` in `.env` at another env's `bin` dir if you manage your own). For the AI features you need at least one model. **Offline-first (recommended):** install [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com) and download a chat model — a current ~27-30B reasoning model (e.g. Qwen3.8 27B, ~16 GB) is a strong offline pick on 32 GB+ Macs; use an 8B-class model on smaller machines. Running servers and their models are auto-discovered, zero config. **Cloud:** add an API key for DeepSeek / OpenAI / Anthropic / Gemini. The ⚙️ button on the home page opens the AI models panel: it shows which local servers were detected (with each model's usable context size), can start a stopped server, and manages cloud keys (written to `.env`, applied without a restart). Custom OpenAI-compatible servers (`mlx_lm.server`, llama.cpp) can be added via `LOCAL_LLM_URL` + `LOCAL_LLM_MODEL`. Every available model appears in the in-app model pickers.
 
 ### Optional: Storyteller companion (read-along on a phone)
 

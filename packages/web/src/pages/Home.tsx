@@ -6,12 +6,14 @@ import { BookList } from "../components/BookList.tsx";
 import { BookSearchResults } from "../components/BookSearchResults.tsx";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
 import { ProfileSwitcher } from "../components/ProfileSwitcher.tsx";
+import { SettingsModal } from "../components/SettingsModal.tsx";
 import type { DragItems } from "../lib/dnd.ts";
 
 export function Home() {
   const utils = trpc.useUtils();
   const { folderId = null } = useParams<{ folderId: string }>();
   const [search, setSearch] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
   const { data: folderPath = [] } = trpc.folders.path.useQuery(
     { id: folderId! },
     { enabled: !!folderId },
@@ -47,7 +49,16 @@ export function Home() {
           >
             💬 Chat with library
           </Link>
+          <button
+            onClick={() => setShowSettings(true)}
+            title="AI model settings"
+            data-testid="settings-gear"
+            className="text-sm px-2.5 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-(--text-secondary) hover:text-(--text-primary) hover:bg-(--bg-hover)"
+          >
+            ⚙️
+          </button>
         </div>
+        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
         {folderId && (
           <div className="mb-4">
             <Breadcrumbs

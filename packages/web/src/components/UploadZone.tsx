@@ -2,7 +2,8 @@ import { useState, useRef, useCallback, type DragEvent } from "react";
 import { VoicePicker } from "./VoicePicker.tsx";
 import { SpeedSlider } from "./SpeedSlider.tsx";
 import { getVoiceById, voiceSupportsSpeedControl, getVoiceLabel } from "../lib/voices.ts";
-import { AI_MODELS, AI_PRESETS, type AiModelKey } from "../lib/ai-presets.ts";
+import { AI_PRESETS } from "../lib/ai-presets.ts";
+import { ModelPicker } from "./ModelPicker.tsx";
 import { profileHeaders } from "../lib/profile.ts";
 import { AfterExtractChoice } from "./AfterExtractChoice.tsx";
 
@@ -28,12 +29,13 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
   // Raw-text-only is the default: pdftotext lands in seconds, marker takes minutes — extract chapters later from the book page
   const [fullExtract, setFullExtract] = useState(false);
   const [llmChapterDetection, setLlmChapterDetection] = useState(false);
+  const [chapterModel, setChapterModel] = useState<string>("flash");
   const [autoSynthesize, setAutoSynthesize] = useState(false);
   const [separateBooks, setSeparateBooks] = useState(false);
   const [askAi, setAskAi] = useState(false);
   const [notePreset, setNotePreset] = useState<string>("summarize");
   const [notePrompt, setNotePrompt] = useState<string>(AI_PRESETS[0].prompt("book"));
-  const [noteModel, setNoteModel] = useState<AiModelKey>("flash");
+  const [noteModel, setNoteModel] = useState<string>("flash");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -78,6 +80,7 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
     formData.append("forceOcr", String(forceOcr));
     formData.append("fullExtract", String(fullExtract));
     formData.append("llmChapterDetection", String(fullExtract && llmChapterDetection));
+    if (fullExtract && llmChapterDetection) formData.append("chapterModel", chapterModel);
     formData.append("skipSynthesis", String(!(fullExtract && autoSynthesize)));
     if (folderId) formData.append("folderId", folderId);
     if (askAi && notePrompt.trim()) {
@@ -347,10 +350,11 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
             </label>
             {fullExtract && (
               <>
-                <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses DeepSeek to identify chapter boundaries from the table of contents">
+                <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses AI to identify chapter boundaries from the table of contents">
                   <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
                   LLM chapter detection
                 </label>
+                {llmChapterDetection && <ModelPicker value={chapterModel} onChange={setChapterModel} testId="upload-chapter-model" />}
                 <AfterExtractChoice
                   autoSynthesize={autoSynthesize}
                   onChange={setAutoSynthesize}
@@ -384,22 +388,8 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
                     {p.label}
                   </button>
                 ))}
-                <div className="inline-flex rounded-md border border-(--border) p-0.5 gap-0.5 ml-auto">
-                  {AI_MODELS.map((m) => (
-                    <button
-                      key={m.key}
-                      type="button"
-                      onClick={() => setNoteModel(m.key)}
-                      title={m.hint}
-                      className={`px-2.5 py-1 rounded text-xs font-medium ${
-                        noteModel === m.key
-                          ? "bg-(--bg-card) text-(--text-primary)"
-                          : "text-(--text-muted) hover:text-(--text-secondary)"
-                      }`}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
+                <div className="ml-auto">
+                  <ModelPicker value={noteModel} onChange={setNoteModel} testId="upload-note-model" />
                 </div>
               </div>
               <textarea

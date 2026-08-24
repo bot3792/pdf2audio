@@ -1,10 +1,10 @@
 import { db } from "../db.ts";
 import { books, type NoteJob } from "../schema.ts";
 import { eq } from "drizzle-orm";
-import { env } from "../env.ts";
-import { deepseekChat, describeError, DEEPSEEK_MODELS } from "../lib/deepseek.ts";
+import { llmChat, resolveLlm, type LlmModelDef } from "../lib/llm.ts";
+import { describeError } from "../lib/errors.ts";
 import { getBookRawText } from "../lib/book-raw-text.ts";
-import { estimateTokens, MODEL_CONTEXT_TOKENS } from "../lib/token-estimate.ts";
+import { estimateTokens } from "../lib/token-estimate.ts";
 import { saveNote } from "../lib/notes.ts";
 import { BOOK_RAW_SYSTEM } from "../lib/ask-ai.ts";
 import { appendLog } from "../lib/log.ts";
@@ -12,7 +12,7 @@ import { appendLog } from "../lib/log.ts";
 export type BookNotePayload = {
   bookId: string;
   prompt: string;
-  model: "flash" | "pro";
+  model: string;
 };
 
 export async function bookNote(payload: BookNotePayload) {
@@ -38,16 +38,21 @@ export async function bookNote(payload: BookNotePayload) {
     throw new Error(error);
   };
 
-  if (!env.DEEPSEEK_API_KEY) await fail("DEEPSEEK_API_KEY is not set — add it to .env");
+  let def: LlmModelDef;
+  try {
+    def = (await resolveLlm(model)).def;
+  } catch (err) {
+    return fail(describeError(err));
+  }
 
   await setJob({ status: "running" });
-  await log(`Asking ${model === "pro" ? "DeepSeek V4 Pro" : "DeepSeek V4 Flash"} about the whole book...`);
+  await log(`Asking ${def.label} about the whole book...`);
 
   const raw = await getBookRawText(bookId);
   if (!raw) return fail("No raw text available for this book");
 
   const tokens = estimateTokens(raw.text) + estimateTokens(prompt);
-  if (tokens > MODEL_CONTEXT_TOKENS) {
+  if (tokens > def.contextTokens) {
     return fail(
       `Raw text (~${Math.round(tokens / 1000)}k tokens) exceeds the model's context — extract chapters and ask per-chapter instead`
     );
@@ -58,8 +63,8 @@ export async function bookNote(payload: BookNotePayload) {
 
   let result: string;
   try {
-    result = await deepseekChat(system, user, {
-      model: DEEPSEEK_MODELS[model],
+    result = await llmChat(system, user, {
+      model,
       temperature: 0.7,
       timeoutMs: 600_000,
     });

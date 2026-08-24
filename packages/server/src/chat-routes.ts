@@ -9,20 +9,19 @@ import {
   toUIMessageStream,
   type UIMessage,
 } from "ai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { env } from "./env.ts";
 import { profileIdFromHeader } from "./trpc.ts";
-import { DEEPSEEK_MODELS } from "./lib/deepseek.ts";
+import { resolveLlm, modelKeySchema } from "./lib/llm.ts";
+import { describeError } from "./lib/errors.ts";
 import { buildChatTools, CitationCatalog, LIBRARY_CHAT_SYSTEM, type CitationSource } from "./lib/chat-tools.ts";
 import { verifySources } from "./lib/citations.ts";
 import { buildAskContext, type AskScope } from "./lib/ask-ai.ts";
-import { estimateTokens, MODEL_CONTEXT_TOKENS } from "./lib/token-estimate.ts";
+import { estimateTokens } from "./lib/token-estimate.ts";
 import { saveNote } from "./lib/notes.ts";
 
 const bodySchema = z.object({
   messages: z.array(z.any()).min(1).max(100),
   scope: z.object({ folderId: z.string().uuid().optional(), bookId: z.string().uuid().optional() }).default({}),
-  model: z.enum(["flash", "pro"]).default("flash"),
+  model: modelKeySchema.optional(),
 });
 
 const askSchema = z.object({
@@ -31,7 +30,7 @@ const askSchema = z.object({
     z.object({ kind: z.literal("book-raw"), bookId: z.string().uuid() }),
     z.object({ kind: z.literal("chapters"), chapterIds: z.array(z.string().uuid()).min(1).max(500) }),
   ]),
-  model: z.enum(["flash", "pro"]).default("flash"),
+  model: modelKeySchema.optional(),
 });
 
 function lastUserText(messages: UIMessage[]): string {
@@ -49,12 +48,6 @@ function lastUserText(messages: UIMessage[]): string {
 const MAX_STEPS = 8;
 const CHAT_TIMEOUT_MS = 180_000;
 
-const deepseek = createOpenAICompatible({
-  name: "deepseek",
-  baseURL: "https://api.deepseek.com",
-  apiKey: env.DEEPSEEK_API_KEY ?? "",
-});
-
 function seedCatalogFromHistory(catalog: CitationCatalog, messages: UIMessage[]) {
   for (const message of messages) {
     for (const part of message.parts ?? []) {
@@ -67,10 +60,16 @@ function seedCatalogFromHistory(catalog: CitationCatalog, messages: UIMessage[])
 
 export function registerChatRoutes(fastify: FastifyInstance) {
   fastify.post("/chat", async (request, reply) => {
-    if (!env.DEEPSEEK_API_KEY) {
-      return reply.status(503).send({ error: "DEEPSEEK_API_KEY is not configured" });
-    }
     const body = bodySchema.parse(request.body);
+    let llm;
+    try {
+      llm = await resolveLlm(body.model);
+    } catch (err) {
+      return reply.status(503).send({ error: describeError(err) });
+    }
+    if (!llm.def.supportsTools) {
+      return reply.status(400).send({ error: `${llm.def.label} does not support the tools the library chat needs — pick another model` });
+    }
     const messages = body.messages as UIMessage[];
     const profileId = profileIdFromHeader(request.headers["x-profile-id"]);
 
@@ -82,7 +81,7 @@ export function registerChatRoutes(fastify: FastifyInstance) {
       onError: (err) => (err instanceof Error ? err.message : "Chat failed"),
       execute: async ({ writer }) => {
         const result = streamText({
-          model: deepseek(DEEPSEEK_MODELS[body.model]),
+          model: llm.model,
           system: LIBRARY_CHAT_SYSTEM,
           messages: await convertToModelMessages(messages),
           tools,
@@ -106,10 +105,13 @@ export function registerChatRoutes(fastify: FastifyInstance) {
   // One-shot Ask AI with the whole scope stuffed in context (no tools/retrieval);
   // streams the answer and auto-saves it as a note like the legacy sync mutations
   fastify.post("/chat/ask", async (request, reply) => {
-    if (!env.DEEPSEEK_API_KEY) {
-      return reply.status(503).send({ error: "DEEPSEEK_API_KEY is not configured" });
-    }
     const body = askSchema.parse(request.body);
+    let llm;
+    try {
+      llm = await resolveLlm(body.model);
+    } catch (err) {
+      return reply.status(503).send({ error: describeError(err) });
+    }
     const prompt = lastUserText(body.messages as UIMessage[]).slice(0, 4000);
     if (!prompt) return reply.status(400).send({ error: "Empty prompt" });
 
@@ -121,7 +123,7 @@ export function registerChatRoutes(fastify: FastifyInstance) {
     }
 
     const tokens = estimateTokens(context.corpus) + estimateTokens(prompt);
-    if (tokens > MODEL_CONTEXT_TOKENS) {
+    if (tokens > llm.def.contextTokens) {
       return reply.status(400).send({
         error: `Raw text (~${Math.round(tokens / 1000)}k tokens) exceeds the model's context — extract chapters and ask per-chapter instead`,
       });
@@ -131,10 +133,10 @@ export function registerChatRoutes(fastify: FastifyInstance) {
       onError: (err) => (err instanceof Error ? err.message : "Ask AI failed"),
       execute: async ({ writer }) => {
         const result = streamText({
-          model: deepseek(DEEPSEEK_MODELS[body.model]),
+          model: llm.model,
           system: context.system,
           prompt: `${prompt}\n\n---\n${context.corpus}`,
-          temperature: 0.7,
+          ...(llm.def.supportsTemperature ? { temperature: 0.7 } : {}),
           abortSignal: AbortSignal.timeout(600_000),
         });
         writer.merge(toUIMessageStream({ stream: result.stream }));
@@ -143,7 +145,7 @@ export function registerChatRoutes(fastify: FastifyInstance) {
           const noteId = await saveNote({
             bookId: context.bookId,
             prompt,
-            model: body.model,
+            model: llm.def.key,
             result: text,
             scope: context.noteScope,
           });

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AfterExtractChoice } from "./AfterExtractChoice.tsx";
 import { BOOK_LANGUAGE_OPTIONS } from "../lib/languages.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
+import { ModelPicker } from "./ModelPicker.tsx";
 
 export type ExtractScope = "selected" | "book" | "chapters";
 
@@ -34,6 +35,7 @@ export function ExtractModal({
   isProcessing,
   forceOcr,
   llmChapterDetection,
+  chapterModel,
   language,
   voiceLabel,
   onUpdateBook,
@@ -47,9 +49,10 @@ export function ExtractModal({
   isProcessing: boolean;
   forceOcr: boolean;
   llmChapterDetection: boolean;
+  chapterModel: string | null;
   language: string | null;
   voiceLabel: string;
-  onUpdateBook: (settings: { forceOcr?: boolean; llmChapterDetection?: boolean; language?: string | null }) => void;
+  onUpdateBook: (settings: { forceOcr?: boolean; llmChapterDetection?: boolean; chapterModel?: string; language?: string | null }) => void;
   onStart: (scope: ExtractScope, autoSynthesize: boolean) => void;
   onClose: () => void;
 }) {
@@ -181,9 +184,20 @@ export function ExtractModal({
               />
               <span>
                 <span className="block text-(--text-secondary)">Has a table of contents worth following</span>
-                Uses DeepSeek to take chapter boundaries from the TOC. Without it, boundaries come from headings.
+                Uses AI to take chapter boundaries from the TOC. Without it, boundaries come from headings.
               </span>
             </label>
+
+            {llmChapterDetection && (
+              <div className="flex items-center gap-2 pl-6 text-xs text-(--text-muted)">
+                <span>Model</span>
+                <ModelPicker
+                  value={chapterModel ?? "flash"}
+                  onChange={(key) => onUpdateBook({ chapterModel: key })}
+                  testId="extract-chapter-model"
+                />
+              </div>
+            )}
 
             <p className="text-xs text-(--text-faint)">Saved on the book — every extraction from now on uses them.</p>
           </div>
