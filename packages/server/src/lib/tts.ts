@@ -5,7 +5,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { env } from "../env.ts";
-import { chunkTextForBulgarianNarrator } from "./tts-chunks.ts";
+import { chunkTextForTts, NARRATOR_CHUNKS, SENTENCE_CHUNKS, type ChunkLimits } from "./tts-chunks.ts";
 import { synthesize as kokoroSynthesize, KokoroAbortedError } from "./kokoro.ts";
 import { resolveSayVoice } from "./say-voices.ts";
 import { cartesiaSynthesize, CartesiaAbortedError, findCartesiaVoice } from "./cartesia.ts";
@@ -241,6 +241,7 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
       speed,
       extraArgs: ["--rate", String(Math.round(SAY_BASE_RATE_WPM * speed))],
       speedLabel: `speed ${speed}x`,
+      chunkLimits: SENTENCE_CHUNKS,
       chunkPreviewDir,
       chunkPreviewUrlBase,
       log,
@@ -293,6 +294,7 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
     outputPath,
     voice: resolved.voice,
     speed,
+    chunkLimits: SENTENCE_CHUNKS,
     chunkPreviewDir,
     chunkPreviewUrlBase,
     log,
@@ -328,6 +330,7 @@ async function synthesizeChunkedBackend({
   speedLabel = "fixed speed",
   chunkPreviewDir = null,
   chunkPreviewUrlBase = null,
+  chunkLimits = NARRATOR_CHUNKS,
   log = noopLog,
   onProgress = noopProgress,
   signal,
@@ -337,8 +340,9 @@ async function synthesizeChunkedBackend({
   pythonBin?: string;
   extraArgs?: string[];
   speedLabel?: string;
+  chunkLimits?: ChunkLimits;
 }): Promise<void> {
-  const chunks = chunkTextForBulgarianNarrator(inputText);
+  const chunks = chunkTextForTts(inputText, chunkLimits);
   if (chunks.length === 0) {
     throw new Error("Narrator input is empty after chunking");
   }

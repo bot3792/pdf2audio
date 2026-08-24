@@ -1,30 +1,55 @@
-const MAX_NARRATOR_CHARS = 320;
+export type ChunkLimits =
+  | { mode: "pack"; maxChars: number; idealChars: number }
+  | { mode: "sentence"; maxChars: number; minChars: number };
+
 // The narrator model (raditotev/bg-tts-v5-mlx, speaker 1) emits a roughly fixed ~20–24s of audio
 // per chunk regardless of input length, so chunks shorter than its 250–320 char sweet spot come
 // out padded with mumble/repetition. We therefore pack text toward this midpoint and balance the
 // chunks so none is needlessly short — merging across paragraph/sentence boundaries as needed.
-const IDEAL_NARRATOR_CHARS = 285;
+export const NARRATOR_CHUNKS: ChunkLimits = { mode: "pack", maxChars: 320, idealChars: 285 };
 
-export function chunkTextForBulgarianNarrator(text: string): string[] {
+// Engines without that fixed-length quirk read a sentence at a time just as well, and a chunk is
+// also the sync map's highlight unit — so here one sentence is the target, not a paragraph.
+export const SENTENCE_CHUNKS: ChunkLimits = { mode: "sentence", maxChars: 240, minChars: 40 };
+
+export function chunkTextForTts(text: string, limits: ChunkLimits = NARRATOR_CHUNKS): string[] {
   // Collapse all whitespace (including paragraph breaks) so packing can merge across them.
   const normalized = text.replace(/\r\n?/g, "\n").replace(/\s+/g, " ").trim();
   if (!normalized) return [];
 
-  const units = toUnits(normalized);
+  const units = toUnits(normalized, limits.maxChars);
   if (units.length === 0) return [];
 
-  return balancePartition(units);
+  return limits.mode === "pack" ? balancePartition(units, limits) : mergeShortUnits(units, limits);
+}
+
+// Sentence mode: one unit per chunk, except that a fragment too short to stand on its own as a
+// highlight joins its neighbour.
+function mergeShortUnits(units: string[], limits: { maxChars: number; minChars: number }): string[] {
+  const chunks: string[] = [];
+
+  for (const unit of units) {
+    const prev = chunks.at(-1);
+    const eitherIsShort = prev !== undefined && (prev.length < limits.minChars || unit.length < limits.minChars);
+    if (prev !== undefined && eitherIsShort && prev.length + 1 + unit.length <= limits.maxChars) {
+      chunks[chunks.length - 1] = `${prev} ${unit}`;
+    } else {
+      chunks.push(unit);
+    }
+  }
+
+  return chunks;
 }
 
 // Split into the smallest natural units we won't break further: whole sentences, or — for a single
 // sentence longer than the cap — word-level pieces that each fit.
-function toUnits(text: string): string[] {
+function toUnits(text: string, maxChars: number): string[] {
   const units: string[] = [];
   for (const sentence of splitIntoSentences(text)) {
-    if (sentence.length <= MAX_NARRATOR_CHARS) {
+    if (sentence.length <= maxChars) {
       units.push(sentence);
     } else {
-      units.push(...splitByWords(sentence));
+      units.push(...splitByWords(sentence, maxChars));
     }
   }
   return units;
@@ -36,14 +61,14 @@ function splitIntoSentences(text: string): string[] {
   return matches.map((part) => part.trim()).filter(Boolean);
 }
 
-function splitByWords(text: string): string[] {
+function splitByWords(text: string, maxChars: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   const chunks: string[] = [];
   let current = "";
 
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length <= MAX_NARRATOR_CHARS) {
+    if (candidate.length <= maxChars) {
       current = candidate;
     } else {
       if (current) chunks.push(current);
@@ -57,14 +82,14 @@ function splitByWords(text: string): string[] {
 
 // Group consecutive units into the fewest chunks needed to stay near the ideal size, then split
 // them as evenly as possible so we never leave a tiny leftover chunk at the end.
-function balancePartition(units: string[]): string[] {
+function balancePartition(units: string[], limits: { maxChars: number; idealChars: number }): string[] {
   const lengths = units.map((u) => u.length);
   const totalChars = chunkLength(lengths);
 
   const numChunks = Math.max(
     1,
-    Math.ceil(totalChars / MAX_NARRATOR_CHARS),
-    Math.round(totalChars / IDEAL_NARRATOR_CHARS),
+    Math.ceil(totalChars / limits.maxChars),
+    Math.round(totalChars / limits.idealChars),
   );
 
   // Can't fit more chunks than units (units are indivisible here) — emit each on its own.

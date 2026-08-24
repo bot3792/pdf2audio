@@ -24,6 +24,19 @@ type ChunkManifestEntry = { index: number; text: string };
 const CHUNK_FILE_PATTERN = /^chunk-(\d+)\.wav$/;
 const CHUNK_MANIFEST_FILE = "chunks.json";
 
+// Chunk-relative word timings the TTS script writes beside each chunk WAV
+export type ChunkWord = { text: string; after: string; startMs: number; endMs: number };
+
+export async function readChunkWords(dir: string, index: number): Promise<ChunkWord[] | null> {
+  try {
+    const raw = await readFile(path.join(dir, `chunk-${String(index).padStart(3, "0")}.words.json`), "utf-8");
+    const parsed = JSON.parse(raw) as ChunkWord[];
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function chapterChunkPreviewDir(bookId: string, chapterIndex: number): string {
   return path.join(bookOutputDir(bookId), "chunks", `ch${String(chapterIndex).padStart(3, "0")}`);
 }

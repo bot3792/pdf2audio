@@ -2,7 +2,7 @@ import { open, writeFile, readFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { env } from "../env.ts";
-import { chunkTextForBulgarianNarrator } from "./tts-chunks.ts";
+import { chunkTextForTts } from "./tts-chunks.ts";
 
 const CARTESIA_URL = "https://api.cartesia.ai";
 const CARTESIA_VERSION = "2026-08-14";
@@ -169,7 +169,7 @@ export async function cartesiaSynthesize({
   onProgress = async () => {},
   signal,
 }: CartesiaSynthesizeOptions): Promise<void> {
-  const chunks = chunkTextForBulgarianNarrator(inputText);
+  const chunks = chunkTextForTts(inputText);
   if (chunks.length === 0) throw new Error("Narrator input is empty after chunking");
 
   const voice = await findCartesiaVoice(voiceId);

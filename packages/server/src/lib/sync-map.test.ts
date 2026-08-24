@@ -80,6 +80,25 @@ describe("sync map", () => {
     expect(map!.chunks.at(-1)!.endMs).toBe(1400);
   });
 
+  it("carries word timings into absolute ms and marks the map v2", async () => {
+    await writeChunks([1000, 500]);
+    await writeFile(
+      path.join(dir, "chunk-002.words.json"),
+      JSON.stringify([
+        { text: "Chunk", after: " ", startMs: 0, endMs: 200 },
+        { text: "2.", after: "", startMs: 200, endMs: 500 },
+      ]),
+    );
+
+    const map = await buildSyncMapFromChunks(dir, 1500);
+    expect(map!.version).toBe(2);
+    expect(map!.chunks[0].words).toBeUndefined();
+    expect(map!.chunks[1].words).toEqual([
+      { text: "Chunk", after: " ", startMs: 1000, endMs: 1200 },
+      { text: "2.", after: "", startMs: 1200, endMs: 1500 },
+    ]);
+  });
+
   it("returns null when the manifest is missing", async () => {
     await writeChunks([1000], false);
     expect(await buildSyncMapFromChunks(dir, 1000)).toBeNull();
