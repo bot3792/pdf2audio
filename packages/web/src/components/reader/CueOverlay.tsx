@@ -1,5 +1,7 @@
 import { cropStyle, type CueRect, type ReaderCue, type ReaderPage, type Rect } from "../../lib/reader-doc.ts";
 
+// The page under these is white paper in either theme, so they always multiply — screening
+// against white erases the band and leaves only the glyphs tinted
 export function CueOverlay({
   page,
   crop,
@@ -48,7 +50,7 @@ export function CueOverlay({
         .map((rect, i) => (
           <div
             key={i}
-            className="absolute rounded-[2px] bg-amber-300/40 mix-blend-multiply dark:mix-blend-screen"
+            className="absolute rounded-[2px] bg-amber-300/50 mix-blend-multiply"
             style={style(rect[1], rect[2], rect[3], rect[4])}
             data-testid="cue-rect"
           />
@@ -60,7 +62,7 @@ export function CueOverlay({
           <div
             key={i}
             // The element persists between words, so moving it is a transition rather than a jump
-            className="absolute rounded-[2px] bg-amber-400/70 mix-blend-multiply dark:mix-blend-screen transition-all duration-150 ease-out motion-reduce:transition-none"
+            className="absolute rounded-[2px] bg-amber-400/80 mix-blend-multiply transition-all duration-150 ease-out motion-reduce:transition-none"
             style={style(rect[1], rect[2], rect[3], rect[4])}
             data-testid="cue-word-rect"
           />
