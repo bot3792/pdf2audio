@@ -8,6 +8,7 @@
     "dev:server": "pnpm --filter @pdf2audio/server dev",
     "dev:web": "pnpm --filter @pdf2audio/web dev",
     "build": "pnpm -r build",
+    "test": "pnpm -r --filter \"./packages/*\" test",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:generate": "pnpm --filter @pdf2audio/server db:generate",

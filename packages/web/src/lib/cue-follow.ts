@@ -26,7 +26,30 @@ function scrollParent(element: Element): HTMLElement | null {
   return null;
 }
 
-type Span = { top: number; bottom: number };
+export type Span = { top: number; bottom: number };
+
+// How far to scroll to land the cue, or null when it is already inside the safe area. A cue
+// taller than that area hands the guarantee to the word being spoken, since keeping the top of a
+// long sentence in view is what strands the cursor below the fold.
+export function followDelta(
+  cue: Span,
+  word: Span | null,
+  viewHeight: number,
+  band: FollowBand,
+  jump: boolean,
+): number | null {
+  const safeTop = band.top;
+  const safeBottom = viewHeight - band.bottom;
+  const focus = cue.bottom - cue.top <= safeBottom - safeTop ? cue : word ?? { top: cue.top, bottom: cue.top };
+
+  if (!jump && focus.top >= safeTop && focus.bottom <= safeBottom) return null;
+
+  // Land it high enough that the next several cues fit below — following along should scroll in
+  // stretches, not on every sentence — without pushing its own tail past the bottom edge
+  const height = focus.bottom - focus.top;
+  const landing = Math.max(safeTop, Math.min(viewHeight * band.landing, safeBottom - height));
+  return focus.top - landing;
+}
 
 function span(elements: Element[], viewTop: number): Span | null {
   let top = Infinity;
@@ -54,24 +77,15 @@ export function followCue(band: FollowBand, { jump = false } = {}): boolean {
   const scroller = scrollParent(marks[0]);
   const viewTop = scroller ? scroller.getBoundingClientRect().top : 0;
   const viewHeight = scroller ? scroller.clientHeight : window.innerHeight;
-  const safeTop = band.top;
-  const safeBottom = viewHeight - band.bottom;
 
   const cue = span(marks, viewTop);
   if (!cue) return false;
-  // A whole sentence stays in view while it fits between the safe edges; past that the word being
-  // spoken is what has to stay, or a long cue would strand the cursor below the fold
   const word = span(all('[data-testid="cue-word-rect"], [data-testid="reader-word"]'), viewTop);
-  const focus = cue.bottom - cue.top <= safeBottom - safeTop ? cue : word ?? { top: cue.top, bottom: cue.top };
 
-  if (!jump && focus.top >= safeTop && focus.bottom <= safeBottom) return true;
+  const delta = followDelta(cue, word, viewHeight, band, jump);
+  if (delta === null) return true;
 
-  // Land it high enough that the next several cues fit below — following along should scroll in
-  // stretches, not on every sentence — without pushing its own tail past the bottom edge
-  const height = focus.bottom - focus.top;
-  const landing = Math.max(safeTop, Math.min(viewHeight * band.landing, safeBottom - height));
   const behavior = jump || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
-  const delta = focus.top - landing;
   if (scroller) scroller.scrollTo({ top: scroller.scrollTop + delta, behavior });
   else window.scrollTo({ top: window.scrollY + delta, behavior });
   return true;

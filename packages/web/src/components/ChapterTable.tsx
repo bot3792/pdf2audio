@@ -543,6 +543,7 @@ export function ChapterTable({
                         onClick={() => setModalChapterIndex(chapters.indexOf(chapter))}
                         title="Open this chapter — text, audio, editing"
                         className={ACTION_PILL}
+                        data-testid="chapter-open"
                       >
                         Open
                       </button>
