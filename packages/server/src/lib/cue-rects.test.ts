@@ -100,6 +100,19 @@ describe("rectsForRange", () => {
     expect(rectsForRange(context(BLOCK_TEXT, geometry), 0, 10, { linesOnly: true })).toEqual([]);
   });
 
+  it("places a repeated word at the occurrence it actually is, not the first", () => {
+    const repeated = ["the first line has the word.", "the second line has it too.", "and the third line ends."];
+    const geometry = page(repeated.map((text, i) => line(text, 100 + i * LINE_HEIGHT)));
+    const text = repeated.join(" ");
+    // The "the" that opens the third line — five earlier occurrences precede it
+    const start = text.lastIndexOf("the ");
+
+    const [rect] = rectsForRange(context(text, geometry), start, start + 3, { linesOnly: true });
+
+    expect(rect[2]).toBe(1200);
+    expect(rect[1]).toBe(Math.round(((50 + repeated[2].indexOf("the") * CHAR_WIDTH) / PAGE_WIDTH) * 10_000));
+  });
+
   it("places a single word inside its line", () => {
     const geometry = page([line(LINES[0], 100)]);
     const start = BLOCK_TEXT.indexOf("block");

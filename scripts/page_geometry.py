@@ -12,26 +12,50 @@ def rounded(values):
     return [round(v, 1) for v in values]
 
 
+# A printed row runs left to right, so only a wrap sends x backwards; per-character y wobbles
+# by a point either way even inside one row, which is why the split reads x and not y.
+WRAP_SLACK = 2.0
+
+
+def split_rows(chars):
+    """pdftext sometimes reports two printed rows as one line, giving every word past the wrap
+    the row above's y. Their characters carry their own coordinates, so the rows are recoverable."""
+    rows = []
+    current = []
+    for char in chars:
+        if current and char["bbox"][0] < current[-1]["bbox"][0] - WRAP_SLACK:
+            rows.append(current)
+            current = []
+        current.append(char)
+    if current:
+        rows.append(current)
+    return rows
+
+
+def row_geometry(chars):
+    """Row box, text, and one x edge per character — an exact rect for any character range."""
+    text = "".join(char["char"] for char in chars)
+    edges = [round(char["bbox"][0], 1) for char in chars]
+    edges.append(round(chars[-1]["bbox"][2], 1))
+    box = [
+        min(char["bbox"][0] for char in chars),
+        min(char["bbox"][1] for char in chars),
+        max(char["bbox"][2] for char in chars),
+        max(char["bbox"][3] for char in chars),
+    ]
+    return {"b": rounded(box), "t": text, "xs": edges}
+
+
 def line_geometry(line):
-    """Line box, text, and one x edge per character — an exact rect for any character range."""
     chars = [char for span in line["spans"] for char in (span.get("chars") or [])]
+    while chars and chars[-1]["char"] in "\r\n":
+        chars.pop()
 
-    if chars:
-        # pdftext reports the line break as characters of its own; it is not part of the line
-        while chars and chars[-1]["char"] in "\r\n":
-            chars.pop()
-        text = "".join(char["char"] for char in chars)
-        edges = [round(char["bbox"][0], 1) for char in chars]
-        if chars:
-            edges.append(round(chars[-1]["bbox"][2], 1))
-    else:
+    if not chars:
         text = "".join(span["text"] for span in line["spans"]).rstrip("\r\n")
-        edges = []
+        return [{"b": rounded(line["bbox"]), "t": text}] if text else []
 
-    geometry = {"b": rounded(line["bbox"]), "t": text}
-    if len(edges) == len(text) + 1:
-        geometry["xs"] = edges
-    return geometry
+    return [row_geometry(row) for row in split_rows(chars) if row]
 
 
 def main():
@@ -58,7 +82,7 @@ def main():
         lines = []
         for block in page["blocks"]:
             for line in block["lines"]:
-                lines.append(line_geometry(line))
+                lines.extend(line_geometry(line))
 
         out.append({
             "i": index,
@@ -72,7 +96,7 @@ def main():
     doc.close()
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
-        json.dump({"version": 1, "pages": out}, f, ensure_ascii=False)
+        json.dump({"version": 2, "pages": out}, f, ensure_ascii=False)
 
     print(json.dumps({"type": "done", "pages": len(out), "lines": sum(len(p["lines"]) for p in out)}), flush=True)
 

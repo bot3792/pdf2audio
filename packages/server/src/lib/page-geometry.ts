@@ -26,7 +26,8 @@ export type GeometryPage = {
   lines: GeometryLine[];
 };
 
-export type SourceGeometry = { version: 1; pages: GeometryPage[] };
+// v2 splits pdftext lines that merged two printed rows; v1 files are regenerated
+export type SourceGeometry = { version: 2; pages: GeometryPage[] };
 
 export type PageLayout = { content: Rect; columns: Rect[] };
 
@@ -63,7 +64,7 @@ async function readGeometry(target: string): Promise<SourceGeometry | null> {
   try {
     if ((await stat(target)).size === 0) return null;
     const parsed = JSON.parse(await readFile(target, "utf-8")) as SourceGeometry;
-    return parsed?.version === 1 && Array.isArray(parsed.pages) ? parsed : null;
+    return parsed?.version === 2 && Array.isArray(parsed.pages) ? parsed : null;
   } catch {
     return null;
   }

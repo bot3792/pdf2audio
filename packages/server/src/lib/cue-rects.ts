@@ -37,8 +37,10 @@ export function rectsForRange(
     const box = polygonBox(block.polygon);
     if (!page.geometry || !box) continue;
 
-    const piece = context.cleanText.slice(Math.max(start, span.start), Math.min(end, span.end));
-    const rects = rectsFromLines(page.geometry, box, piece) ?? (linesOnly ? null : [box]);
+    const aligned = alignment(context, span.block, page.geometry, box, context.cleanText.slice(span.start, span.end));
+    const from = Math.max(start, span.start) - span.start;
+    const to = Math.min(end, span.end) - span.start;
+    const rects = (aligned && rectsFromLines(aligned, from, to)) ?? (linesOnly ? null : [box]);
     if (rects) perBlock.push(rects.map((rect) => normalize(page.index, rect, page.geometry!)));
   }
 
@@ -60,23 +62,101 @@ function polygonBox(polygon: number[][] | undefined): Box | null {
   return [x0, y0, x1, y1];
 }
 
-function rectsFromLines(page: GeometryPage, box: Box, piece: string): Box[] | null {
-  const lines = page.lines.filter((line) => centreInside(line.b, box));
-  if (lines.length === 0) return null;
+type BlockAlignment = {
+  lines: GeometryLine[];
+  origin: { line: number; column: number }[];
+  // projected block character -> character of the joined line text, -1 where it has no counterpart
+  map: number[];
+  blockMap: number[];
+};
 
-  const joined = joinLines(lines);
-  const located = locate(joined.text, piece);
-  if (!located) return null;
+// One alignment per block, reused by every cue and word that lands in it
+const alignments = new WeakMap<RectContext, Map<number, BlockAlignment | null>>();
+
+function alignment(
+  context: RectContext,
+  blockIndex: number,
+  page: GeometryPage,
+  box: Box,
+  blockText: string,
+): BlockAlignment | null {
+  let byBlock = alignments.get(context);
+  if (!byBlock) {
+    byBlock = new Map();
+    alignments.set(context, byBlock);
+  }
+  if (byBlock.has(blockIndex)) return byBlock.get(blockIndex)!;
+
+  const lines = page.lines.filter((line) => centreInside(line.b, box));
+  const joined = lines.length > 0 ? joinLines(lines) : null;
+  const built = joined
+    ? (() => {
+        const block = project(blockText);
+        const linesProjection = project(joined.text);
+        const aligned = alignProjections(block.value, linesProjection.value);
+        // A block whose text barely appears in the lines under it was not really found there.
+        // Measured against the shorter side, so a block only some of whose lines were located
+        // still counts as found.
+        const matched = aligned.filter((at) => at !== -1).length;
+        const comparable = Math.min(block.value.length, linesProjection.value.length);
+        if (matched < comparable * MIN_ALIGNMENT) return null;
+
+        const map = aligned.map((at) => (at === -1 ? -1 : linesProjection.map[at]));
+        return { lines, origin: joined.origin, map, blockMap: block.map };
+      })()
+    : null;
+
+  byBlock.set(blockIndex, built);
+  return built;
+}
+
+// The block's text and the page's own lines are the same content reached two different ways, so
+// they differ in punctuation, markdown and hyphen joins but never in order. Walking both once
+// and resynchronising on mismatch gives a mapping that only ever moves forward — which is what
+// stops a repeated word like "the" from being placed at an earlier one of its occurrences.
+const RESYNC_KEY = 8;
+const RESYNC_WINDOW = 64;
+const MIN_ALIGNMENT = 0.6;
+
+function alignProjections(block: string, lines: string): number[] {
+  const map = new Array<number>(block.length).fill(-1);
+  let i = 0;
+  let j = 0;
+
+  while (i < block.length && j < lines.length) {
+    if (block[i] === lines[j]) {
+      map[i] = j;
+      i++;
+      j++;
+      continue;
+    }
+    const at = lines.indexOf(block.slice(i, i + RESYNC_KEY), j);
+    if (at !== -1 && at - j <= RESYNC_WINDOW) j = at;
+    else i++;
+  }
+
+  return map;
+}
+
+function rectsFromLines(aligned: BlockAlignment, from: number, to: number): Box[] | null {
+  const start = projectedIndex(aligned.blockMap, from);
+  const end = projectedIndex(aligned.blockMap, to);
+
+  let first = -1;
+  let last = -1;
+  for (let i = start; i < end; i++) if (aligned.map[i] !== -1) { first = aligned.map[i]; break; }
+  for (let i = end - 1; i >= start; i--) if (aligned.map[i] !== -1) { last = aligned.map[i]; break; }
+  if (first === -1 || last < first) return null;
 
   const spans = new Map<number, { from: number; to: number }>();
-  for (let i = located.start; i < located.end; i++) {
-    const at = joined.origin[i];
+  for (let i = first; i <= last; i++) {
+    const at = aligned.origin[i];
     const current = spans.get(at.line);
     if (current) current.to = at.column + 1;
     else spans.set(at.line, { from: at.column, to: at.column + 1 });
   }
 
-  const rects = [...spans.entries()].map(([index, span]) => lineRect(lines[index], span.from, span.to));
+  const rects = [...spans.entries()].map(([index, span]) => lineRect(aligned.lines[index], span.from, span.to));
   if (rects.length <= 3) return rects;
 
   // The shape a text selection takes: partial first line, solid middle, partial last line
@@ -111,16 +191,18 @@ function joinLines(lines: GeometryLine[]): { text: string; origin: { line: numbe
   return { text, origin };
 }
 
-// Reduced to letters and digits so markdown stripping and hyphen joins can't defeat the match
-function locate(haystack: string, needle: string): { start: number; end: number } | null {
-  const target = project(haystack);
-  const search = project(needle);
-  if (search.value.length === 0) return null;
-
-  const at = target.value.indexOf(search.value);
-  if (at === -1) return null;
-  return { start: target.map[at], end: target.map[at + search.value.length - 1] + 1 };
+// Projected characters before this offset of the source string
+function projectedIndex(map: number[], sourceIndex: number): number {
+  let low = 0;
+  let high = map.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (map[mid] < sourceIndex) low = mid + 1;
+    else high = mid;
+  }
+  return low;
 }
+
 
 function project(text: string): { value: string; map: number[] } {
   let value = "";
