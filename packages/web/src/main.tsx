@@ -1,5 +1,5 @@
 import "./styles.css";
-import { StrictMode } from "react";
+import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -10,6 +10,8 @@ import { installExclusiveAudio } from "./lib/exclusive-audio.ts";
 import { Home } from "./pages/Home.tsx";
 import { BookDetail } from "./pages/BookDetail.tsx";
 import { Chat } from "./pages/Chat.tsx";
+// Lazy so every other page stops paying for pdf.js
+const Reader = lazy(() => import("./pages/Reader.tsx").then((m) => ({ default: m.Reader })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +41,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/" element={<Home />} />
             <Route path="/folders/:folderId" element={<Home />} />
             <Route path="/books/:id" element={<BookDetail />} />
+            <Route path="/books/:id/read" element={<Suspense fallback={null}><Reader /></Suspense>} />
             <Route path="/chat" element={<Chat />} />
           </Routes>
         </BrowserRouter>

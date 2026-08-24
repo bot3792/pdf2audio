@@ -53,6 +53,8 @@ export function BookDetail() {
     }
   );
 
+  const hasChapterAudio = book?.chapters?.some((c: { audioPath?: string | null }) => !!c.audioPath) ?? false;
+
   const invalidate = () => {
     utils.books.get.invalidate({ id: id! });
     utils.books.assemblies.invalidate({ bookId: id! });
@@ -448,6 +450,24 @@ export function BookDetail() {
              </p>
            </div>
           <div className="shrink-0 pt-1 flex items-center gap-2">
+            {hasChapterAudio ? (
+              <Link
+                to={`/books/${book.id}/read`}
+                title="Follow the narration on the PDF page, and tap a sentence to jump there"
+                className="text-sm px-3 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-(--text-secondary) hover:text-(--text-primary) hover:bg-(--bg-hover)"
+                data-testid="book-read-link"
+              >
+                📖 Read along
+              </Link>
+            ) : (
+              <span
+                title="No chapter has audio yet — synthesize one to read along with it"
+                className="text-sm px-3 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-(--text-faint) opacity-50 cursor-not-allowed"
+                data-testid="book-read-link"
+              >
+                📖 Read along
+              </span>
+            )}
             <Link
               to={`/chat?bookId=${book.id}`}
               title="Chat about this book — searches its text and translations, cites pages"
