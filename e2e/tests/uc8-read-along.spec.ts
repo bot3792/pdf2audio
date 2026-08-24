@@ -127,6 +127,9 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
     await page.getByTestId("reader-back").click();
     await expect(page.getByTestId("chapter-modal")).toContainText(rolled);
 
+    // One player for one file: the chapter's audio has a single control in the modal
+    await expect(page.locator('[data-testid="chapter-modal"] audio')).toHaveCount(1);
+
     // The modal reads along on the same pages, and a chunk preview lights the print it became
     await expect(page.getByTestId("view-tab-pages")).toBeVisible();
     await expect(page.getByTestId("cue-rect").first()).toBeVisible();

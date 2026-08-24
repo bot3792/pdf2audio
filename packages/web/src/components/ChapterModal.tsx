@@ -303,13 +303,14 @@ export function ChapterModal({
     return () => { document.body.style.overflow = ""; };
   }, []);
 
-  // One speed for the chapter, not one per player: the whole-chapter element is a plain native
-  // control, so it is told the rate rather than asked for it
-  const wholeRef = useRef<HTMLAudioElement>(null);
+  // The chapter's own audio, which the preview panel falls back to once the chunks are gone — one
+  // player for one file, rather than a second control for it on the busiest line in the modal
+  const chapterAudioUrl =
+    chapter.status === "done" && chapter.audioPath ? chapter.audioUrl ?? `/audio/chapter/${chapter.id}` : null;
+
   const changeSpeed = useCallback((rate: number) => {
     setSpeed(rate);
     saveSpeed(rate);
-    if (wholeRef.current) wholeRef.current.playbackRate = rate;
   }, []);
 
   const togglePlay = useCallback(() => playerRef.current?.toggle() ?? false, []);
@@ -471,22 +472,6 @@ export function ChapterModal({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-(--border) bg-(--bg-subtle)">
-          {chapter.status === "done" && chapter.audioPath ? (
-            <div className="flex items-center gap-2 mr-1">
-              {/* Named because the chunk scrubber further down is an identical-looking control. */}
-              <span className="text-xs text-(--text-faint) shrink-0">Whole chapter</span>
-              <audio
-                key={`${chapter.id}-${variant?.key ?? "original"}`}
-                ref={wholeRef}
-                controls
-                preload="none"
-                className="h-8"
-                onPlay={(e) => { e.currentTarget.playbackRate = speed; }}
-              >
-                <source src={chapter.audioUrl ?? `/audio/chapter/${chapter.id}`} />
-              </audio>
-            </div>
-          ) : null}
           {chapter.status === "done" && chapter.audioPath ? (
             <a
               href={chapterAudioDownload(chapter, variant).href}
@@ -727,9 +712,10 @@ export function ChapterModal({
           )}
         </div>
 
-        {fullChapter?.chunkPreviews.length ? (
+        {chapterAudioUrl || fullChapter?.chunkPreviews.length ? (
           <ChunkPreviewPanel
-            chunkPreviews={fullChapter.chunkPreviews}
+            chunkPreviews={fullChapter?.chunkPreviews ?? []}
+            audioUrl={chapterAudioUrl}
             selectedUrl={selectedChunkPreviewUrl}
             onSelect={selectChunk}
             onFollow={setSelectedChunkPreviewUrl}
@@ -863,6 +849,7 @@ export function ChapterModal({
 
 function ChunkPreviewPanel({
   chunkPreviews,
+  audioUrl,
   selectedUrl,
   onSelect,
   onFollow,
@@ -880,6 +867,7 @@ function ChunkPreviewPanel({
   onPlaybackRate,
 }: {
   chunkPreviews: Array<{ index: number; fileName: string; url: string; page?: number; startMs?: number; endMs?: number }>;
+  audioUrl: string | null;
   selectedUrl: string | null;
   onSelect: (url: string) => void;
   // Selection driven by playback progress — highlights without re-triggering auto-play
@@ -908,7 +896,7 @@ function ChunkPreviewPanel({
   // After cleanup the chunk WAVs are gone: entries carry sync-map timings instead, and the
   // panel plays the chapter audio, seeking to each chunk's startMs.
   const syncMode = typeof chunkPreviews[0]?.startMs === "number";
-  const audioSrc = syncMode ? activeUrl?.split("#")[0] ?? null : activeUrl;
+  const audioSrc = (syncMode ? activeUrl?.split("#")[0] : activeUrl) ?? audioUrl;
   const pendingSeekRef = useRef<number | null>(null);
 
   // Ref mirror of the chosen rate so play handlers always read the latest without stale closures.
@@ -1048,7 +1036,9 @@ function ChunkPreviewPanel({
             </select>
           ) : null}
           <div className="text-xs font-medium text-(--text-primary)">
-            Chunk previews {isSynthesizing ? `(live: ${chunkPreviews.length} ready)` : `(${chunkPreviews.length})`}
+            {chunkPreviews.length === 0
+              ? "Chapter audio"
+              : `Chunk previews ${isSynthesizing ? `(live: ${chunkPreviews.length} ready)` : `(${chunkPreviews.length})`}`}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -1077,7 +1067,7 @@ function ChunkPreviewPanel({
         </div>
       </div>
 
-      <div className="mb-3 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto pr-1">
+      <div className="mb-3 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto pr-1 empty:mb-0">
         {chunkPreviews.map((preview) => {
           const active = preview.url === activeUrl;
           const linked = !active && preview.url === hoveredUrl;
@@ -1105,7 +1095,9 @@ function ChunkPreviewPanel({
 
       {audioSrc ? (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-(--text-faint) shrink-0">Chunk {activeChunk?.index ?? "—"}</span>
+          {chunkPreviews.length > 0 ? (
+            <span className="text-xs text-(--text-faint) shrink-0">Chunk {activeChunk?.index ?? "—"}</span>
+          ) : null}
           <audio
             ref={audioRef}
             src={audioSrc}
