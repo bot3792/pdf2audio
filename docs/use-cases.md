@@ -88,6 +88,18 @@ timing map referencing the chapter audio.
 Assert: API-created book shows the `api` badge with its chapters intact; HN digest creates a
 book with one chapter per story.
 
+## UC8 — Read along on the page
+
+1. Open **Read along** on a book that has chapter audio.
+2. The narration plays and the sentence being spoken is highlighted on the book's own PDF page;
+   the page follows along, standing back when you scroll by hand.
+3. Tap a sentence on the page and the audio jumps to it.
+4. Column, Page and Text views share one timeline; the phone width presets say whether this
+   book's type is actually readable on a phone screen.
+
+Assert: the reader lists cue rectangles for a chapter with audio; clicking one moves the audio
+position; the read-along entry is disabled for a book whose chapters have no audio.
+
 ## Supporting promises (all videos)
 
 - **Profiles**: separate workspaces, one click away; list views are scoped per profile.

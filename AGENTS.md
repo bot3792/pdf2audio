@@ -107,7 +107,7 @@ Chapters can be individually queued (creates Graphile job) or suspended (no job,
 
 | Tool | Purpose | Called from |
 |------|---------|------------|
-| **Marker** (`marker_single` CLI, `pip install marker-pdf==1.8.5`) | PDF → structured JSON | `lib/marker.ts` |
+| **Marker** (`marker_single` CLI, `pip install marker-pdf`, pinned in `scripts/requirements.txt`) | PDF → structured JSON | `lib/marker.ts` |
 | **Kokoro TTS** (`pip install kokoro`) | Text → speech via MPS GPU | `scripts/synthesize.py`, called by `lib/kokoro.ts` |
 | **KugelAudio** (`kugelaudio/kugelaudio-0-open` via `pip install mlx-audio`, local 4-bit MLX quant at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit`) | Multilingual TTS narrator (24 EU languages incl. Bulgarian) | `scripts/synthesize_kugel_tts.py`, called by `lib/tts.ts` |
 | **macOS `say`** (system binary; ALL installed system voices exposed as `say:<name-slug>` — discovered via `say -v '?'` in `lib/say-voices.ts`, listed by tRPC `sayVoices.list`, shown as a dynamic picker group; install more in System Settings → Accessibility → Spoken Content) | Free offline TTS in any installed system voice (~25x realtime, supports speed via `-r`) | `scripts/synthesize_say_tts.py`, called by `lib/tts.ts` |
@@ -141,7 +141,7 @@ Connection string via `DATABASE_URL` env var (required, validated by Zod).
 
 **documents** — id (uuid), bookId (FK, cascade delete), language (null = original), format (`pdf` | `epub` | `epub-sync`), outputPath, chapterCount, chapterSummary, chapterIds (json array), createdAt. Written by the `assembleDocument` worker: `pdf`/`epub` render text via Vivliostyle CLI (first run downloads a rendering browser into the Vivliostyle cache); `epub-sync` is a read-along EPUB 3 with Media Overlays (audio + SMIL-highlighted text, built by `lib/readaloud-epub.ts` + system `zip`, playable in Storyteller/media-overlay readers). Layout mirrors the IDPF moby-dick sample (flat OEBPS, no `../` in SMIL refs). If `READALOUD_DROP_DIR` env is set, finished exports are also copied there (pointed at `storyteller/data/import`, a Storyteller watch folder → books auto-import). Storyteller treats that folder as one book's staging area and **skips the whole directory** while it holds more than one read-along EPUB, so the copy step first deletes this book's previously staged exports (`<title>_readaloud_*.epub`); without that, a second export deadlocks imports permanently. Storyteller copies accepted books into `data/assets/<title> [id]/` and adds an `ignore` import rule for the staged path, so removing staged files never affects imported books.
 
-**Sync maps** — `ch000.sync.json` next to each chapter/translation audio file: per-chunk `{text, startMs, endMs}` (`lib/sync-map.ts`). Written by the synthesize workers after the M4A encode; backfilled on demand from chunk WAV durations (`ensureSyncMap`) during `epub-sync` export. Once the WAVs are cleaned, `chapters.get`/`variants.detail` derive chunk previews from the sync map (`syncMapChunkPreviews`) and the chapter modal plays them by seeking the chapter audio (`startMs`/`endMs`) instead of loading per-chunk files. Once the sync map exists, the chunk WAVs are disposable — the map + chapter audio can rebuild read-along exports forever, so the synthesize workers delete the chapter's chunk dir right after writing it (kept only if the map couldn't be built). `scripts/cleanup-chunk-wavs.ts` (`pnpm cleanup:chunks`, `--apply` to delete) sweeps chunk dirs of finished chapters plus orphans from older chapter splits, ensuring sync maps first.
+**Sync maps** — `ch000.sync.json` next to each chapter/translation audio file: per-chunk `{text, startMs, endMs}`, plus optional per-word timings on v2 maps (`lib/sync-map.ts`; v1 files stay readable). Kokoro reports word timings during synthesis (`chunk-NNN.words.json` beside each chunk WAV); other engines don't, and `lib/cues.ts` turns whatever exists into cues — a sentence per cue where words are known, the whole chunk where they aren't — reporting which through `granularity`. Written by the synthesize workers after the M4A encode; backfilled on demand from chunk WAV durations (`ensureSyncMap`) during `epub-sync` export. Once the WAVs are cleaned, `chapters.get`/`variants.detail` derive chunk previews from the sync map (`syncMapChunkPreviews`) and the chapter modal plays them by seeking the chapter audio (`startMs`/`endMs`) instead of loading per-chunk files. Once the sync map exists, the chunk WAVs are disposable — the map + chapter audio can rebuild read-along exports forever, so the synthesize workers delete the chapter's chunk dir right after writing it (kept only if the map couldn't be built). `scripts/cleanup-chunk-wavs.ts` (`pnpm cleanup:chunks`, `--apply` to delete) sweeps chunk dirs of finished chapters plus orphans from older chapter splits, ensuring sync maps first.
 
 **bookLogs** — id (uuid), bookId (FK, cascade delete), message (text), createdAt
 
@@ -160,6 +160,7 @@ All data lives in `./data/` (gitignored):
 ```
 data/uploads/{bookId}/               Uploaded PDFs
 data/tmp/{bookId}/                   Marker output (JSON inside a subdirectory named after the PDF)
+                                     plus geometry.json (page/line/character boxes, see docs/read-along.md)
 data/output/{bookId}/                Chapter M4As (ch000.m4a, ...; pre-switch books have .mp3), ch000.sync.json sync maps,
                                      timestamped assembly M4Bs and exported PDF/EPUB/readaloud files
 data/output/{bookId}/{langSlug}/     Translation audio (per-language chNNN.m4a + sync maps)
@@ -232,16 +233,22 @@ packages/server/src/
     translate-live.ts   In-process pub/sub for live variant streaming (run-fenced sessions)
     api-books.ts        External-API core: create api books, append source-tagged chapters, status
     tts.ts              Voice registry + synthesis dispatch (kokoro / bg-mlx / mms / kugel)
-    tts-chunks.ts       Bulgarian narrator text chunking (250-320 chars)
+    tts-chunks.ts       TTS text chunking: NARRATOR_CHUNKS packs to 250-320 chars for the fixed-length
+                        Bulgarian narrator, SENTENCE_CHUNKS gives everything else a sentence per chunk
     kokoro.ts           Kokoro TTS subprocess wrapper with onProgress callback
     ffmpeg.ts           FFmpeg WAV→M4A encode and M4B concat/chapter helpers
     normalizer.ts       Text cleanup rules for TTS input
-    sync-map.ts         Text↔audio timing maps (chNNN.sync.json) built from chunk WAV durations
+    sync-map.ts         Text↔audio timing maps (chNNN.sync.json) from chunk WAV durations + word timings
+    cues.ts             Sync map → highlight cues (a sentence where words are known, else the chunk)
     readaloud-epub.ts   EPUB 3 Media Overlays builder for epub-sync exports (flat layout)
     document-html.ts    HTML rendering for Vivliostyle document exports
     vivliostyle.ts      Vivliostyle CLI subprocess wrapper
     chunk-previews.ts   Chunk WAV preview listing + text locating (read-along in the web UI)
     chapter-artifacts.ts / chapter-reader.ts / chapter-reader-route.ts  Print-view chapter reader (/read/:chapterId)
+    page-geometry.ts    Page/line/character boxes via scripts/page_geometry.py; content + column boxes, median body pt
+    cue-rects.ts        Cue text → the rectangles it occupies on the page (see docs/read-along.md)
+    reader-doc.ts / reader-routes.ts  The read-along documents: /read/book/:id/book.json and
+                        /read/chapter/:id/cues.json — all the web reader is allowed to read
     folders.ts          Folder subtree/ancestor recursive CTEs
     delete-book.ts      The only correct way to delete a book (DB row + disk dirs)
     disk-usage.ts       Per-book disk usage measurement with cache
@@ -258,6 +265,7 @@ packages/web/src/
   styles.css            Tailwind v4 import + semantic CSS custom properties for dark mode
   lib/
     voices.ts           Voice list across all TTS engines
+    reader-doc.ts       Types + fetchers for the /read documents, cue lookup, crop math, legibility fit
     format.ts           Shared date/duration/size formatters + document format labels
     languages.ts        Translation language list
     ai-presets.ts       AI prompt presets (digest, notes, "Did you know?")
@@ -269,6 +277,9 @@ packages/web/src/
     Home.tsx            Profile switcher, upload zone, search box, book/folder list, breadcrumbs
     BookDetail.tsx      Per-book orchestration: staged sections (1 Input → 2 Work → 3 Output → danger zone), variant view (translation or rewrite) in ?variant= query param
     Chat.tsx            Library chat: useChat + streaming /chat, folder (?folderId=) / book (?bookId=) scoping, source chips, saved answers
+    Reader.tsx          Read-along reader (/books/:id/read): Column/Page/Text views over one timeline,
+                        phone width presets + legibility readout, tap-to-seek, rect/layout debug toggles.
+                        Lazy-loaded so no other page pays for pdf.js; reads only the /read documents
   components/
     BookFilesSection.tsx    Stage 1 card: source-file table, add files, re-extract, extraction settings
     AudioOutputsSection.tsx Stage 3 card: produced audiobook assemblies (download/delete)
@@ -290,6 +301,8 @@ packages/web/src/
     ProfileSwitcher.tsx Profile dropdown in the Home header (create/rename/delete)
     UploadZone.tsx      Drag-and-drop PDF upload; separate-books mode; upload-time AI prompt
     PdfPreviewModal.tsx Inline source-PDF preview
+    reader/             PdfCanvas.tsx (pdf.js page or column crop, rendered near the viewport),
+                        CueOverlay.tsx (highlight + debug boxes)
     DiskUsageButton.tsx Per-book disk usage + chunk cleanup
     MarkdownBlock.tsx   Markdown renderer for notes/AI answers
     VoicePicker.tsx     Trigger for the voice library modal — two explicit variants, `VoicePicker` (labelled field) and `VoicePickerChip` (inline chip); queries only the engine owning the current selection to resolve its label
