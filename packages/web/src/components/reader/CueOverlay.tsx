@@ -17,7 +17,8 @@ export function CueOverlay({
   cue: ReaderCue | null;
   word: CueRect[] | null;
   cues: ReaderCue[];
-  // The chunk the pointer is resting on, tinted; and the one cue a click would seek to, ringed
+  // One hue throughout, varying only in strength: the chunk the pointer rests on is tinted, and
+  // the one cue a click would seek to is ringed inside it
   linked: CueRect[];
   ring: CueRect[];
   debug: { rects: boolean; layout: boolean };
@@ -66,7 +67,7 @@ export function CueOverlay({
         .map((rect, i) => (
           <div
             key={i}
-            className="absolute rounded-[2px] outline-2 outline-offset-1 outline-sky-500/70"
+            className="absolute rounded-[2px] outline-2 outline-offset-1 outline-amber-500/80"
             style={style(rect[1], rect[2], rect[3], rect[4])}
             data-testid="cue-ring-rect"
           />

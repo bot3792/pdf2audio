@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { cueIndexAt, wordIndexAt, type ReaderCue, type ReaderCues } from "../../lib/reader-doc.ts";
 
 // The cue list is the chapter's spoken text in order, so reading along with it needs no
@@ -20,6 +22,7 @@ export function CueTranscript({
   className?: string;
   empty?: string;
 }) {
+  const [hoverCue, setHoverCue] = useState(-1);
   if (!cues) return <p className="text-sm text-(--text-muted)">{empty}</p>;
 
   const activeIndex = cueIndexAt(cues.cues, ms);
@@ -31,14 +34,16 @@ export function CueTranscript({
         <span
           key={i}
           onClick={() => onSeek(cue.t[0])}
-          onMouseEnter={() => onHoverCue?.(i)}
-          onMouseLeave={() => onHoverCue?.(null)}
+          onMouseEnter={() => { setHoverCue(i); onHoverCue?.(i); }}
+          onMouseLeave={() => { setHoverCue(-1); onHoverCue?.(null); }}
           className={`cursor-pointer ${
             i === activeIndex
               ? "bg-amber-200/60 dark:bg-amber-500/30"
-              : cue.c === hoverChunk
-                ? "bg-yellow-300/35 dark:bg-yellow-400/20"
-                : "hover:bg-(--bg-subtle)"
+              : i === hoverCue
+                ? "bg-yellow-300/60 dark:bg-yellow-400/35"
+                : cue.c === hoverChunk
+                  ? "bg-yellow-300/30 dark:bg-yellow-400/15"
+                  : "hover:bg-(--bg-subtle)"
           }`}
           data-testid={i === activeIndex ? "text-cue-active" : "text-cue"}
         >
