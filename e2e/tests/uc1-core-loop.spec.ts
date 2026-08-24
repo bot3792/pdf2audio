@@ -54,6 +54,17 @@ test.describe("full extraction", { tag: "@slow" }, () => {
     await expect(rows.first()).toBeVisible({ timeout: 10 * 60_000 });
     await expect(rows).toHaveCount(3, { timeout: 60_000 });
 
+    // The chapter modal opens the source PDF over itself; both are fixed overlays, so the
+    // preview has to end up on top or the click looks like it did nothing
+    await rows.first().getByRole("button", { name: /Chapter 1/ }).click();
+    const chapterPdf = page.getByRole("button", { name: /^p\.\d/ }).last();
+    await chapterPdf.click();
+    const preview = page.getByTestId("pdf-preview-modal");
+    await expect(preview).toBeVisible();
+    await expect(preview.locator("iframe")).toHaveAttribute("src", /^\/pdf\/.*#page=\d+/);
+    await preview.getByTitle("Close").click();
+    await page.keyboard.press("Escape");
+
     await page.getByTestId("open-structure").click();
     const modal = page.getByTestId("structure-modal");
     await expect(modal).toBeVisible();
