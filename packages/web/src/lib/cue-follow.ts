@@ -1,3 +1,7 @@
+import { useEffect, useRef } from "react";
+
+import { cueIndexAt, wordIndexAt, type ReaderCues } from "./reader-doc.ts";
+
 // Keeping the spoken cue in view, in whatever is scrolling — the reader scrolls the window,
 // the chapter modal scrolls its own panel.
 export type FollowBand = { top: number; bottom: number; landing: number };
@@ -89,4 +93,16 @@ export function followCue(band: FollowBand, { jump = false } = {}): boolean {
   if (scroller) scroller.scrollTo({ top: scroller.scrollTop + delta, behavior });
   else window.scrollTo({ top: window.scrollY + delta, behavior });
   return true;
+}
+
+// Both surfaces follow the same way: on the cue, on the word inside an over-tall one, and with a
+// jump the first time a cue is placed under a new chapter or view.
+export function useFollowCue(cues: ReaderCues | null, ms: number, band: FollowBand, anchor: string): void {
+  const cue = cues ? cueIndexAt(cues.cues, ms) : -1;
+  const word = cues && cue >= 0 ? wordIndexAt(cues.cues[cue], ms) : -1;
+  const settled = useRef("");
+
+  useEffect(() => {
+    if (followCue(band, { jump: settled.current !== anchor })) settled.current = anchor;
+  }, [cue, word, anchor]);
 }

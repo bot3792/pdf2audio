@@ -16,7 +16,7 @@ anything it recognises, and say something useful about anything it does not.
   "format": "p2af/1",
   "book":    { "id": "…", "title": "…", "language": "en", "medianBodyPt": 11.7 },
   "sources": [ { "index": 0, "filename": "book.pdf", "url": "/pdf/…", "pageCount": 294 } ],
-  "pages":   [ { "i": 0, "src": 0, "w": 311, "h": 487, "rot": 0,
+  "pages":   [ { "i": 0, "src": 0, "p": 1, "w": 311, "h": 487, "rot": 0,
                  "content": [43, 45.7, 228.6, 387], "columns": [[43, 45.7, 228.6, 387]] } ],
   "chapters":[ { "i": 0, "id": "…", "title": "…",
                  "audio": "/audio/chapter/…", "cues": "/read/chapter/…/cues.json",
@@ -26,7 +26,9 @@ anything it recognises, and say something useful about anything it does not.
 
 - **`pages` is flat across a book's PDFs.** A book can have several source files; `i` counts
   pages across all of them in order and `src` says which file a page came from. Chapter
-  `pageStart`/`pageEnd` are flat indices too, so a reader never has to do this arithmetic.
+  `pageStart`/`pageEnd` are flat indices too, so a reader never has to do this arithmetic — and
+  `p` is the page's number inside its own PDF, which is what a PDF renderer asks for, so the
+  inverse arithmetic is not needed either.
 - **`w`, `h`, `content` and `columns` are PDF points**, origin top-left, y downwards. `content`
   is the union of the page's text lines; `columns` are the column boxes in reading order, one
   entry for a single-column page. Both are `[x, y, width, height]`.
@@ -35,8 +37,10 @@ anything it recognises, and say something useful about anything it does not.
   ordinary 10pt text. It is what tells a reader, before the reader squints, whether this book
   can be read at a given width.
 - **`mode`** is `"page"` when the chapter's spoken text can be pinned to the PDF, and `"text"`
-  when it cannot — an edited chapter, a generated one, or an extraction older than the text
-  map. A `"text"` chapter still has cues and audio; it just has no rectangles.
+  when it cannot. A `"text"` chapter still has cues and audio; it just has no rectangles — and
+  it carries **`why`**: `"edited"` (a chapter whose text was changed after extraction),
+  `"generated"` (text that was written rather than extracted), or `"unmapped"` (extracted before
+  the text map existed). A reader that says which of these it is beats one that guesses.
 
 ## `GET /read/chapter/:chapterId/cues.json`
 
@@ -61,7 +65,8 @@ anything it recognises, and say something useful about anything it does not.
   than blinking the highlight out.
 - **`c`** is the synthesis chunk the cue was cut from, counting from zero. Several cues share a
   chunk where the engine timed words. It is what lets a chunk and the print it became light each
-  other up: the chapter modal's chunk previews are the same chunks in the same order.
+  other up: the chapter modal's chunk previews are the same chunks in the same order, one-based
+  because they are labelled and named after `chunk-001.wav`.
 - **`s`** is the spoken text. Concatenated in order, the cues *are* the chapter's text — which
   is why a reflowed text view needs no further document.
 - **`r`** is a list of `[page, x, y, width, height]`, where `page` is the flat page index and

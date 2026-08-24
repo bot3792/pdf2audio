@@ -5,22 +5,29 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
-const documents = new Map<string, Promise<PDFDocumentProxy>>();
+// A retained document pins its bytes and pdf.js's page and font caches — tens of MB each. The
+// reader shows one book at a time, so anything older than the last two is a leak.
+const KEEP_DOCUMENTS = 2;
+const documents = new Map<string, pdfjs.PDFDocumentLoadingTask>();
 
 export function loadPdf(url: string): Promise<PDFDocumentProxy> {
-  let document = documents.get(url);
-  if (!document) {
-    document = pdfjs.getDocument({
+  let task = documents.get(url);
+  if (!task) {
+    task = pdfjs.getDocument({
       url,
       wasmUrl: "/pdfjs/wasm/",
       iccUrl: "/pdfjs/iccs/",
       cMapUrl: "/pdfjs/cmaps/",
       cMapPacked: true,
       standardFontDataUrl: "/pdfjs/standard_fonts/",
-    }).promise;
-    documents.set(url, document);
+    });
+    documents.set(url, task);
+    for (const [stale, old] of [...documents].slice(0, -KEEP_DOCUMENTS)) {
+      old.destroy().catch(() => {});
+      documents.delete(stale);
+    }
   }
-  return document;
+  return task.promise;
 }
 
 // Rendered only near the viewport: a chapter can cover a hundred pages and stall the tab

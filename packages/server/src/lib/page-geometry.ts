@@ -8,7 +8,8 @@ import type { MarkerSource } from "./marker-sources.ts";
 const GEOMETRY_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/page_geometry.py");
 const GEOMETRY_FILE = "geometry.json";
 
-export type Rect = [x: number, y: number, width: number, height: number];
+export type { Rect } from "./reader-format.ts";
+import type { Rect } from "./reader-format.ts";
 
 export type GeometryLine = {
   b: [number, number, number, number];
@@ -60,11 +61,22 @@ export async function ensureSourceGeometry(source: MarkerSource): Promise<Source
   return readGeometry(target);
 }
 
+// A sidecar runs to 14 MB on a 700-page book, and every reader request wants one. Parsing that
+// per request blocks the loop for tens of milliseconds, so it is held until the file changes.
+const parsed = new Map<string, { mtimeMs: number; geometry: SourceGeometry }>();
+
 async function readGeometry(target: string): Promise<SourceGeometry | null> {
   try {
-    if ((await stat(target)).size === 0) return null;
-    const parsed = JSON.parse(await readFile(target, "utf-8")) as SourceGeometry;
-    return parsed?.version === 3 && Array.isArray(parsed.pages) ? parsed : null;
+    const { size, mtimeMs } = await stat(target);
+    if (size === 0) return null;
+
+    const cached = parsed.get(target);
+    if (cached?.mtimeMs === mtimeMs) return cached.geometry;
+
+    const geometry = JSON.parse(await readFile(target, "utf-8")) as SourceGeometry;
+    if (geometry?.version !== 3 || !Array.isArray(geometry.pages)) return null;
+    parsed.set(target, { mtimeMs, geometry });
+    return geometry;
   } catch {
     return null;
   }

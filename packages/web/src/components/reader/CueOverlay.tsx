@@ -31,6 +31,19 @@ export function CueOverlay({
     (box[3] / page.h) * 10_000,
   );
 
+  // Softest first: the chunk under the pointer, the sentence a click would seek to, the sentence
+  // being spoken, the word inside it. The element for each persists, so moving one is a transition
+  const layers = [
+    { rects: linked, className: "bg-yellow-300/35 mix-blend-multiply", testId: "cue-linked-rect" },
+    { rects: ring, className: "outline-2 outline-offset-1 outline-amber-500/80", testId: "cue-ring-rect" },
+    { rects: cue?.r ?? [], className: "bg-amber-300/50 mix-blend-multiply", testId: "cue-rect" },
+    {
+      rects: word ?? [],
+      className: "bg-amber-400/80 mix-blend-multiply transition-all duration-150 ease-out motion-reduce:transition-none",
+      testId: "cue-word-rect",
+    },
+  ];
+
   return (
     <div className="pointer-events-none absolute inset-0" data-testid="cue-overlay">
       {debug.layout && (
@@ -51,50 +64,18 @@ export function CueOverlay({
             )),
         )}
 
-      {linked
-        .filter(([p]) => p === page.i)
-        .map((rect, i) => (
-          <div
-            key={i}
-            className="absolute rounded-[2px] bg-yellow-300/35 mix-blend-multiply"
-            style={style(rect[1], rect[2], rect[3], rect[4])}
-            data-testid="cue-linked-rect"
-          />
-        ))}
-
-      {ring
-        .filter(([p]) => p === page.i)
-        .map((rect, i) => (
-          <div
-            key={i}
-            className="absolute rounded-[2px] outline-2 outline-offset-1 outline-amber-500/80"
-            style={style(rect[1], rect[2], rect[3], rect[4])}
-            data-testid="cue-ring-rect"
-          />
-        ))}
-
-      {(cue?.r ?? [])
-        .filter(([p]) => p === page.i)
-        .map((rect, i) => (
-          <div
-            key={i}
-            className="absolute rounded-[2px] bg-amber-300/50 mix-blend-multiply"
-            style={style(rect[1], rect[2], rect[3], rect[4])}
-            data-testid="cue-rect"
-          />
-        ))}
-
-      {(word ?? [])
-        .filter(([p]) => p === page.i)
-        .map((rect, i) => (
-          <div
-            key={i}
-            // The element persists between words, so moving it is a transition rather than a jump
-            className="absolute rounded-[2px] bg-amber-400/80 mix-blend-multiply transition-all duration-150 ease-out motion-reduce:transition-none"
-            style={style(rect[1], rect[2], rect[3], rect[4])}
-            data-testid="cue-word-rect"
-          />
-        ))}
+      {layers.map((layer) =>
+        layer.rects
+          .filter(([p]) => p === page.i)
+          .map((rect, i) => (
+            <div
+              key={`${layer.testId}-${i}`}
+              className={`absolute rounded-[2px] ${layer.className}`}
+              style={style(rect[1], rect[2], rect[3], rect[4])}
+              data-testid={layer.testId}
+            />
+          )),
+      )}
     </div>
   );
 }

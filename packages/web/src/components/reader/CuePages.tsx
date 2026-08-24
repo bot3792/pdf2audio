@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { PdfCanvas } from "./PdfCanvas.tsx";
 import { CueOverlay } from "./CueOverlay.tsx";
 import {
+  chapterPages,
   cueAtPoint,
   cueIndexAt,
   cuesOfChunk,
@@ -45,10 +46,7 @@ export function CuePages({
   empty?: string;
 }) {
   const [hoverCue, setHoverCue] = useState(-1);
-  const pages = useMemo(() => {
-    if (chapter.pageStart === null) return [];
-    return manifest.pages.filter((page) => page.i >= chapter.pageStart! && page.i <= (chapter.pageEnd ?? chapter.pageStart!));
-  }, [manifest, chapter.pageStart, chapter.pageEnd]);
+  const pages = useMemo(() => chapterPages(manifest, chapter), [manifest, chapter.pageStart, chapter.pageEnd]);
 
   const spreads = useMemo<Spread[]>(() => {
     if (!columns) return pages.map((page) => ({ key: `${page.i}`, page, crop: wholePage(page) }));
@@ -72,17 +70,13 @@ export function CuePages({
     onHoverCue?.(at >= 0 ? at : null);
   };
 
-  // A page's number inside its own PDF, which is what pdf.js is asked for
-  const pageNumber = (index: number, src: number) =>
-    index - (manifest.pages.find((page) => page.src === src)?.i ?? 0) + 1;
-
   return (
     <>
       {spreads.map((spread) => (
         <div key={spread.key} data-page-index={spread.page.i}>
           <PdfCanvas
             url={manifest.sources[spread.page.src]?.url ?? ""}
-            pageNumber={pageNumber(spread.page.i, spread.page.src)}
+            pageNumber={spread.page.p}
             crop={spread.crop}
             pageSize={{ w: spread.page.w, h: spread.page.h }}
             pointer={hoverCue >= 0}

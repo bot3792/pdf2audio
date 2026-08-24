@@ -3,7 +3,8 @@ import type { SyncMap, SyncWord } from "./sync-map.ts";
 // A highlight unit: a sentence where the engine timed words, else the whole (paragraph-sized) chunk.
 // chunk is the sync-map chunk it came from, which is what ties a cue to a chunk preview.
 export type Cue = { text: string; startMs: number; endMs: number; chunk: number; words?: SyncWord[] };
-export type CueGranularity = "word" | "sentence" | "chunk";
+export type { CueGranularity } from "./reader-format.ts";
+import type { CueGranularity } from "./reader-format.ts";
 export type CueList = { granularity: CueGranularity; cues: Cue[] };
 
 // Below this a cue reads as a flicker, so short fragments join their neighbour

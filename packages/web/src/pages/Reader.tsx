@@ -3,20 +3,10 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { CueTranscript } from "../components/reader/CueTranscript.tsx";
 import { CuePages } from "../components/reader/CuePages.tsx";
-import {
-  bodyFit,
-  cueIndexAt,
-  fetchCues,
-  fetchManifest,
-  wordIndexAt,
-  type ReaderCue,
-  type ReaderCues,
-  type ReaderManifest,
-  type ReaderPage,
-  type Rect,
-} from "../lib/reader-doc.ts";
+import { bodyFit, chapterPages, fetchCues, fetchManifest, UNMAPPED, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
 import { formatDuration } from "../lib/format.ts";
-import { followCue, type FollowBand } from "../lib/cue-follow.ts";
+import { useFollowCue, type FollowBand } from "../lib/cue-follow.ts";
+import { useAudioTime } from "../lib/use-audio-time.ts";
 import { SPEEDS, loadSpeed, saveSpeed } from "../lib/playback-speed.ts";
 
 // The band a cue may start in without the page moving: clear of the sticky bar, clear of the fold
@@ -88,25 +78,12 @@ export function Reader() {
     fetchCues(chapter.cues).then(setCues).catch((err: Error) => setCueError(err.message));
   }, [chapter?.id]);
 
-  // The element's own timeupdate fires far too rarely to look like it follows the voice
-  useEffect(() => {
-    if (!playing) return;
-    let frame = 0;
-    const tick = () => {
-      const audio = audioRef.current;
-      if (audio) setMs(audio.currentTime * 1000);
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [playing]);
+  useAudioTime(audioRef, playing, setMs);
 
-  const activeIndex = cues ? cueIndexAt(cues.cues, ms) : -1;
-
-  const pages = useMemo(() => {
-    if (!manifest || !chapter || chapter.pageStart === null) return [];
-    return manifest.pages.filter((page) => page.i >= chapter.pageStart! && page.i <= (chapter.pageEnd ?? chapter.pageStart!));
-  }, [manifest, chapter?.id]);
+  const pages = useMemo(
+    () => (manifest && chapter ? chapterPages(manifest, chapter) : []),
+    [manifest, chapter?.id],
+  );
 
   // Rolling on to the next narrated chapter, audiobook-style: the flag survives the chapter
   // swap and the new audio element plays itself once it has metadata
@@ -127,19 +104,9 @@ export function Reader() {
     if (audio.paused) audio.play().catch(() => {});
   };
 
-  // The word matters as well as the cue: a sentence taller than the safe area has to keep
-  // scrolling as it is read, or the cursor walks off the bottom edge
-  const activeWord = cues && activeIndex >= 0 ? wordIndexAt(cues.cues[activeIndex], ms) : -1;
-
   // Switching chapter or view relays the whole document out — a column is not where its page was —
-  // so the place being read has to be found again rather than left where the old scroll position
-  // lands. Until it has been found once, landing there is a jump rather than a scroll.
-  const anchor = `${chapter?.id ?? ""}:${view}`;
-  const settled = useRef("");
-
-  useEffect(() => {
-    if (followCue(READER_BAND, { jump: settled.current !== anchor })) settled.current = anchor;
-  }, [activeIndex, activeWord, anchor]);
+  // so the place being read has to be found again rather than left where the old scroll lands
+  useFollowCue(cues, ms, READER_BAND, `${chapter?.id ?? ""}:${view}`);
 
   const fit = useMemo(() => {
     // What the reader is actually looking at: a column in column view, the whole page otherwise
@@ -258,8 +225,7 @@ export function Reader() {
 
       {chapter.mode === "text" && (
         <p className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40" data-testid="reader-text-mode">
-          This chapter's spoken text no longer maps onto the PDF — it was edited, generated, or
-          extracted before page mapping existed — so it reads as text rather than on the page.
+          {UNMAPPED[chapter.why ?? "unmapped"]} It reads as text rather than on the page.
         </p>
       )}
 

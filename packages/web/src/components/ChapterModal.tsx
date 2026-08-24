@@ -11,8 +11,9 @@ import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import { CueTranscript } from "./reader/CueTranscript.tsx";
 import { CuePages } from "./reader/CuePages.tsx";
-import { cueIndexAt, fetchCues, fetchManifest, wordIndexAt, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
-import { followCue, type FollowBand } from "../lib/cue-follow.ts";
+import { fetchCues, fetchManifest, UNMAPPED, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
+import { useFollowCue, type FollowBand } from "../lib/cue-follow.ts";
+import { useAudioTime } from "../lib/use-audio-time.ts";
 import { SPEEDS, loadSpeed, saveSpeed } from "../lib/playback-speed.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
 
@@ -78,7 +79,7 @@ export function ChapterModal({
   const hasPrev = chapterIndex > 0;
   const hasNext = chapterIndex < chapters.length - 1;
 
-  const [viewMode, setViewMode] = useState<ViewMode>(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
+  const [picked, setPicked] = useState<ViewMode | null>(null);
   const [cues, setCues] = useState<ReaderCues | null>(null);
   const [manifest, setManifest] = useState<ReaderManifest | null>(null);
   const [ms, setMs] = useState(0);
@@ -103,7 +104,7 @@ export function ChapterModal({
   const [showAi, setShowAi] = useState(false);
 
   useEffect(() => {
-    setViewMode(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
+    setPicked(null);
     setIsEditing(false);
     setSelectedChunkPreviewUrl(null);
     setPlayNonce(0);
@@ -113,40 +114,42 @@ export function ChapterModal({
   const isVariant = !!variant;
 
   useEffect(() => {
-    setCues(null);
-    setMs(0);
-    if (isVariant || chapter.status !== "done") return;
-    fetchCues(`/read/chapter/${chapter.id}/cues.json`).then(setCues).catch(() => setCues(null));
-  }, [chapter.id, chapter.status, isVariant]);
-
-  useEffect(() => {
     fetchManifest(bookId).then(setManifest).catch(() => setManifest(null));
   }, [bookId]);
 
   const readerChapter = manifest?.chapters.find((entry) => entry.i === chapter.index);
   // Where a chapter sits in the book survives an edit or a translation; marking the audio on it does not
   const hasPages = readerChapter?.pageStart != null;
-  const canMark = !isVariant && readerChapter?.mode === "page" && cues !== null;
-  const activeCueIndex = cues ? cueIndexAt(cues.cues, ms) : -1;
 
-  const activeWordIndex = cues && activeCueIndex >= 0 ? wordIndexAt(cues.cues[activeCueIndex], ms) : -1;
-  const followAnchor = `${chapter.id}:${viewMode}`;
-  const settledAt = useRef("");
+  // The manifest states where a chapter's narration lives; nothing here builds that URL itself
+  const cueUrl = isVariant ? null : readerChapter?.audio ? readerChapter.cues : null;
+
+  useEffect(() => {
+    setCues(null);
+    setMs(0);
+    if (!cueUrl) return;
+    fetchCues(cueUrl).then(setCues).catch(() => setCues(null));
+  }, [cueUrl]);
+
+  const canMark = readerChapter?.mode === "page" && cues !== null;
+
+  // Reading along on the page is the experience; the transcript is the fallback that still marks
+  // words. A tab the reader picks outranks both, and is dropped when the chapter changes.
+  const viewMode: ViewMode =
+    picked ?? (canMark ? "pages" : cues ? "text" : chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
 
   // The modal scrolls its own panel rather than the window, which followCue works out for itself
-  useEffect(() => {
-    if (followCue(MODAL_BAND, { jump: settledAt.current !== followAnchor })) settledAt.current = followAnchor;
-  }, [activeCueIndex, activeWordIndex, followAnchor]);
-
-  // Reading along on the page is the experience; the transcript is the fallback that still marks words
-  useEffect(() => {
-    if (canMark) setViewMode("pages");
-    else if (cues) setViewMode("text");
-  }, [canMark, cues]);
+  useFollowCue(cues, ms, MODAL_BAND, `${chapter.id}:${viewMode}`);
 
   const isTranslationKind = variant?.kind === "translation";
   const variantName = variant ? variant.label ?? variant.key : null;
-  const markReason = unmarkedReason(variantName, chapter, cues !== null);
+  // Why the page below carries no highlight — the alternative is a reader waiting for one. Only
+  // the lane being read and the missing audio are this component's to know; the rest the document says.
+  const markReason = variantName
+    ? `Audio for the ${variantName} text can't be marked on the page. These are the chapter's pages in the original.`
+    : !readerChapter?.audio
+      ? "Synthesize this chapter to follow the narration on these pages."
+      : `${UNMAPPED[readerChapter.why ?? "unmapped"]} These are the chapter's pages in the original.`;
   const { data: originalChapter, isLoading: originalLoading } = trpc.chapters.get.useQuery(
     { id: chapter.id },
     { enabled: !isVariant, refetchInterval: chapter.status === "synthesizing" ? 1000 : false },
@@ -692,7 +695,7 @@ export function ChapterModal({
               ) : null}
               <ViewModeTabs
                 viewMode={viewMode}
-                onSetViewMode={setViewMode}
+                onSetViewMode={setPicked}
                 hasCues={cues !== null}
                 hasPages={hasPages}
                 hasCleanText={chapter.hasCleanText}
@@ -718,6 +721,7 @@ export function ChapterModal({
             onOpenPdf={setPdfPage}
             onTime={setMs}
             seekRef={seekRef}
+            follows={viewMode === "pages" || viewMode === "text"}
           />
         ) : null}
 
@@ -848,6 +852,7 @@ function ChunkPreviewPanel({
   onOpenPdf,
   onTime,
   seekRef,
+  follows,
 }: {
   chunkPreviews: Array<{ index: number; fileName: string; url: string; page?: number; startMs?: number; endMs?: number }>;
   selectedUrl: string | null;
@@ -861,8 +866,10 @@ function ChunkPreviewPanel({
   sourcePage: number | null;
   canOpenPdf: boolean;
   onOpenPdf: (page: number) => void;
-  onTime?: (ms: number) => void;
-  seekRef?: React.RefObject<((ms: number) => void) | null>;
+  onTime: (ms: number) => void;
+  seekRef: React.RefObject<((ms: number) => void) | null>;
+  // Whether the open view marks the words, and so needs a position finer than timeupdate's
+  follows: boolean;
 }) {
   const activeUrl = selectedUrl ?? chunkPreviews.at(-1)?.url ?? null;
   const activeIndex = chunkPreviews.findIndex((preview) => preview.url === activeUrl);
@@ -917,24 +924,15 @@ function ChunkPreviewPanel({
     }
   }, [playNonce]);
 
-  // timeupdate fires a few times a second, which is enough to follow a chunk but not a word
-  useEffect(() => {
-    if (!onTime || !isPlaying) return;
-    let frame = 0;
-    const tick = () => {
-      if (audioRef.current) onTime(audioRef.current.currentTime * 1000);
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [onTime, isPlaying]);
+  // Only a view that marks the words needs a position finer than timeupdate's — and only that
+  // view is worth re-rendering for
+  useAudioTime(audioRef, isPlaying && follows, onTime);
 
   useEffect(() => {
-    if (!seekRef) return;
     seekRef.current = (ms: number) => {
       const audio = audioRef.current;
       if (!audio) return;
-      onTime?.(ms);
+      onTime(ms);
       // preload="none" means currentTime is ignored until metadata arrives; the pending seek
       // is applied by playActive and by loadedmetadata, whichever gets there first
       pendingSeekRef.current = ms / 1000;
@@ -945,7 +943,7 @@ function ChunkPreviewPanel({
 
   function handleTimeUpdate() {
     const audio = audioRef.current;
-    onTime?.((audio?.currentTime ?? 0) * 1000);
+    onTime((audio?.currentTime ?? 0) * 1000);
     if (!syncMode || !audio || audio.paused) return;
     const ms = audio.currentTime * 1000;
     const current = chunkPreviews.find(
@@ -1103,15 +1101,6 @@ function ChunkPreviewPanel({
 
 function Divider() {
   return <span className="h-4 w-px bg-(--border) shrink-0" aria-hidden="true" />;
-}
-
-// Why the page below carries no highlight — the alternative is a reader waiting for one
-function unmarkedReason(variantName: string | null, chapter: ChapterRow, hasCues: boolean): string {
-  const pages = "These are the chapter's pages in the original.";
-  if (variantName) return `Audio for the ${variantName} text can't be marked on the page. ${pages}`;
-  if (chapter.hasCustomText) return `This chapter's text was edited after extraction, so the narration can't be lined up with the print. ${pages}`;
-  if (!hasCues) return `Synthesize this chapter to follow the narration on these pages.`;
-  return `This chapter's text can't be lined up with the print — re-extract the file to line it up. ${pages}`;
 }
 
 function ViewModeTabs({

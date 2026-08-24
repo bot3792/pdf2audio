@@ -8,6 +8,6 @@
     "declaration": false,
     "declarationMap": false
   },
-  "include": ["src", "../server/src/router.ts", "../server/src/trpc.ts", "../server/src/routes", "../server/src/schema.ts", "../server/src/db.ts", "../server/src/lib/paths.ts"],
+  "include": ["src", "../server/src/router.ts", "../server/src/trpc.ts", "../server/src/routes", "../server/src/schema.ts", "../server/src/db.ts", "../server/src/lib/paths.ts", "../server/src/lib/reader-format.ts"],
   "exclude": ["../server/src/**/*.test.ts"]
 }

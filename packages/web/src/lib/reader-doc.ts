@@ -1,41 +1,24 @@
-// The reader consumes these two documents and nothing else — never a database row
-export type Rect = [x: number, y: number, width: number, height: number];
-export type CueRect = [page: number, x: number, y: number, width: number, height: number];
-
-export type ReaderPage = { i: number; src: number; w: number; h: number; rot: number; content: Rect; columns: Rect[] };
-
-export type ReaderChapter = {
-  i: number;
-  id: string;
-  title: string;
-  audio: string | null;
-  cues: string;
-  durationMs: number | null;
-  pageStart: number | null;
-  pageEnd: number | null;
-  mode: "page" | "text";
-};
-
-export type ReaderManifest = {
-  format: string;
-  book: { id: string; title: string; language: string; medianBodyPt: number | null };
-  sources: { index: number; filename: string; url: string; pageCount: number }[];
-  pages: ReaderPage[];
-  chapters: ReaderChapter[];
-};
-
-// `wr` is aligned with `w`: the rects for each word, empty for punctuation that has no place
-export type ReaderCue = {
-  t: [number, number];
-  s: string;
-  // The synthesis chunk this cue was cut from, which is what ties it to a chunk preview
-  c: number;
-  r?: CueRect[];
-  w?: [number, number, string][];
-  wr?: CueRect[][];
-};
-
-export type ReaderCues = { format: string; totalMs: number; granularity: "word" | "sentence" | "chunk"; cues: ReaderCue[] };
+// The reader consumes these two documents and nothing else — never a database row. The types are
+// the server's own, so a field added there cannot go unnoticed here.
+export type {
+  CueRect,
+  ReaderChapter,
+  ReaderCue,
+  ReaderCues,
+  ReaderManifest,
+  ReaderPage,
+  ReaderUnmapped,
+  Rect,
+} from "../../../server/src/lib/reader-format.ts";
+import type {
+  ReaderChapter,
+  ReaderUnmapped,
+  ReaderCue,
+  ReaderCues,
+  ReaderManifest,
+  ReaderPage,
+  Rect,
+} from "../../../server/src/lib/reader-format.ts";
 
 export async function fetchManifest(bookId: string): Promise<ReaderManifest> {
   return fetchJson(`/read/book/${bookId}/book.json`);
@@ -99,6 +82,21 @@ export function bodyFit(medianBodyPt: number | null, cropWidthPt: number, render
   if (medianBodyPt === null || cropWidthPt <= 0) return null;
   const px = medianBodyPt * (renderedWidthPx / cropWidthPt);
   return { px, percent: Math.round((px / COMFORTABLE_BODY_PX) * 100) };
+}
+
+// What took the page mapping away, in the reader's words. The document states which it was, so
+// neither surface has to guess from a database row.
+export const UNMAPPED: Record<ReaderUnmapped, string> = {
+  edited: "This chapter's text was edited after extraction, so the narration can't be lined up with the print.",
+  generated: "This chapter's text was written rather than extracted, so there is no print to line it up with.",
+  unmapped: "This chapter was extracted before pages could be lined up — re-extract the file to enable it.",
+};
+
+// The pages a chapter covers, in flat order — the same set both surfaces render
+export function chapterPages(manifest: ReaderManifest, chapter: ReaderChapter): ReaderPage[] {
+  if (chapter.pageStart === null) return [];
+  const last = chapter.pageEnd ?? chapter.pageStart;
+  return manifest.pages.filter((page) => page.i >= chapter.pageStart! && page.i <= last);
 }
 
 export function cuesOfChunk(cues: ReaderCue[], chunk: number | null): ReaderCue[] {
