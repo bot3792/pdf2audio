@@ -12,18 +12,20 @@ def rounded(values):
     return [round(v, 1) for v in values]
 
 
-# A printed row runs left to right, so only a wrap sends x backwards; per-character y wobbles
-# by a point either way even inside one row, which is why the split reads x and not y.
-WRAP_SLACK = 2.0
+# A wrap returns to the start of the line, so the jump has to be a large part of the line's
+# width to count as one — a right-to-left script moves backwards a character at a time, and
+# kerning overlaps by a fraction of one, and neither is a new row.
+WRAP_FRACTION = 0.5
 
 
-def split_rows(chars):
+def split_rows(chars, line_width):
     """pdftext sometimes reports two printed rows as one line, giving every word past the wrap
     the row above's y. Their characters carry their own coordinates, so the rows are recoverable."""
+    threshold = max(line_width * WRAP_FRACTION, 1.0)
     rows = []
     current = []
     for char in chars:
-        if current and char["bbox"][0] < current[-1]["bbox"][0] - WRAP_SLACK:
+        if current and current[-1]["bbox"][0] - char["bbox"][0] > threshold:
             rows.append(current)
             current = []
         current.append(char)
@@ -55,7 +57,8 @@ def line_geometry(line):
         text = "".join(span["text"] for span in line["spans"]).rstrip("\r\n")
         return [{"b": rounded(line["bbox"]), "t": text}] if text else []
 
-    return [row_geometry(row) for row in split_rows(chars) if row]
+    width = line["bbox"][2] - line["bbox"][0]
+    return [row_geometry(row) for row in split_rows(chars, width) if row]
 
 
 def main():
@@ -96,7 +99,7 @@ def main():
     doc.close()
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
-        json.dump({"version": 2, "pages": out}, f, ensure_ascii=False)
+        json.dump({"version": 3, "pages": out}, f, ensure_ascii=False)
 
     print(json.dumps({"type": "done", "pages": len(out), "lines": sum(len(p["lines"]) for p in out)}), flush=True)
 

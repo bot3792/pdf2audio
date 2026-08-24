@@ -59,9 +59,10 @@ export function Reader() {
   const [manifest, setManifest] = useState<ReaderManifest | null>(null);
   const [cues, setCues] = useState<ReaderCues | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cueError, setCueError] = useState<string | null>(null);
   const [ms, setMs] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(loadSpeed);
   const [view, setView] = useState<View>("column");
   const [width, setWidth] = useState<(typeof WIDTHS)[number]["id"]>("full");
   const [debug, setDebug] = useState({ rects: false, layout: false });
@@ -88,10 +89,11 @@ export function Reader() {
     if (!chapter) return;
     setCues(null);
     setMs(0);
-    setError(null);
+    setCueError(null);
     if (chapter.mode === "text") setView("text");
     if (!chapter.audio) return;
-    fetchCues(chapter.cues).then(setCues).catch((err: Error) => setError(err.message));
+    // A chapter's own failure, not the reader's — the picker has to stay usable
+    fetchCues(chapter.cues).then(setCues).catch((err: Error) => setCueError(err.message));
   }, [chapter?.id]);
 
   // The element's own timeupdate fires far too rarely to look like it follows the voice
@@ -139,11 +141,13 @@ export function Reader() {
     [manifest],
   );
 
+  // Picking a sentence is a request to hear it, so a paused reader starts speaking
   const seek = (to: number) => {
     const audio = audioRef.current;
     if (!audio) return;
     audio.currentTime = to / 1000;
     setMs(to);
+    if (audio.paused) audio.play().catch(() => {});
   };
 
   const showCue = useCallback((force: boolean) => {
@@ -213,8 +217,10 @@ export function Reader() {
           <select
             value={speed}
             onChange={(event) => {
-              setSpeed(Number(event.target.value));
-              if (audioRef.current) audioRef.current.playbackRate = Number(event.target.value);
+              const rate = Number(event.target.value);
+              setSpeed(rate);
+              saveSpeed(rate);
+              if (audioRef.current) audioRef.current.playbackRate = rate;
             }}
             title="Playback speed"
             className="rounded border border-(--border) bg-(--bg-input) px-1 py-1 text-xs"
@@ -275,6 +281,13 @@ export function Reader() {
         </div>
 
       </div>
+
+      {cueError && (
+        <p className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40" data-testid="reader-cue-error">
+          {cueError} — the audio still plays, but nothing can be highlighted. Re-synthesizing this
+          chapter writes one.
+        </p>
+      )}
 
       {chapter.mode === "text" && (
         <p className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40" data-testid="reader-text-mode">
@@ -392,6 +405,18 @@ function CueText({ cue, word }: { cue: ReaderCue; word: number }) {
       {cue.s.slice(start + spoken.length)}
     </>
   );
+}
+
+// Reading speed is a standing preference, not something to re-pick every time a chapter opens
+const SPEED_KEY = "reader.speed";
+
+function loadSpeed(): number {
+  const stored = Number(localStorage.getItem(SPEED_KEY));
+  return SPEEDS.includes(stored) ? stored : 1;
+}
+
+function saveSpeed(rate: number): void {
+  localStorage.setItem(SPEED_KEY, String(rate));
 }
 
 function reducedMotion(): boolean {
