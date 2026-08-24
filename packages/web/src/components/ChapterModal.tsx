@@ -10,7 +10,9 @@ import { TOOLBAR_BUTTON } from "../lib/button-classes.ts";
 import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import { CueTranscript } from "./reader/CueTranscript.tsx";
-import { fetchCues, type ReaderCues } from "../lib/reader-doc.ts";
+import { CuePages } from "./reader/CuePages.tsx";
+import { cueIndexAt, fetchCues, fetchManifest, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
+import { followCue, type FollowBand } from "../lib/cue-follow.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
 
 type ChapterModalProps = {
@@ -50,7 +52,10 @@ type SourceBlock = {
   polygon?: number[][];
 };
 
-type ViewMode = "readalong" | "custom" | "clean" | "raw" | "split" | "blocks";
+// No sticky bar inside the panel, so the cue may sit closer to its top than in the reader
+const MODAL_BAND: FollowBand = { top: 24, bottom: 90, landing: 0.25 };
+
+type ViewMode = "readalong" | "text" | "custom" | "clean" | "raw" | "split" | "blocks";
 
 export function ChapterModal({
   bookId,
@@ -74,6 +79,7 @@ export function ChapterModal({
 
   const [viewMode, setViewMode] = useState<ViewMode>(chapter.hasCustomText ? "custom" : chapter.hasCleanText ? "clean" : "raw");
   const [cues, setCues] = useState<ReaderCues | null>(null);
+  const [manifest, setManifest] = useState<ReaderManifest | null>(null);
   const [ms, setMs] = useState(0);
   const seekRef = useRef<((ms: number) => void) | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -111,10 +117,27 @@ export function ChapterModal({
     fetchCues(`/read/chapter/${chapter.id}/cues.json`).then(setCues).catch(() => setCues(null));
   }, [chapter.id, chapter.status, isVariant]);
 
-  // Reading along is the point of the chapter's audio, so it opens on it when there is any
+  // The pages are only worth fetching for a chapter whose text still maps onto them
   useEffect(() => {
-    if (cues) setViewMode("readalong");
-  }, [cues]);
+    setManifest(null);
+    if (isVariant) return;
+    fetchManifest(bookId)
+      .then((doc) => setManifest(doc.chapters.some((c) => c.i === chapter.index && c.mode === "page") ? doc : null))
+      .catch(() => setManifest(null));
+  }, [bookId, chapter.index, isVariant]);
+
+  const readerChapter = manifest?.chapters.find((entry) => entry.i === chapter.index);
+  const activeCueIndex = cues ? cueIndexAt(cues.cues, ms) : -1;
+
+  // The modal scrolls its own panel rather than the window, which followCue works out for itself
+  useEffect(() => {
+    followCue(false, MODAL_BAND);
+  }, [activeCueIndex, viewMode]);
+
+  // Reading along on the page is the experience; text is the fallback when there is no page
+  useEffect(() => {
+    if (cues) setViewMode(manifest ? "readalong" : "text");
+  }, [cues, manifest]);
 
   const isTranslationKind = variant?.kind === "translation";
   const variantName = variant ? variant.label ?? variant.key : null;
@@ -374,7 +397,7 @@ export function ChapterModal({
                   </span>
                 )
               ) : null}
-              {cues ? (
+              {readerChapter ? (
                 <Link
                   to={`/books/${bookId}/read?chapter=${chapter.index}`}
                   className="text-blue-600 hover:text-blue-800"
@@ -649,6 +672,7 @@ export function ChapterModal({
                 viewMode={viewMode}
                 onSetViewMode={setViewMode}
                 hasCues={cues !== null}
+                hasPages={manifest !== null && readerChapter !== undefined}
                 hasCleanText={chapter.hasCleanText}
                 hasCustomText={chapter.hasCustomText}
                 hasSourceBlocks={chapter.hasSourceBlocks}
@@ -687,12 +711,23 @@ export function ChapterModal({
                 onChange={(e) => setEditText(e.target.value)}
                 className="flex-1 min-h-0 w-full max-w-4xl mx-auto rounded bg-(--bg-card) border border-amber-300 px-6 py-5 text-[15px] text-(--text-primary) whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
-            ) : viewMode === "readalong" && cues ? (
+            ) : viewMode === "readalong" && cues && manifest && readerChapter ? (
+              <div className="mx-auto flex w-full max-w-3xl flex-1 min-h-0 flex-col gap-4 overflow-y-auto">
+                <CuePages
+                  manifest={manifest}
+                  chapter={readerChapter}
+                  cues={cues}
+                  ms={ms}
+                  columns
+                  onSeek={(at) => seekRef.current?.(at)}
+                />
+              </div>
+            ) : viewMode === "text" && cues ? (
               <CueTranscript
                 cues={cues}
                 ms={ms}
                 onSeek={(at) => seekRef.current?.(at)}
-                className="mx-auto w-full max-w-4xl text-[15px] leading-relaxed text-(--text-primary)"
+                className="mx-auto w-full max-w-4xl flex-1 min-h-0 overflow-y-auto rounded bg-(--bg-subtle) border border-(--border) px-6 py-5 text-[15px] leading-relaxed text-(--text-primary)"
               />
             ) : viewMode === "blocks" && fullChapter.sourceBlocks ? (
               <BlocksPreview
@@ -1034,6 +1069,7 @@ function ViewModeTabs({
   hasCustomText,
   hasSourceBlocks,
   hasCues,
+  hasPages,
 }: {
   viewMode: ViewMode;
   onSetViewMode: (mode: ViewMode) => void;
@@ -1041,9 +1077,11 @@ function ViewModeTabs({
   hasCustomText: boolean;
   hasSourceBlocks: boolean;
   hasCues: boolean;
+  hasPages: boolean;
 }) {
   const modes: ViewMode[] = [];
-  if (hasCues) modes.push("readalong");
+  if (hasPages) modes.push("readalong");
+  if (hasCues) modes.push("text");
   if (hasCustomText) modes.push("custom");
   if (hasCleanText) modes.push("clean");
   modes.push("raw");

@@ -1,0 +1,92 @@
+import { useMemo } from "react";
+
+import { PdfCanvas } from "./PdfCanvas.tsx";
+import { CueOverlay } from "./CueOverlay.tsx";
+import {
+  cueAtPoint,
+  cueIndexAt,
+  wholePage,
+  wordIndexAt,
+  type ReaderChapter,
+  type ReaderCues,
+  type ReaderManifest,
+  type ReaderPage,
+  type Rect,
+} from "../../lib/reader-doc.ts";
+
+type Spread = { key: string; page: ReaderPage; crop: Rect };
+
+// The book's own pages with the spoken sentence drawn on them. Both the full reader and the
+// chapter modal render this — a read-along that is not on the page is only a transcript.
+export function CuePages({
+  manifest,
+  chapter,
+  cues,
+  ms,
+  columns,
+  onSeek,
+  debug = { rects: false, layout: false },
+  empty = "This chapter has no pages to show.",
+}: {
+  manifest: ReaderManifest;
+  chapter: ReaderChapter;
+  cues: ReaderCues | null;
+  ms: number;
+  // One entry per detected column rather than the whole page
+  columns: boolean;
+  onSeek: (ms: number) => void;
+  debug?: { rects: boolean; layout: boolean };
+  empty?: string;
+}) {
+  const pages = useMemo(() => {
+    if (chapter.pageStart === null) return [];
+    return manifest.pages.filter((page) => page.i >= chapter.pageStart! && page.i <= (chapter.pageEnd ?? chapter.pageStart!));
+  }, [manifest, chapter.pageStart, chapter.pageEnd]);
+
+  const spreads = useMemo<Spread[]>(() => {
+    if (!columns) return pages.map((page) => ({ key: `${page.i}`, page, crop: wholePage(page) }));
+    return pages.flatMap((page) => page.columns.map((column, i) => ({ key: `${page.i}-${i}`, page, crop: column })));
+  }, [pages, columns]);
+
+  if (spreads.length === 0) {
+    return <p className="text-sm text-(--text-muted)" data-testid="reader-no-pages">{empty}</p>;
+  }
+
+  const activeIndex = cues ? cueIndexAt(cues.cues, ms) : -1;
+  const activeCue = activeIndex >= 0 ? cues!.cues[activeIndex] : null;
+  const activeWord = activeCue ? wordIndexAt(activeCue, ms) : -1;
+
+  // A page's number inside its own PDF, which is what pdf.js is asked for
+  const pageNumber = (index: number, src: number) =>
+    index - (manifest.pages.find((page) => page.src === src)?.i ?? 0) + 1;
+
+  return (
+    <>
+      {spreads.map((spread) => (
+        <div key={spread.key} data-page-index={spread.page.i}>
+          <PdfCanvas
+            url={manifest.sources[spread.page.src]?.url ?? ""}
+            pageNumber={pageNumber(spread.page.i, spread.page.src)}
+            crop={spread.crop}
+            pageSize={{ w: spread.page.w, h: spread.page.h }}
+            onPointer={(x, y) => {
+              if (!cues) return;
+              const at = cueAtPoint(cues.cues, spread.page.i, x, y);
+              if (at >= 0) onSeek(cues.cues[at].t[0]);
+            }}
+          >
+            <CueOverlay
+              page={spread.page}
+              crop={spread.crop}
+              cue={activeCue}
+              word={activeWord >= 0 ? activeCue?.wr?.[activeWord] ?? null : null}
+              cues={cues?.cues ?? []}
+              debug={debug}
+            />
+          </PdfCanvas>
+          <p className="mt-1 text-center text-[11px] text-(--text-faint)">{spread.page.i + 1}</p>
+        </div>
+      ))}
+    </>
+  );
+}

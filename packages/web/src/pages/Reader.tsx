@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
-import { PdfCanvas } from "../components/reader/PdfCanvas.tsx";
-import { CueOverlay } from "../components/reader/CueOverlay.tsx";
 import { CueTranscript } from "../components/reader/CueTranscript.tsx";
+import { CuePages } from "../components/reader/CuePages.tsx";
 import {
   bodyFit,
-  cueAtPoint,
   cueIndexAt,
   fetchCues,
   fetchManifest,
-  wholePage,
   wordIndexAt,
   type ReaderCue,
   type ReaderCues,
@@ -19,13 +16,10 @@ import {
   type Rect,
 } from "../lib/reader-doc.ts";
 import { formatDuration } from "../lib/format.ts";
+import { followCue, type FollowBand } from "../lib/cue-follow.ts";
 
-// Auto-scroll steps back this long after the reader touches the page themselves
-const FOLLOW_PAUSE_MS = 5000;
 // The band a cue may start in without the page moving: clear of the sticky bar, clear of the fold
-const FOLLOW_TOP = 120;
-const FOLLOW_BOTTOM = 140;
-const FOLLOW_LANDING = 0.3;
+const READER_BAND: FollowBand = { top: 120, bottom: 140, landing: 0.3 };
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
 // Logical widths of a current iPhone, which is the screen the page has to survive
@@ -52,8 +46,6 @@ const GRANULARITY_HINT: Record<ReaderCues["granularity"], string> = {
 // Below this the book's own type is too small at the chosen width, and the reader says so
 const LEGIBLE_PERCENT = 70;
 
-type Spread = { key: string; page: ReaderPage; crop: Rect };
-
 export function Reader() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -70,7 +62,6 @@ export function Reader() {
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
-  const lastGestureRef = useRef(0);
 
   useEffect(() => {
     if (!id) return;
@@ -110,37 +101,12 @@ export function Reader() {
     return () => cancelAnimationFrame(frame);
   }, [playing]);
 
-  useEffect(() => {
-    const note = () => { lastGestureRef.current = Date.now(); };
-    window.addEventListener("wheel", note, { passive: true });
-    window.addEventListener("touchmove", note, { passive: true });
-    return () => {
-      window.removeEventListener("wheel", note);
-      window.removeEventListener("touchmove", note);
-    };
-  }, []);
-
   const activeIndex = cues ? cueIndexAt(cues.cues, ms) : -1;
-  const activeCue = activeIndex >= 0 ? cues!.cues[activeIndex] : null;
-  const activeWord = activeCue ? wordIndexAt(activeCue, ms) : -1;
 
   const pages = useMemo(() => {
     if (!manifest || !chapter || chapter.pageStart === null) return [];
     return manifest.pages.filter((page) => page.i >= chapter.pageStart! && page.i <= (chapter.pageEnd ?? chapter.pageStart!));
   }, [manifest, chapter?.id]);
-
-  const spreads = useMemo<Spread[]>(() => {
-    if (view === "page") return pages.map((page) => ({ key: `${page.i}`, page, crop: wholePage(page) }));
-    return pages.flatMap((page) =>
-      page.columns.map((column, i) => ({ key: `${page.i}-${i}`, page, crop: column })),
-    );
-  }, [pages, view]);
-
-  // A page's number inside its own PDF, which is what pdf.js is asked for
-  const pageNumber = useCallback(
-    (index: number, src: number) => index - (manifest?.pages.find((page) => page.src === src)?.i ?? 0) + 1,
-    [manifest],
-  );
 
   // Picking a sentence is a request to hear it, so a paused reader starts speaking
   const seek = (to: number) => {
@@ -151,23 +117,9 @@ export function Reader() {
     if (audio.paused) audio.play().catch(() => {});
   };
 
-  const showCue = useCallback((force: boolean) => {
-    const target = document.querySelector('[data-testid="cue-rect"], [data-testid="text-cue-active"]');
-    if (!target) return;
-
-    // Only move when the cue has left the band, then land it high enough that the next several
-    // cues fit below — following along should scroll in stretches, not on every sentence
-    const box = target.getBoundingClientRect();
-    if (!force && box.top >= FOLLOW_TOP && box.top <= window.innerHeight - FOLLOW_BOTTOM) return;
-
-    window.scrollTo({
-      top: window.scrollY + box.top - window.innerHeight * FOLLOW_LANDING,
-      behavior: reducedMotion() ? "auto" : "smooth",
-    });
-  }, []);
+  const showCue = useCallback((force: boolean) => followCue(force, READER_BAND), []);
 
   useEffect(() => {
-    if (Date.now() - lastGestureRef.current < FOLLOW_PAUSE_MS) return;
     showCue(false);
   }, [activeIndex, showCue]);
 
@@ -178,10 +130,12 @@ export function Reader() {
   }, [view, showCue]);
 
   const fit = useMemo(() => {
-    const cropWidth = spreads[0]?.crop[2] ?? pages[0]?.w ?? 0;
+    // What the reader is actually looking at: a column in column view, the whole page otherwise
+    const first = pages[0];
+    const cropWidth = (view === "column" ? first?.columns[0]?.[2] : first?.w) ?? 0;
     const rendered = width === "full" ? pagesRef.current?.clientWidth ?? 0 : WIDTHS.find((w) => w.id === width)!.px!;
     return bodyFit(manifest?.book.medianBodyPt ?? null, cropWidth, rendered);
-  }, [spreads, width, manifest?.book.medianBodyPt, pages]);
+  }, [pages, view, width, manifest?.book.medianBodyPt]);
 
   if (error) return <ReaderShell bookId={id}><p className="text-sm text-red-600">{error}</p></ReaderShell>;
   if (!manifest || !chapter) return <ReaderShell bookId={id}><p className="text-sm text-(--text-muted)">Loading…</p></ReaderShell>;
@@ -319,36 +273,16 @@ export function Reader() {
         {view === "text" ? (
           <CueTranscript cues={cues} ms={ms} onSeek={seek} />
         ) : (
-          spreads.map((spread) => (
-            <div key={spread.key} data-page-index={spread.page.i}>
-              <PdfCanvas
-                url={manifest.sources[spread.page.src]?.url ?? ""}
-                pageNumber={pageNumber(spread.page.i, spread.page.src)}
-                crop={spread.crop}
-                pageSize={{ w: spread.page.w, h: spread.page.h }}
-                onPointer={(x, y) => {
-                  if (!cues) return;
-                  const at = cueAtPoint(cues.cues, spread.page.i, x, y);
-                  if (at >= 0) seek(cues.cues[at].t[0]);
-                }}
-              >
-                <CueOverlay
-                  page={spread.page}
-                  crop={spread.crop}
-                  cue={activeCue}
-                  word={activeWord >= 0 ? activeCue?.wr?.[activeWord] ?? null : null}
-                  cues={cues?.cues ?? []}
-                  debug={debug}
-                />
-              </PdfCanvas>
-              <p className="mt-1 text-center text-[11px] text-(--text-faint)">{spread.page.i + 1}</p>
-            </div>
-          ))
-        )}
-        {view !== "text" && spreads.length === 0 && (
-          <p className="text-sm text-(--text-muted)" data-testid="reader-no-pages">
-            This chapter has no pages to show — switch to text view to read it.
-          </p>
+          <CuePages
+            manifest={manifest}
+            chapter={chapter}
+            cues={cues}
+            ms={ms}
+            columns={view === "column"}
+            onSeek={seek}
+            debug={debug}
+            empty="This chapter has no pages to show — switch to text view to read it."
+          />
         )}
       </div>
     </ReaderShell>
@@ -365,10 +299,6 @@ function loadSpeed(): number {
 
 function saveSpeed(rate: number): void {
   localStorage.setItem(SPEED_KEY, String(rate));
-}
-
-function reducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function Segmented({
