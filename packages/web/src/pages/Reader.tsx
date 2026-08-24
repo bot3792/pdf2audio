@@ -256,11 +256,6 @@ export function Reader() {
           </div>
         </div>
 
-        {activeCue && view !== "text" && (
-          <p className="mt-1.5 truncate text-sm text-(--text-secondary)" data-testid="reader-cue-text">
-            <CueText cue={activeCue} word={activeWord} />
-          </p>
-        )}
       </div>
 
       {chapter.mode === "text" && (
@@ -309,7 +304,14 @@ export function Reader() {
                   if (at >= 0) seek(cues.cues[at].t[0]);
                 }}
               >
-                <CueOverlay page={spread.page} crop={spread.crop} cue={activeCue} cues={cues?.cues ?? []} debug={debug} />
+                <CueOverlay
+                  page={spread.page}
+                  crop={spread.crop}
+                  cue={activeCue}
+                  word={activeWord >= 0 ? activeCue?.wr?.[activeWord] ?? null : null}
+                  cues={cues?.cues ?? []}
+                  debug={debug}
+                />
               </PdfCanvas>
               <p className="mt-1 text-center text-[11px] text-(--text-faint)">{spread.page.i + 1}</p>
             </div>

@@ -1,8 +1,54 @@
+type ResolvedRects = { rects: CueRect[]; words: CueRect[][] | null };
+
+async function resolveRects(chapter: Chapter, cues: Cue[]): Promise<ResolvedRects[]> {
+  const empty = cues.map(() => ({ rects: [], words: null }));
+  if (chapterMode(chapter) === "text" || !chapter.cleanText) return empty;
+
+  const [book] = await db.select().from(books).where(eq(books.id, chapter.bookId));
+  if (!book) return empty;
+
+  const sources = await listMarkerSources(book);
+  const source = sources.find((s) => s.fileIndex === chapter.sourceFileIndex) ?? sources[0];
+  if (!source) return empty;
+
+  const geometry = await ensureSourceGeometry(source).catch(() => null);
+  const offset = await flatPageOffset(book, source.fileIndex);
+  const cleanText = chapter.cleanText;
+
+  const context = {
+    cleanText,
+    textMap: chapter.textMap!,
+    blocks: chapter.sourceBlocks as SourceBlock[],
+    page: (blockPage: number) => ({
+      index: offset + blockPage - 1,
+      geometry: geometry?.pages[blockPage - 1] ?? null,
+    }),
+  };
+
+  const ranges = locateChunks(cleanText, cues.map((cue) => cue.text));
+
+  return cues.map((cue, i) => {
+    const range = ranges[i];
+    if (!range) return { rects: [], words: null };
+
+    const rects = rectsForRange(context, range.start, range.end);
+    if (!cue.words) return { rects, words: null };
+
+    // The words are located inside the cue's own slice, so the same whitespace-insensitive
+    // matching that placed the cue places each word within it
+    const inCue = locateChunks(cleanText.slice(range.start, range.end), cue.words.map((word) => word.text));
+    const words = inCue.map((at) =>
+      at ? rectsForRange(context, range.start + at.start, range.start + at.end, { linesOnly: true }) : [],
+    );
+    return { rects, words };
+  });
+}
+
 import { asc, eq } from "drizzle-orm";
 
 import { db } from "../db.ts";
 import { bookFiles, chapters, books, type Book, type Chapter } from "../schema.ts";
-import { cuesFromSyncMap, type CueGranularity } from "./cues.ts";
+import { cuesFromSyncMap, type Cue, type CueGranularity } from "./cues.ts";
 import { rectsForRange, type CueRect } from "./cue-rects.ts";
 import { locateChunks } from "./chunk-previews.ts";
 import { listMarkerSources } from "./marker-sources.ts";
@@ -34,7 +80,14 @@ export type ReaderManifest = {
   }[];
 };
 
-export type ReaderCue = { t: [number, number]; s: string; r?: CueRect[]; w?: [number, number, string][] };
+// `wr` is aligned with `w`: the rects for each word, so the page can mark the word being spoken
+export type ReaderCue = {
+  t: [number, number];
+  s: string;
+  r?: CueRect[];
+  w?: [number, number, string][];
+  wr?: CueRect[][];
+};
 
 export type ReaderCues = { format: string; totalMs: number; granularity: CueGranularity; cues: ReaderCue[] };
 
@@ -124,7 +177,7 @@ export async function buildCues(chapter: Chapter): Promise<ReaderCues | null> {
   if (!map) return null;
 
   const { granularity, cues } = cuesFromSyncMap(map);
-  const rects = await cueRects(chapter, cues.map((cue) => cue.text));
+  const resolved = await resolveRects(chapter, cues);
 
   return {
     format: READER_FORMAT,
@@ -133,8 +186,9 @@ export async function buildCues(chapter: Chapter): Promise<ReaderCues | null> {
     cues: cues.map((cue, i) => ({
       t: [cue.startMs, cue.endMs] as [number, number],
       s: cue.text,
-      ...(rects[i]?.length ? { r: rects[i] } : {}),
+      ...(resolved[i].rects.length ? { r: resolved[i].rects } : {}),
       ...(cue.words ? { w: cue.words.map(wordTuple) } : {}),
+      ...(resolved[i].words ? { wr: resolved[i].words! } : {}),
     })),
   };
 }

@@ -17,7 +17,14 @@ const MAX_RECTS = 4;
 // A line whose middle sits inside the block, allowing for polygon rounding
 const CONTAINMENT_SLACK = 2;
 
-export function rectsForRange(context: RectContext, start: number, end: number): CueRect[] {
+// linesOnly: give nothing rather than the paragraph box. A word-sized highlight that degrades
+// to a whole block is worse than no highlight, and punctuation has no place on the page at all.
+export function rectsForRange(
+  context: RectContext,
+  start: number,
+  end: number,
+  { linesOnly = false } = {},
+): CueRect[] {
   const perBlock: CueRect[][] = [];
 
   for (const span of context.textMap.spans) {
@@ -31,8 +38,8 @@ export function rectsForRange(context: RectContext, start: number, end: number):
     if (!page.geometry || !box) continue;
 
     const piece = context.cleanText.slice(Math.max(start, span.start), Math.min(end, span.end));
-    const rects = rectsFromLines(page.geometry, box, piece) ?? [box];
-    perBlock.push(rects.map((rect) => normalize(page.index, rect, page.geometry!)));
+    const rects = rectsFromLines(page.geometry, box, piece) ?? (linesOnly ? null : [box]);
+    if (rects) perBlock.push(rects.map((rect) => normalize(page.index, rect, page.geometry!)));
   }
 
   return capRects(perBlock);

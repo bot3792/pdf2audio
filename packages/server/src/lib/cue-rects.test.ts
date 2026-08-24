@@ -93,4 +93,21 @@ describe("rectsForRange", () => {
 
     expect(rects).toHaveLength(2);
   });
+
+  it("gives nothing rather than the block box when linesOnly is asked for", () => {
+    const geometry = page([line("Entirely different characters here.", 100)]);
+
+    expect(rectsForRange(context(BLOCK_TEXT, geometry), 0, 10, { linesOnly: true })).toEqual([]);
+  });
+
+  it("places a single word inside its line", () => {
+    const geometry = page([line(LINES[0], 100)]);
+    const start = BLOCK_TEXT.indexOf("block");
+
+    const [rect] = rectsForRange(context(BLOCK_TEXT, geometry), start, start + 5, { linesOnly: true });
+
+    expect(rect[1]).toBe(Math.round(((50 + LINES[0].indexOf("block") * CHAR_WIDTH) / PAGE_WIDTH) * 10_000));
+    expect(rect[3]).toBe(Math.round(((5 * CHAR_WIDTH) / PAGE_WIDTH) * 10_000));
+  });
 });
+

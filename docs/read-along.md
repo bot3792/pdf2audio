@@ -49,7 +49,8 @@ anything it recognises, and say something useful about anything it does not.
     { "t": [0, 4210],
       "s": "Such a study would indeed be of great interest.",
       "r": [[168, 1641, 6550, 7068, 243]],
-      "w": [[0, 488, "Such"], [488, 550, "a"], [550, 900, "study"]] }
+      "w":  [[0, 488, "Such"], [488, 550, "a"], [550, 900, "study"]],
+      "wr": [[[168, 1641, 6550, 325, 243]], [[168, 2010, 6550, 90, 243]], [[168, 2140, 6550, 520, 243]]] }
   ]
 }
 ```
@@ -64,6 +65,10 @@ anything it recognises, and say something useful about anything it does not.
   ten-hour book's rects to a megabyte or two, and a percentage of the rendered page is the same
   number divided by a hundred. Absent when the cue has no place on the page.
 - **`w`** is `[startMs, endMs, word]` per word, present only where the engine reported timings.
+- **`wr`** is the rects for each word, index-aligned with `w`, so the page can mark the word being
+  spoken inside the sentence. An entry is empty for a word that has no place on the page — a comma
+  or full stop — and word rects never fall back to the paragraph box the way a cue's do: a
+  word-sized highlight covering a whole block is worse than none.
 
 ### `granularity`
 

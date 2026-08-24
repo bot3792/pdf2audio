@@ -1,15 +1,17 @@
-import { cropStyle, type ReaderCue, type ReaderPage, type Rect } from "../../lib/reader-doc.ts";
+import { cropStyle, type CueRect, type ReaderCue, type ReaderPage, type Rect } from "../../lib/reader-doc.ts";
 
 export function CueOverlay({
   page,
   crop,
   cue,
+  word,
   cues,
   debug,
 }: {
   page: ReaderPage;
   crop: Rect;
   cue: ReaderCue | null;
+  word: CueRect[] | null;
   cues: ReaderCue[];
   debug: { rects: boolean; layout: boolean };
 }) {
@@ -49,6 +51,17 @@ export function CueOverlay({
             className="absolute rounded-[2px] bg-amber-300/40 mix-blend-multiply dark:mix-blend-screen"
             style={style(rect[1], rect[2], rect[3], rect[4])}
             data-testid="cue-rect"
+          />
+        ))}
+
+      {(word ?? [])
+        .filter(([p]) => p === page.i)
+        .map((rect, i) => (
+          <div
+            key={i}
+            className="absolute rounded-[2px] bg-amber-400/70 mix-blend-multiply dark:mix-blend-screen"
+            style={style(rect[1], rect[2], rect[3], rect[4])}
+            data-testid="cue-word-rect"
           />
         ))}
     </div>

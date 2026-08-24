@@ -47,8 +47,14 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
       const manifest = await (await fetch(`/read/book/${bookId}/book.json`)).json();
       const chapter = manifest.chapters.find((entry: { audio: string | null }) => entry.audio);
       const doc = await (await fetch(chapter.cues)).json();
-      const cue = doc.cues.find((entry: { t: number[]; r?: number[][] }) => entry.t[0] > 0 && entry.r?.length);
-      return cue ? { text: cue.s as string, rect: cue.r[0] as number[] } : null;
+      const cue = doc.cues.find(
+        (entry: { t: number[]; r?: number[][]; wr?: number[][][] }) =>
+          entry.t[0] > 0 && entry.r?.length && entry.wr?.some((rects) => rects.length),
+      );
+      if (!cue) return null;
+
+      const word = cue.w[cue.wr.findIndex((rects: number[][]) => rects.length)];
+      return { startMs: cue.t[0] as number, rect: cue.r[0] as number[], wordMs: (word[0] + word[1]) / 2 };
     });
     expect(target).not.toBeNull();
 
@@ -61,9 +67,11 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
         y: (box.height * (y + rectHeight / 2)) / 10_000,
       },
     });
+    await expect.poll(audioTime).toBeCloseTo(target!.startMs / 1000, 1);
 
-    await expect.poll(audioTime).toBeGreaterThan(0);
-    await expect(page.getByTestId("reader-cue-text")).toHaveText(target!.text);
+    // Mid-word, the word being spoken is marked on the page inside its sentence
+    await page.locator("audio").evaluate((el: HTMLAudioElement, ms: number) => { el.currentTime = ms / 1000; }, target!.wordMs);
+    await expect(page.getByTestId("cue-word-rect").first()).toBeVisible();
 
     // A4 pages are too wide to read whole on a phone, and the reader says so
     await page.getByTestId("reader-width-phone").click();

@@ -24,7 +24,14 @@ export type ReaderManifest = {
   chapters: ReaderChapter[];
 };
 
-export type ReaderCue = { t: [number, number]; s: string; r?: CueRect[]; w?: [number, number, string][] };
+// `wr` is aligned with `w`: the rects for each word, empty for punctuation that has no place
+export type ReaderCue = {
+  t: [number, number];
+  s: string;
+  r?: CueRect[];
+  w?: [number, number, string][];
+  wr?: CueRect[][];
+};
 
 export type ReaderCues = { format: string; totalMs: number; granularity: "word" | "sentence" | "chunk"; cues: ReaderCue[] };
 
