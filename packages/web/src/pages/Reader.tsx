@@ -21,6 +21,10 @@ import { formatDuration } from "../lib/format.ts";
 
 // Auto-scroll steps back this long after the reader touches the page themselves
 const FOLLOW_PAUSE_MS = 5000;
+// The band a cue may start in without the page moving: clear of the sticky bar, clear of the fold
+const FOLLOW_TOP = 120;
+const FOLLOW_BOTTOM = 140;
+const FOLLOW_LANDING = 0.3;
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
 // Logical widths of a current iPhone, which is the screen the page has to survive
@@ -48,16 +52,6 @@ const GRANULARITY_HINT: Record<ReaderCues["granularity"], string> = {
 const LEGIBLE_PERCENT = 70;
 
 type Spread = { key: string; page: ReaderPage; crop: Rect };
-
-// The spread's crop as ten-thousandths of its page, the frame cue rects are already in
-function normalizedCrop({ page, crop }: Spread): [number, number, number, number] {
-  return [
-    (crop[0] / page.w) * 10_000,
-    (crop[1] / page.h) * 10_000,
-    ((crop[0] + crop[2]) / page.w) * 10_000,
-    ((crop[1] + crop[3]) / page.h) * 10_000,
-  ];
-}
 
 export function Reader() {
   const { id } = useParams<{ id: string }>();
@@ -148,10 +142,18 @@ export function Reader() {
 
   useEffect(() => {
     if (Date.now() - lastGestureRef.current < FOLLOW_PAUSE_MS) return;
-    const host = view === "text" ? document.querySelector<HTMLElement>('[data-testid="text-cue-active"]') : spreadFor(activeCue);
-    if (!host) return;
-    const box = host.getBoundingClientRect();
-    window.scrollTo({ top: window.scrollY + box.top - window.innerHeight / 3, behavior: "smooth" });
+    const target = document.querySelector('[data-testid="cue-rect"], [data-testid="text-cue-active"]');
+    if (!target) return;
+
+    // Only move when the cue has left the band, then land it high enough that the next several
+    // cues fit below — following along should scroll in stretches, not on every sentence
+    const box = target.getBoundingClientRect();
+    if (box.top >= FOLLOW_TOP && box.top <= window.innerHeight - FOLLOW_BOTTOM) return;
+
+    window.scrollTo({
+      top: window.scrollY + box.top - window.innerHeight * FOLLOW_LANDING,
+      behavior: reducedMotion() ? "auto" : "smooth",
+    });
   }, [activeIndex, view]);
 
   const fit = useMemo(() => {
@@ -288,11 +290,7 @@ export function Reader() {
           <TextView cues={cues} activeIndex={activeIndex} activeWord={activeWord} onSeek={seek} />
         ) : (
           spreads.map((spread) => (
-            <div
-              key={spread.key}
-              data-page-index={spread.page.i}
-              data-crop-norm={normalizedCrop(spread).join(",")}
-            >
+            <div key={spread.key} data-page-index={spread.page.i}>
               <PdfCanvas
                 url={manifest.sources[spread.page.src]?.url ?? ""}
                 pageNumber={pageNumber(spread.page.i, spread.page.src)}
@@ -380,17 +378,8 @@ function CueText({ cue, word }: { cue: ReaderCue; word: number }) {
   );
 }
 
-// In column view a page is several spreads; only the one holding the rect should be scrolled to
-function spreadFor(cue: ReaderCue | null): HTMLElement | null {
-  const rect = cue?.r?.[0];
-  if (!rect) return null;
-
-  const candidates = [...document.querySelectorAll<HTMLElement>(`[data-page-index="${rect[0]}"]`)];
-  const holds = candidates.find((element) => {
-    const box = element.dataset.cropNorm?.split(",").map(Number);
-    return box?.length === 4 && rect[1] + rect[3] / 2 >= box[0] && rect[1] + rect[3] / 2 <= box[2];
-  });
-  return holds ?? candidates[0] ?? null;
+function reducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function Segmented({

@@ -59,7 +59,8 @@ export function CueOverlay({
         .map((rect, i) => (
           <div
             key={i}
-            className="absolute rounded-[2px] bg-amber-400/70 mix-blend-multiply dark:mix-blend-screen"
+            // The element persists between words, so moving it is a transition rather than a jump
+            className="absolute rounded-[2px] bg-amber-400/70 mix-blend-multiply dark:mix-blend-screen transition-all duration-150 ease-out motion-reduce:transition-none"
             style={style(rect[1], rect[2], rect[3], rect[4])}
             data-testid="cue-word-rect"
           />
