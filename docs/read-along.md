@@ -61,14 +61,17 @@ anything it recognises, and say something useful about anything it does not.
 - **`s`** is the spoken text. Concatenated in order, the cues *are* the chapter's text — which
   is why a reflowed text view needs no further document.
 - **`r`** is a list of `[page, x, y, width, height]`, where `page` is the flat page index and
-  the rest are **ten-thousandths of that page's box**, origin top-left. Ten-thousandths keep a
-  ten-hour book's rects to a megabyte or two, and a percentage of the rendered page is the same
-  number divided by a hundred. Absent when the cue has no place on the page.
+  the rest are **ten-thousandths of that page's box**, origin top-left — a percentage of the
+  rendered page is the same number divided by a hundred. Absent when the cue has no place on
+  the page.
 - **`w`** is `[startMs, endMs, word]` per word, present only where the engine reported timings.
 - **`wr`** is the rects for each word, index-aligned with `w`, so the page can mark the word being
   spoken inside the sentence. An entry is empty for a word that has no place on the page — a comma
   or full stop — and word rects never fall back to the paragraph box the way a cue's do: a
   word-sized highlight covering a whole block is worse than none.
+
+Rects dominate the size of a chapter's cues: roughly 11 KB per minute of audio once words are
+placed, so a ten-hour book carries about 6 MB of them against 200-300 MB of audio.
 
 ### `granularity`
 
