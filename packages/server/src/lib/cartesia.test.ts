@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// DATA_DIR too: writing per-chunk word timings pulls the output-path helpers into the graph
 vi.mock("../env.ts", () => ({
-  env: { CARTESIA_API_KEY: "sk_car_test" },
+  env: { CARTESIA_API_KEY: "sk_car_test", DATA_DIR: "/tmp/pdf2audio-test" },
 }));
 
 import { listCartesiaVoices, pcm16WavHeader } from "./cartesia.ts";

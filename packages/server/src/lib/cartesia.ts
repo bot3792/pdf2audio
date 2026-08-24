@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { env } from "../env.ts";
 import { chunkTextForTts } from "./tts-chunks.ts";
+import { writeChunkWords, type ChunkWord } from "./chunk-previews.ts";
 
 const CARTESIA_URL = "https://api.cartesia.ai";
 const CARTESIA_VERSION = "2026-08-14";
@@ -97,8 +98,12 @@ export async function findCartesiaVoice(voiceId: string): Promise<CartesiaVoice 
   return voices.find((v) => v.id === voiceId) ?? null;
 }
 
-async function synthesizeChunkPcm(voiceId: string, language: string | null, text: string, speed: number, signal?: AbortSignal): Promise<Buffer> {
-  const res = await fetch(`${CARTESIA_URL}/tts/bytes`, {
+type ChunkAudio = { pcm: Buffer; words: ChunkWord[] };
+
+// The SSE endpoint is used rather than /tts/bytes purely for add_timestamps: it returns the
+// per-word timings that let the reader mark the word being spoken, which /tts/bytes cannot.
+async function synthesizeChunkPcm(voiceId: string, language: string | null, text: string, speed: number, signal?: AbortSignal): Promise<ChunkAudio> {
+  const res = await fetch(`${CARTESIA_URL}/tts/sse`, {
     method: "POST",
     headers: headers(),
     body: JSON.stringify({
@@ -106,17 +111,65 @@ async function synthesizeChunkPcm(voiceId: string, language: string | null, text
       transcript: text,
       voice: { id: voiceId },
       output_format: { container: "raw", encoding: "pcm_s16le", sample_rate: SAMPLE_RATE },
+      add_timestamps: true,
       ...(language ? { language } : {}),
       // Cartesia accepts 0.6-1.5; the app-wide slider allows 0.5-2.0
       ...(speed !== 1 ? { generation_config: { speed: Math.min(1.5, Math.max(0.6, speed)) } } : {}),
     }),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  if (!res.ok) {
+  if (!res.ok || !res.body) {
     const body = await res.text().catch(() => "");
     throw new Error(`Cartesia TTS error ${res.status}: ${body.slice(0, 300)}`);
   }
-  return Buffer.from(await res.arrayBuffer());
+
+  const audio: Buffer[] = [];
+  const words: ChunkWord[] = [];
+
+  for await (const event of sseEvents(res.body)) {
+    if (event.type === "error") throw new Error(`Cartesia TTS error: ${String(event.error).slice(0, 300)}`);
+    if (event.type === "chunk" && typeof event.data === "string") audio.push(Buffer.from(event.data, "base64"));
+    if (event.type === "timestamps") words.push(...toChunkWords(event.word_timestamps));
+  }
+
+  return { pcm: Buffer.concat(audio), words };
+}
+
+type SseEvent = { type?: string; data?: unknown; error?: unknown; word_timestamps?: unknown };
+
+async function* sseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<SseEvent> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for await (const bytes of body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(bytes, { stream: true });
+    let split = buffer.indexOf("\n\n");
+    while (split !== -1) {
+      const line = buffer.slice(0, split).split("\n").find((l) => l.startsWith("data: "));
+      buffer = buffer.slice(split + 2);
+      split = buffer.indexOf("\n\n");
+      if (!line) continue;
+      try {
+        yield JSON.parse(line.slice(6)) as SseEvent;
+      } catch {
+        // A partial or non-JSON event is not worth failing a chapter over
+      }
+    }
+  }
+}
+
+// Cartesia reports parallel arrays of words and seconds; ours are ms with the spacing that
+// rejoins them into the spoken text
+function toChunkWords(timestamps: unknown): ChunkWord[] {
+  const value = timestamps as { words?: string[]; start?: number[]; end?: number[] } | undefined;
+  if (!value?.words || !value.start || !value.end) return [];
+
+  return value.words.map((text, i) => ({
+    text,
+    after: " ",
+    startMs: Math.round((value.start![i] ?? 0) * 1000),
+    endMs: Math.round((value.end![i] ?? 0) * 1000),
+  }));
 }
 
 export function pcm16WavHeader(dataBytes: number, sampleRate: number): Buffer {
@@ -198,14 +251,17 @@ export async function cartesiaSynthesize({
       const chunkPath = chunkPreviewDir ? path.join(chunkPreviewDir, `chunk-${String(i + 1).padStart(3, "0")}.wav`) : null;
       let pcm = chunkPath ? await readChunkPcm(chunkPath) : null;
       if (!pcm) {
+        let chunk: ChunkAudio;
         try {
-          pcm = await synthesizeChunkPcm(voiceId, language, chunks[i], speed, signal);
+          chunk = await synthesizeChunkPcm(voiceId, language, chunks[i], speed, signal);
         } catch (err) {
           if (signal?.aborted) throw new CartesiaAbortedError();
           throw err;
         }
+        pcm = chunk.pcm;
         if (chunkPath) {
           await writeFile(chunkPath, Buffer.concat([pcm16WavHeader(pcm.length, SAMPLE_RATE), pcm]));
+          await writeChunkWords(chunkPreviewDir!, i + 1, chunk.words);
         }
       }
 
