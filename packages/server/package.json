@@ -13,6 +13,7 @@
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "backfill:raw": "tsx src/scripts/backfill-raw-text.ts",
     "backfill:index": "tsx src/scripts/backfill-search-index.ts",
+    "backfill:textmap": "tsx src/scripts/backfill-text-map.ts",
     "cleanup:chunks": "tsx src/scripts/cleanup-chunk-wavs.ts"
   },
   "dependencies": {

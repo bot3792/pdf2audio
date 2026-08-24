@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeForTts } from "./normalizer.ts";
+import { normalizeBlocks, normalizeForTts } from "./normalizer.ts";
 
 describe("normalizeForTts", () => {
   it("strips markdown bold and italic", () => {
@@ -58,5 +58,32 @@ clusion is *important*.`;
     expect(result).not.toContain("![");
     expect(result).toContain("conclusion");
     expect(result).toContain("bold claim");
+  });
+});
+
+describe("normalizeBlocks", () => {
+  const blocks = [
+    { text: "## Chapter One", included: true },
+    { text: "A page header", included: false },
+    { text: "This is a **bold** claim [1].", included: true },
+    { text: "https://example.com", included: true },
+    { text: "The con-\nclusion is *important*.", included: true },
+  ];
+
+  it("produces exactly what normalizing the joined chapter produces", () => {
+    const rawText = blocks.filter((b) => b.included).map((b) => b.text).join("\n\n");
+
+    expect(normalizeBlocks(blocks).text).toBe(normalizeForTts(rawText));
+  });
+
+  it("maps every surviving block to its own range of the result", () => {
+    const { text, spans } = normalizeBlocks(blocks);
+
+    expect(spans.map((span) => span.block)).toEqual([0, 2, 4]);
+    expect(spans.map((span) => text.slice(span.start, span.end))).toEqual([
+      "Chapter One",
+      "This is a bold claim .",
+      "The conclusion is important.",
+    ]);
   });
 });

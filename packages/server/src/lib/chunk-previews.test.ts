@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 
-import { chapterChunkPreviewDir, chapterChunkPreviewUrlBase, listChapterChunkPreviews, locateChunks, pageAtOffset } from "./chunk-previews.ts";
+import { blocksAtRange, chapterChunkPreviewDir, chapterChunkPreviewUrlBase, listChapterChunkPreviews, locateChunks, pageAtOffset } from "./chunk-previews.ts";
 import { bookOutputDir } from "./paths.ts";
 import type { SourceBlock } from "./marker.ts";
+import type { ChapterTextMap } from "../schema.ts";
 
 describe("chunk previews", () => {
   const bookId = `test-book-${crypto.randomUUID()}`;
@@ -139,5 +140,28 @@ describe("pageAtOffset", () => {
   it("returns null when there are no included blocks", () => {
     expect(pageAtOffset([], 100, 0)).toBeNull();
     expect(pageAtOffset([block("Skipped", 1, false)], 100, 0)).toBeNull();
+  });
+});
+
+describe("blocksAtRange", () => {
+  const textMap: ChapterTextMap = {
+    version: 1,
+    spans: [
+      { block: 0, start: 0, end: 10 },
+      { block: 2, start: 12, end: 30 },
+      { block: 3, start: 32, end: 40 },
+    ],
+  };
+
+  it("returns the block a range sits inside", () => {
+    expect(blocksAtRange(textMap, 14, 20)).toEqual([2]);
+  });
+
+  it("returns every block a range spans", () => {
+    expect(blocksAtRange(textMap, 5, 35)).toEqual([0, 2, 3]);
+  });
+
+  it("ignores the join gap between blocks", () => {
+    expect(blocksAtRange(textMap, 10, 12)).toEqual([]);
   });
 });

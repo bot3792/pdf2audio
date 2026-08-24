@@ -81,6 +81,13 @@ export type ChapterSource =
   | { kind: "note"; noteId: string }
   | { kind: "api"; client?: string };
 
+// Where each source block landed in cleanText, so a TTS chunk resolves to the PDF blocks it
+// came from instead of a proportional guess. Absent when the blocks no longer rebuild rawText.
+export type ChapterTextMap = {
+  version: 1;
+  spans: { block: number; start: number; end: number }[];
+};
+
 // Pre-profiles data is backfilled onto this fixed id; missing x-profile-id headers resolve to it
 export const DEFAULT_PROFILE_ID = "00000000-0000-0000-0000-000000000001";
 
@@ -153,6 +160,7 @@ export const chapters = pgTable("chapters", {
   pageStart: integer("page_start"),
   pageEnd: integer("page_end"),
   sourceBlocks: jsonb("source_blocks"),
+  textMap: jsonb("text_map").$type<ChapterTextMap>(),
   sourceFileIndex: integer("source_file_index"),
   source: jsonb("source").$type<ChapterSource>(),
   synthesizedWith: jsonb("synthesized_with").$type<{ voice?: string; speed?: number | null }>(),

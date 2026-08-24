@@ -4,6 +4,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { bookOutputDir } from "./paths.ts";
 import { readSyncMap } from "./sync-map.ts";
 import type { SourceBlock } from "./marker.ts";
+import type { ChapterTextMap } from "../schema.ts";
 
 export type ChunkPreview = {
   index: number;
@@ -177,4 +178,9 @@ export function pageAtOffset(sourceBlocks: SourceBlock[], rawTextLength: number,
     if (scaled < pos) return block.page;
   }
   return included[included.length - 1].page;
+}
+
+// Source-block indices a character range of cleanText falls in, via the map normalize wrote.
+export function blocksAtRange(textMap: ChapterTextMap, start: number, end: number): number[] {
+  return textMap.spans.filter((span) => span.start < end && start < span.end).map((span) => span.block);
 }

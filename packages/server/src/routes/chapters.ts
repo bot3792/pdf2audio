@@ -6,7 +6,7 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import { appendLog } from "../lib/log.ts";
 import { quickAddJob } from "graphile-worker";
 import { env } from "../env.ts";
-import { chapterChunkPreviewDir, listChapterChunkPreviews, locateChunks, pageAtOffset, syncMapChunkPreviews, audioCacheKey } from "../lib/chunk-previews.ts";
+import { blocksAtRange, chapterChunkPreviewDir, listChapterChunkPreviews, locateChunks, pageAtOffset, syncMapChunkPreviews, audioCacheKey } from "../lib/chunk-previews.ts";
 import { dirSize } from "../lib/disk-usage.ts";
 import { stat } from "node:fs/promises";
 import type { SourceBlock } from "../lib/marker.ts";
@@ -65,16 +65,25 @@ export const chaptersRouter = router({
       }
       const ranges = locateChunks(sourceText, previews.map((p) => p.text ?? ""));
       const blocks = Array.isArray(chapter.sourceBlocks) ? (chapter.sourceBlocks as SourceBlock[]) : [];
-      const chunkPreviews = previews.map((preview, i) => {
-        const range = ranges[i];
-        if (!range) return preview;
-        // Offsets into clean/custom text don't map to source blocks; scale onto rawText for
-        // an approximate page, bounded by the chapter's own page range either way.
+      // The map normalize wrote describes cleanText, so it only answers for chunks taken from it
+      const textMap = chunkTextSource === "clean" ? chapter.textMap : null;
+
+      // Without a map, offsets into clean/custom text are scaled onto rawText for an
+      // approximate page, bounded by the chapter's own page range either way.
+      const pageForRange = (range: { start: number; end: number }): number | null => {
+        const exact = textMap ? blocksAtRange(textMap, range.start, range.end) : [];
+        if (exact.length > 0) return blocks[exact[0]]?.page ?? null;
         const rawOffset =
           chunkTextSource === "raw"
             ? range.start
             : Math.round((range.start / Math.max(sourceText.length, 1)) * chapter.rawText.length);
-        const page = pageAtOffset(blocks, chapter.rawText.length, rawOffset) ?? chapter.pageStart ?? undefined;
+        return pageAtOffset(blocks, chapter.rawText.length, rawOffset);
+      };
+
+      const chunkPreviews = previews.map((preview, i) => {
+        const range = ranges[i];
+        if (!range) return preview;
+        const page = pageForRange(range) ?? chapter.pageStart ?? undefined;
         return { ...preview, start: range.start, end: range.end, ...(page !== undefined ? { page } : {}) };
       });
 

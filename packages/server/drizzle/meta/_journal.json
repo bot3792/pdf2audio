@@ -218,6 +218,13 @@
       "when": 1787523113287,
       "tag": "0030_glossy_betty_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1787574369563,
+      "tag": "0031_good_magdalene",
+      "breakpoints": true
     }
   ]
 }

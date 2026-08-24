@@ -1,14 +1,26 @@
 import type { WorkerUtils } from "graphile-worker";
 import { db } from "../db.ts";
-import { chapters } from "../schema.ts";
+import { chapters, type ChapterTextMap } from "../schema.ts";
 import { and, eq, ne } from "drizzle-orm";
-import { normalizeForTts } from "../lib/normalizer.ts";
+import { normalizeForTts, normalizeBlocks } from "../lib/normalizer.ts";
+import type { SourceBlock } from "../lib/marker.ts";
 import { appendLog } from "../lib/log.ts";
 
 export type NormalizePayload = {
   chapterId: string;
   bookId: string;
 };
+
+// Only trust the per-block map when the stored blocks still rebuild rawText exactly; an older
+// extraction that doesn't would otherwise hand out offsets pointing at the wrong paragraph.
+export function normalizeChapter(rawText: string, sourceBlocks: unknown): { cleanText: string; textMap: ChapterTextMap | null } {
+  const blocks = Array.isArray(sourceBlocks) ? (sourceBlocks as SourceBlock[]) : [];
+  const rebuilt = blocks.filter((b) => b.included).map((b) => b.text).join("\n\n");
+  if (blocks.length === 0 || rebuilt !== rawText) return { cleanText: normalizeForTts(rawText), textMap: null };
+
+  const { text, spans } = normalizeBlocks(blocks);
+  return { cleanText: text, textMap: { version: 1, spans } };
+}
 
 export async function normalize(payload: NormalizePayload, { addJob }: { addJob: WorkerUtils["addJob"] }) {
   const { chapterId, bookId } = payload;
@@ -35,7 +47,7 @@ export async function normalize(payload: NormalizePayload, { addJob }: { addJob:
 
     await log(`Normalizing chapter ${chapter.index + 1}: "${chapter.title}"`);
 
-    const cleanText = normalizeForTts(chapter.rawText);
+    const { cleanText, textMap } = normalizeChapter(chapter.rawText, chapter.sourceBlocks);
 
     const [latest] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
     if (!latest || latest.status === "suspended") {
@@ -45,7 +57,7 @@ export async function normalize(payload: NormalizePayload, { addJob }: { addJob:
 
     await db
       .update(chapters)
-      .set({ cleanText, status: "pending" })
+      .set({ cleanText, textMap, status: "pending" })
       .where(eq(chapters.id, chapterId));
 
     await addJob("synthesize", { chapterId, bookId }, { maxAttempts: 1 });
