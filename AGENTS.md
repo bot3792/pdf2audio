@@ -493,6 +493,7 @@ Playwright suite mirroring the five intro videos' promises (`docs/use-cases.md`)
 no Docker path and no webServer autostart.
 
 ```bash
+pnpm test             # unit tests, both packages — server (vitest + template DB) and web (vitest)
 pnpm e2e:smoke        # fast tier (~5s) — while developing / before committing
 pnpm e2e:full         # everything incl. @slow (marker, TTS, exports) — before pushing
 pnpm e2e:ui           # Playwright UI mode
