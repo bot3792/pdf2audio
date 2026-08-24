@@ -119,9 +119,13 @@ export function Reader() {
 
   const showCue = useCallback((force: boolean) => followCue(force, READER_BAND), []);
 
+  // The word matters as well as the cue: a sentence taller than the safe area has to keep
+  // scrolling as it is read, or the cursor walks off the bottom edge
+  const activeWord = cues && activeIndex >= 0 ? wordIndexAt(cues.cues[activeIndex], ms) : -1;
+
   useEffect(() => {
     showCue(false);
-  }, [activeIndex, showCue]);
+  }, [activeIndex, activeWord, showCue]);
 
   // Switching view relays the whole document out — a column is not where its page was — so the
   // place being read has to be found again rather than left wherever the old scroll position lands

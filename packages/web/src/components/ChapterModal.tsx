@@ -11,7 +11,7 @@ import { getVoiceLabel } from "../lib/voices.ts";
 import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import { CueTranscript } from "./reader/CueTranscript.tsx";
 import { CuePages } from "./reader/CuePages.tsx";
-import { cueIndexAt, fetchCues, fetchManifest, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
+import { cueIndexAt, fetchCues, fetchManifest, wordIndexAt, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
 import { followCue, type FollowBand } from "../lib/cue-follow.ts";
 import type { ChapterRow, FileInfo, VariantRef } from "./ChapterTable.tsx";
 
@@ -129,10 +129,12 @@ export function ChapterModal({
   const readerChapter = manifest?.chapters.find((entry) => entry.i === chapter.index);
   const activeCueIndex = cues ? cueIndexAt(cues.cues, ms) : -1;
 
+  const activeWordIndex = cues && activeCueIndex >= 0 ? wordIndexAt(cues.cues[activeCueIndex], ms) : -1;
+
   // The modal scrolls its own panel rather than the window, which followCue works out for itself
   useEffect(() => {
     followCue(false, MODAL_BAND);
-  }, [activeCueIndex, viewMode]);
+  }, [activeCueIndex, activeWordIndex, viewMode]);
 
   // Reading along on the page is the experience; text is the fallback when there is no page
   useEffect(() => {
