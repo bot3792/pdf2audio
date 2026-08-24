@@ -199,6 +199,38 @@ describe("startup sweep", () => {
     expect(done.cleanup?.status).toBe("done");
   });
 
+  it("marks a stranded chapter proposal failed instead of re-running it", async () => {
+    const db = getDb();
+    const { bookId } = await insertFixture(db);
+    await db.update(books).set({
+      chapterProposal: { status: "running", method: "llm", createdAt: new Date().toISOString() },
+    }).where(eq(books.id, bookId));
+    await insertJob(db, "propose", { bookId, method: "llm" }, { lockedAt: new Date(), attempts: 1 });
+
+    await sweepStrandedWork();
+
+    const [row] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(row.chapterProposal?.status).toBe("failed");
+    expect(row.chapterProposal?.error).toContain("server restart");
+    expect(mockQuickAddJob).not.toHaveBeenCalledWith(expect.anything(), "propose", expect.anything(), expect.anything());
+  });
+
+  it("marks a stranded book note job failed", async () => {
+    const db = getDb();
+    const { bookId } = await insertFixture(db);
+    const now = new Date().toISOString();
+    await db.update(books).set({
+      noteJob: { status: "running", prompt: "Summarize", model: "flash", createdAt: now, updatedAt: now },
+    }).where(eq(books.id, bookId));
+    await insertJob(db, "bookNote", { bookId, prompt: "Summarize", model: "flash" }, { lockedAt: new Date(), attempts: 1 });
+
+    await sweepStrandedWork();
+
+    const [row] = await db.select().from(books).where(eq(books.id, bookId));
+    expect(row.noteJob?.status).toBe("failed");
+    expect(row.noteJob?.error).toContain("server restart");
+  });
+
   it("replays dead assemble jobs and unsticks assembling books without one", async () => {
     const db = getDb();
     const { bookId } = await insertFixture(db);

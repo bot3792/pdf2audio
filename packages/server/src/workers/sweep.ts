@@ -22,7 +22,7 @@ export async function sweepStrandedWork() {
     DELETE FROM graphile_worker._private_jobs j
     USING graphile_worker._private_tasks t
     WHERE t.id = j.task_id
-      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup', 'extract', 'indexBook', 'embedChunks', 'digest')
+      AND t.identifier IN ('normalize', 'synthesize', 'translate', 'translateTitles', 'synthesizeTranslation', 'assemble', 'assembleDocument', 'cleanup', 'extract', 'indexBook', 'embedChunks', 'digest', 'propose', 'redetect', 'bookNote')
       AND (j.locked_at IS NOT NULL OR j.attempts >= j.max_attempts)
     RETURNING t.identifier, j.payload, j.locked_at
   `)) as unknown as Array<{ identifier: string; payload: Record<string, unknown>; locked_at: string | null }>;
@@ -84,7 +84,27 @@ export async function sweepStrandedWork() {
       AND id::text NOT IN (
         SELECT j.payload->>'bookId' FROM graphile_worker._private_jobs j
         JOIN graphile_worker._private_tasks t ON t.id = j.task_id
-        WHERE t.identifier = 'extract' AND j.payload->>'bookId' IS NOT NULL)
+        WHERE t.identifier IN ('extract', 'redetect') AND j.payload->>'bookId' IS NOT NULL)
+  `);
+
+  // Proposals and book notes are cheap to re-trigger — mark stranded ones failed
+  // instead of silently re-running LLM calls the user may no longer want
+  await db.execute(sql`
+    UPDATE books SET chapter_proposal = chapter_proposal || jsonb_build_object('status', 'failed', 'error', 'Interrupted by server restart — propose again to retry'), updated_at = now()
+    WHERE chapter_proposal->>'status' = 'running'
+      AND id::text NOT IN (
+        SELECT j.payload->>'bookId' FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+        WHERE t.identifier = 'propose' AND j.payload->>'bookId' IS NOT NULL)
+  `);
+
+  await db.execute(sql`
+    UPDATE books SET note_job = note_job || jsonb_build_object('status', 'failed', 'error', 'Interrupted by server restart — ask again to retry', 'updatedAt', to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')), updated_at = now()
+    WHERE note_job->>'status' IN ('queued', 'running')
+      AND id::text NOT IN (
+        SELECT j.payload->>'bookId' FROM graphile_worker._private_jobs j
+        JOIN graphile_worker._private_tasks t ON t.id = j.task_id
+        WHERE t.identifier = 'bookNote' AND j.payload->>'bookId' IS NOT NULL)
   `);
 
   const strandedFilesByBook = new Map<string, number>();
