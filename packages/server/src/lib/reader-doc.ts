@@ -84,6 +84,7 @@ export type ReaderManifest = {
 export type ReaderCue = {
   t: [number, number];
   s: string;
+  c: number;
   r?: CueRect[];
   w?: [number, number, string][];
   wr?: CueRect[][];
@@ -186,6 +187,7 @@ export async function buildCues(chapter: Chapter): Promise<ReaderCues | null> {
     cues: cues.map((cue, i) => ({
       t: [cue.startMs, cue.endMs] as [number, number],
       s: cue.text,
+      c: cue.chunk,
       ...(resolved[i].rects.length ? { r: resolved[i].rects } : {}),
       ...(cue.words ? { w: cue.words.map(wordTuple) } : {}),
       ...(resolved[i].words ? { wr: resolved[i].words! } : {}),

@@ -28,6 +28,8 @@ export type ReaderManifest = {
 export type ReaderCue = {
   t: [number, number];
   s: string;
+  // The synthesis chunk this cue was cut from, which is what ties it to a chunk preview
+  c: number;
   r?: CueRect[];
   w?: [number, number, string][];
   wr?: CueRect[][];
@@ -97,6 +99,10 @@ export function bodyFit(medianBodyPt: number | null, cropWidthPt: number, render
   if (medianBodyPt === null || cropWidthPt <= 0) return null;
   const px = medianBodyPt * (renderedWidthPx / cropWidthPt);
   return { px, percent: Math.round((px / COMFORTABLE_BODY_PX) * 100) };
+}
+
+export function cuesOfChunk(cues: ReaderCue[], chunk: number | null): ReaderCue[] {
+  return chunk === null ? [] : cues.filter((cue) => cue.c === chunk);
 }
 
 export function cueAtPoint(cues: ReaderCue[], page: number, x: number, y: number): number {

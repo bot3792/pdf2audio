@@ -6,12 +6,17 @@ export function CueTranscript({
   cues,
   ms,
   onSeek,
+  hoverChunk = null,
+  onHoverCue,
   className = "rounded-lg bg-(--bg-card) p-6 text-lg leading-relaxed text-(--text-primary)",
   empty = "No narration to read along with yet.",
 }: {
   cues: ReaderCues | null;
   ms: number;
   onSeek: (ms: number) => void;
+  // The chunk lit from elsewhere — a chunk button being hovered — and the reverse report
+  hoverChunk?: number | null;
+  onHoverCue?: (index: number | null) => void;
   className?: string;
   empty?: string;
 }) {
@@ -26,7 +31,15 @@ export function CueTranscript({
         <span
           key={i}
           onClick={() => onSeek(cue.t[0])}
-          className={`cursor-pointer ${i === activeIndex ? "bg-amber-200/60 dark:bg-amber-500/30" : "hover:bg-(--bg-subtle)"}`}
+          onMouseEnter={() => onHoverCue?.(i)}
+          onMouseLeave={() => onHoverCue?.(null)}
+          className={`cursor-pointer ${
+            i === activeIndex
+              ? "bg-amber-200/60 dark:bg-amber-500/30"
+              : cue.c === hoverChunk
+                ? "bg-yellow-300/35 dark:bg-yellow-400/20"
+                : "hover:bg-(--bg-subtle)"
+          }`}
           data-testid={i === activeIndex ? "text-cue-active" : "text-cue"}
         >
           {i === activeIndex ? <CueText cue={cue} word={activeWord} /> : cue.s}{" "}

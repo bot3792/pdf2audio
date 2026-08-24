@@ -31,6 +31,8 @@ export function PdfCanvas({
   pageSize,
   children,
   onPointer,
+  onHover,
+  pointer = false,
 }: {
   url: string;
   pageNumber: number;
@@ -38,8 +40,10 @@ export function PdfCanvas({
   crop: [number, number, number, number];
   pageSize: { w: number; h: number };
   children?: React.ReactNode;
-  // Reports where the pointer landed on the whole page, in ten-thousandths
+  // Report where the pointer landed on the whole page, in ten-thousandths
   onPointer?: (x: number, y: number) => void;
+  onHover?: (point: [number, number] | null) => void;
+  pointer?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -78,21 +82,25 @@ export function PdfCanvas({
     return () => { cancelled = true; };
   }, [url, pageNumber, visible, x, y, width, height]);
 
+  // Where the pointer is on the whole page, in the ten-thousandths the rects are stored in
+  const pointAt = (event: React.MouseEvent<HTMLDivElement>): [number, number] => {
+    const box = event.currentTarget.getBoundingClientRect();
+    return [
+      ((x + ((event.clientX - box.left) / box.width) * width) / pageSize.w) * 10_000,
+      ((y + ((event.clientY - box.top) / box.height) * height) / pageSize.h) * 10_000,
+    ];
+  };
+
   return (
     <div
       ref={hostRef}
-      className="relative w-full bg-white shadow-sm"
+      className={`relative w-full bg-white shadow-sm ${pointer ? "cursor-pointer" : ""}`}
       style={{ aspectRatio: String(width / height) }}
       data-testid="reader-page"
       data-page={pageNumber}
-      onClick={(event) => {
-        if (!onPointer) return;
-        const box = event.currentTarget.getBoundingClientRect();
-        onPointer(
-          ((x + ((event.clientX - box.left) / box.width) * width) / pageSize.w) * 10_000,
-          ((y + ((event.clientY - box.top) / box.height) * height) / pageSize.h) * 10_000,
-        );
-      }}
+      onClick={(event) => onPointer?.(...pointAt(event))}
+      onMouseMove={onHover ? (event) => onHover(pointAt(event)) : undefined}
+      onMouseLeave={onHover ? () => onHover(null) : undefined}
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
       {/* Drawn whether or not the page has painted yet: the box is already the right size and in

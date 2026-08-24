@@ -8,6 +8,8 @@ export function CueOverlay({
   cue,
   word,
   cues,
+  linked,
+  ring,
   debug,
 }: {
   page: ReaderPage;
@@ -15,6 +17,9 @@ export function CueOverlay({
   cue: ReaderCue | null;
   word: CueRect[] | null;
   cues: ReaderCue[];
+  // The chunk the pointer is resting on, tinted; and the one cue a click would seek to, ringed
+  linked: CueRect[];
+  ring: CueRect[];
   debug: { rects: boolean; layout: boolean };
 }) {
   const style = (x: number, y: number, width: number, height: number) => cropStyle(page, crop, x, y, width, height);
@@ -44,6 +49,28 @@ export function CueOverlay({
               <div key={`${i}-${j}`} className="absolute border border-emerald-500/40" style={style(rect[1], rect[2], rect[3], rect[4])} />
             )),
         )}
+
+      {linked
+        .filter(([p]) => p === page.i)
+        .map((rect, i) => (
+          <div
+            key={i}
+            className="absolute rounded-[2px] bg-yellow-300/35 mix-blend-multiply"
+            style={style(rect[1], rect[2], rect[3], rect[4])}
+            data-testid="cue-linked-rect"
+          />
+        ))}
+
+      {ring
+        .filter(([p]) => p === page.i)
+        .map((rect, i) => (
+          <div
+            key={i}
+            className="absolute rounded-[2px] outline-2 outline-offset-1 outline-sky-500/70"
+            style={style(rect[1], rect[2], rect[3], rect[4])}
+            data-testid="cue-ring-rect"
+          />
+        ))}
 
       {(cue?.r ?? [])
         .filter(([p]) => p === page.i)

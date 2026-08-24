@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { PdfCanvas } from "./PdfCanvas.tsx";
 import { CueOverlay } from "./CueOverlay.tsx";
 import {
   cueAtPoint,
   cueIndexAt,
+  cuesOfChunk,
   wholePage,
   wordIndexAt,
   type ReaderChapter,
@@ -25,6 +26,8 @@ export function CuePages({
   ms,
   columns,
   onSeek,
+  hoverChunk = null,
+  onHoverCue,
   debug = { rects: false, layout: false },
   empty = "This chapter has no pages to show.",
 }: {
@@ -35,9 +38,13 @@ export function CuePages({
   // One entry per detected column rather than the whole page
   columns: boolean;
   onSeek: (ms: number) => void;
+  // The chunk lit from elsewhere — a chunk button being hovered — and the reverse report
+  hoverChunk?: number | null;
+  onHoverCue?: (index: number | null) => void;
   debug?: { rects: boolean; layout: boolean };
   empty?: string;
 }) {
+  const [hoverCue, setHoverCue] = useState(-1);
   const pages = useMemo(() => {
     if (chapter.pageStart === null) return [];
     return manifest.pages.filter((page) => page.i >= chapter.pageStart! && page.i <= (chapter.pageEnd ?? chapter.pageStart!));
@@ -56,6 +63,15 @@ export function CuePages({
   const activeCue = activeIndex >= 0 ? cues!.cues[activeIndex] : null;
   const activeWord = activeCue ? wordIndexAt(activeCue, ms) : -1;
 
+  const linked = cuesOfChunk(cues?.cues ?? [], hoverChunk).flatMap((cue) => cue.r ?? []);
+  const ring = hoverCue >= 0 ? cues?.cues[hoverCue]?.r ?? [] : [];
+
+  const hover = (page: number, point: [number, number] | null) => {
+    const at = point && cues ? cueAtPoint(cues.cues, page, point[0], point[1]) : -1;
+    setHoverCue(at);
+    onHoverCue?.(at >= 0 ? at : null);
+  };
+
   // A page's number inside its own PDF, which is what pdf.js is asked for
   const pageNumber = (index: number, src: number) =>
     index - (manifest.pages.find((page) => page.src === src)?.i ?? 0) + 1;
@@ -69,6 +85,8 @@ export function CuePages({
             pageNumber={pageNumber(spread.page.i, spread.page.src)}
             crop={spread.crop}
             pageSize={{ w: spread.page.w, h: spread.page.h }}
+            pointer={hoverCue >= 0}
+            onHover={cues ? (point) => hover(spread.page.i, point) : undefined}
             onPointer={(x, y) => {
               if (!cues) return;
               const at = cueAtPoint(cues.cues, spread.page.i, x, y);
@@ -81,6 +99,8 @@ export function CuePages({
               cue={activeCue}
               word={activeWord >= 0 ? activeCue?.wr?.[activeWord] ?? null : null}
               cues={cues?.cues ?? []}
+              linked={linked}
+              ring={ring}
               debug={debug}
             />
           </PdfCanvas>

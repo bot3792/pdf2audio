@@ -48,6 +48,7 @@ anything it recognises, and say something useful about anything it does not.
   "cues": [
     { "t": [0, 4210],
       "s": "Such a study would indeed be of great interest.",
+      "c": 0,
       "r": [[168, 1641, 6550, 7068, 243]],
       "w":  [[0, 488, "Such"], [488, 550, "a"], [550, 900, "study"]],
       "wr": [[[168, 1641, 6550, 325, 243]], [[168, 2010, 6550, 90, 243]], [[168, 2140, 6550, 520, 243]]] }
@@ -58,6 +59,9 @@ anything it recognises, and say something useful about anything it does not.
 - **`t`** is `[startMs, endMs]` into the chapter's audio. Cues are ordered and non-overlapping;
   there can be gaps between them, and a reader should keep the last cue lit across a gap rather
   than blinking the highlight out.
+- **`c`** is the synthesis chunk the cue was cut from, counting from zero. Several cues share a
+  chunk where the engine timed words. It is what lets a chunk and the print it became light each
+  other up: the chapter modal's chunk previews are the same chunks in the same order.
 - **`s`** is the spoken text. Concatenated in order, the cues *are* the chapter's text — which
   is why a reflowed text view needs no further document.
 - **`r`** is a list of `[page, x, y, width, height]`, where `page` is the flat page index and

@@ -96,7 +96,11 @@ book with one chapter per story.
 3. Tap a sentence on the page and the audio jumps to it.
 4. Column, Page and Text views share one timeline; the phone width presets say whether this
    book's type is actually readable on a phone screen.
-5. Opening a chapter reads along on the same pages inside its modal. A chapter whose text has
+5. Hovering a sentence on the page rings it and lights the chunk it belongs to; hovering a chunk
+   tints the print it became. The transcript binds the same way.
+6. When a chapter's audio ends the reader rolls on to the next narrated one, and **← Back**
+   returns to the chapter you were reading.
+7. Opening a chapter reads along on the same pages inside its modal. A chapter whose text has
    moved on from the print — edited, cleaned, translated — still opens its pages, unmarked and
    with a line saying why.
 

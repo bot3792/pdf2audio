@@ -17,7 +17,7 @@ describe("cuesFromSyncMap", () => {
 
     expect(cuesFromSyncMap(map)).toEqual({
       granularity: "chunk",
-      cues: [{ text: "A paragraph-sized chunk.", startMs: 0, endMs: 2000 }],
+      cues: [{ text: "A paragraph-sized chunk.", startMs: 0, endMs: 2000, chunk: 0 }],
     });
   });
 
@@ -90,5 +90,26 @@ describe("cuesFromSyncMap", () => {
     };
 
     expect(cuesFromSyncMap(map).granularity).toBe("sentence");
+  });
+
+  it("keeps every cue pointing at the chunk it was cut from", () => {
+    const map: SyncMap = {
+      version: 2,
+      totalMs: 8000,
+      chunks: [
+        {
+          text: "First one here. Second one here.",
+          startMs: 0,
+          endMs: 4000,
+          words: words([
+            ["First", " ", 0, 600], ["one", " ", 600, 1200], ["here", "", 1200, 1800], [".", " ", 1800, 2000],
+            ["Second", " ", 2000, 2600], ["one", " ", 2600, 3200], ["here", "", 3200, 3800], [".", "", 3800, 4000],
+          ]),
+        },
+        { text: "A chunk with no words.", startMs: 4000, endMs: 8000 },
+      ],
+    };
+
+    expect(cuesFromSyncMap(map).cues.map((cue) => cue.chunk)).toEqual([0, 0, 1]);
   });
 });

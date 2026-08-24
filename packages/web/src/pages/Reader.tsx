@@ -108,6 +108,16 @@ export function Reader() {
     return manifest.pages.filter((page) => page.i >= chapter.pageStart! && page.i <= (chapter.pageEnd ?? chapter.pageStart!));
   }, [manifest, chapter?.id]);
 
+  // Rolling on to the next narrated chapter, audiobook-style: the flag survives the chapter
+  // swap and the new audio element plays itself once it has metadata
+  const autoPlay = useRef(false);
+  const next = chapter ? list.find((entry) => entry.i > chapter.i && entry.audio) : undefined;
+
+  const goToChapter = (to: number, play: boolean) => {
+    autoPlay.current = play;
+    setSearchParams({ chapter: String(to) });
+  };
+
   // Picking a sentence is a request to hear it, so a paused reader starts speaking
   const seek = (to: number) => {
     const audio = audioRef.current;
@@ -145,7 +155,7 @@ export function Reader() {
   const maxWidth = WIDTHS.find((w) => w.id === width)!.px;
 
   return (
-    <ReaderShell bookId={id} title={manifest.book.title}>
+    <ReaderShell bookId={id} chapterId={chapter.id} title={manifest.book.title}>
       <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-(--border) bg-(--bg-page)/95 px-4 py-2 backdrop-blur">
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -160,7 +170,7 @@ export function Reader() {
 
           <select
             value={chapter.i}
-            onChange={(event) => setSearchParams({ chapter: event.target.value })}
+            onChange={(event) => goToChapter(Number(event.target.value), false)}
             className="max-w-[16rem] rounded border border-(--border) bg-(--bg-input) px-2 py-1 text-sm"
             data-testid="reader-chapter"
           >
@@ -266,7 +276,15 @@ export function Reader() {
         preload="metadata"
         onPlay={() => { setPlaying(true); if (audioRef.current) audioRef.current.playbackRate = speed; }}
         onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          if (next) goToChapter(next.i, true);
+        }}
+        onLoadedMetadata={() => {
+          if (!autoPlay.current) return;
+          autoPlay.current = false;
+          audioRef.current?.play().catch(() => {});
+        }}
         onTimeUpdate={() => { if (!playing && audioRef.current) setMs(audioRef.current.currentTime * 1000); }}
         className="hidden"
       />
@@ -332,12 +350,14 @@ function Segmented({
   );
 }
 
-function ReaderShell({ bookId, title, children }: { bookId?: string; title?: string; children: React.ReactNode }) {
+function ReaderShell({ bookId, chapterId, title, children }: { bookId?: string; chapterId?: string; title?: string; children: React.ReactNode }) {
+  // ?chapter=<id> is the book page's own deep link, so going back lands on the chapter you left
+  const back = bookId ? `/books/${bookId}${chapterId ? `?chapter=${chapterId}` : ""}` : "/";
   return (
     <div className="min-h-screen bg-(--bg-page) px-4 py-3">
       <div className="mx-auto max-w-5xl">
         <nav className="mb-2 flex items-center gap-2 text-sm text-(--text-muted)">
-          <Link to={bookId ? `/books/${bookId}` : "/"} className="text-blue-600 hover:text-blue-800" data-testid="reader-back">
+          <Link to={back} className="text-blue-600 hover:text-blue-800" data-testid="reader-back">
             ← Back
           </Link>
           {title && <span className="truncate text-(--text-secondary)">{title}</span>}

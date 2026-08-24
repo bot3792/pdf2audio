@@ -179,6 +179,16 @@ export function ChapterModal({
       }
     : originalChapter;
   const isLoading = isVariant ? variantLoading : originalLoading;
+
+  // Chunk previews and cues both count sync-map chunks, so hovering either side lights the other
+  const hoverChunk = hoveredChunkUrl
+    ? (fullChapter?.chunkPreviews.find((preview) => preview.url === hoveredChunkUrl)?.index ?? 0) - 1
+    : null;
+  const hoverCue = (index: number | null) => {
+    const cue = index === null ? null : cues?.cues[index];
+    const preview = cue ? fullChapter?.chunkPreviews.find((entry) => entry.index === cue.c + 1) : undefined;
+    setHoveredChunkUrl(preview?.url ?? null);
+  };
   const utils = trpc.useUtils();
 
   // Polling stops the instant synthesis ends, but the worker deletes the chunk WAVs when it builds
@@ -738,6 +748,8 @@ export function ChapterModal({
                   ms={ms}
                   columns
                   onSeek={(at) => seekRef.current?.(at)}
+                  hoverChunk={hoverChunk}
+                  onHoverCue={hoverCue}
                 />
               </div>
             ) : viewMode === "text" && cues ? (
@@ -745,6 +757,8 @@ export function ChapterModal({
                 cues={cues}
                 ms={ms}
                 onSeek={(at) => seekRef.current?.(at)}
+                hoverChunk={hoverChunk}
+                onHoverCue={hoverCue}
                 className="mx-auto w-full max-w-4xl flex-1 min-h-0 overflow-y-auto rounded bg-(--bg-subtle) border border-(--border) px-6 py-5 text-[15px] leading-relaxed text-(--text-primary)"
               />
             ) : viewMode === "blocks" && fullChapter.sourceBlocks ? (
