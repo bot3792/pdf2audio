@@ -38,8 +38,7 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
     const audioTime = () => page.locator("audio").evaluate((el: HTMLAudioElement) => el.currentTime);
     expect(await audioTime()).toBe(0);
 
-    // Tapping a later sentence moves the narration to it — the move a linear player can't make.
-    // Page view is used so a rect's page coordinates are the host's own coordinates.
+    // Page view, so a rect's page coordinates are the host element's own coordinates
     await page.getByTestId("reader-view-page").click();
     await expect(page.getByTestId("cue-rect").first()).toBeVisible();
 
@@ -49,23 +48,20 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
       const chapter = manifest.chapters.find((entry: { audio: string | null }) => entry.audio);
       const doc = await (await fetch(chapter.cues)).json();
       const cue = doc.cues.find((entry: { t: number[]; r?: number[][] }) => entry.t[0] > 0 && entry.r?.length);
-      if (!cue) return null;
-
-      const [pageIndex, x, y, width, height] = cue.r[0];
-      const host = document.querySelector(`[data-page-index="${pageIndex}"] [data-testid="reader-page"]`);
-      if (!host) return null;
-      host.scrollIntoView({ block: "center" });
-
-      const box = host.getBoundingClientRect();
-      return {
-        text: cue.s,
-        x: box.left + (box.width * (x + width / 2)) / 10_000,
-        y: box.top + (box.height * (y + height / 2)) / 10_000,
-      };
+      return cue ? { text: cue.s as string, rect: cue.r[0] as number[] } : null;
     });
     expect(target).not.toBeNull();
 
-    await page.mouse.click(target!.x, target!.y);
+    const [pageIndex, x, y, rectWidth, rectHeight] = target!.rect;
+    const host = page.locator(`[data-page-index="${pageIndex}"] [data-testid="reader-page"]`);
+    const box = (await host.boundingBox())!;
+    await host.click({
+      position: {
+        x: (box.width * (x + rectWidth / 2)) / 10_000,
+        y: (box.height * (y + rectHeight / 2)) / 10_000,
+      },
+    });
+
     await expect.poll(audioTime).toBeGreaterThan(0);
     await expect(page.getByTestId("reader-cue-text")).toHaveText(target!.text);
 

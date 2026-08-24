@@ -13,9 +13,7 @@ def rounded(values):
 
 
 def line_geometry(line):
-    """Line box, text, and the x edge of every character — enough to draw an exact rect for any
-    character range without carrying a box per character. Type size is read off the box height,
-    which stays meaningful on the PDFs whose reported font size does not."""
+    """Line box, text, and one x edge per character — an exact rect for any character range."""
     chars = [char for span in line["spans"] for char in (span.get("chars") or [])]
 
     if chars:
@@ -54,8 +52,7 @@ def main():
         pdf_page = doc[index]
         crop = pdf_page.get_cropbox()
         media = pdf_page.get_mediabox()
-        # PDF boxes are origin bottom-left; report the crop box's offset inside the media box in
-        # the top-left frame, which is the constant every rect would otherwise be wrong by.
+        # PDF boxes are origin bottom-left; report the crop offset in the top-left frame
         offset = [round(crop[0] - media[0], 1), round(media[3] - crop[3], 1)]
 
         lines = []

@@ -23,8 +23,7 @@ export function loadPdf(url: string): Promise<PDFDocumentProxy> {
   return document;
 }
 
-// Renders one page — or one crop of it — at the width it is laid out at, and only once it is
-// near the viewport: a chapter can cover a hundred pages and rendering them all would stall the tab.
+// Rendered only near the viewport: a chapter can cover a hundred pages and stall the tab
 export function PdfCanvas({
   url,
   pageNumber,

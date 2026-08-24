@@ -185,8 +185,7 @@ function union(boxes: GeometryLine["b"][]): Rect {
   return [x0, y0, x1 - x0, y1 - y0];
 }
 
-// Line box height rather than the reported font size, which some PDFs give as 1pt or 53pt.
-// Weighted by characters so a page of footnotes doesn't outvote the body it annotates.
+// Line height, not the reported font size (some PDFs say 1pt or 53pt), weighted by text length
 export function medianBodyPt(pages: GeometryPage[]): number | null {
   const lines: { height: number; weight: number }[] = [];
   let total = 0;

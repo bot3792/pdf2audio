@@ -11,8 +11,7 @@ export type NormalizePayload = {
   bookId: string;
 };
 
-// Only trust the per-block map when the stored blocks still rebuild rawText exactly; an older
-// extraction that doesn't would otherwise hand out offsets pointing at the wrong paragraph.
+// Blocks that no longer rebuild rawText would map offsets onto the wrong paragraph
 export function normalizeChapter(rawText: string, sourceBlocks: unknown): { cleanText: string; textMap: ChapterTextMap | null } {
   const blocks = Array.isArray(sourceBlocks) ? (sourceBlocks as SourceBlock[]) : [];
   const rebuilt = blocks.filter((b) => b.included).map((b) => b.text).join("\n\n");

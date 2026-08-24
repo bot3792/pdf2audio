@@ -8,8 +8,7 @@ export type ChunkLimits =
 // chunks so none is needlessly short — merging across paragraph/sentence boundaries as needed.
 export const NARRATOR_CHUNKS: ChunkLimits = { mode: "pack", maxChars: 320, idealChars: 285 };
 
-// Engines without that fixed-length quirk read a sentence at a time just as well, and a chunk is
-// also the sync map's highlight unit — so here one sentence is the target, not a paragraph.
+// Without that quirk a chunk can be a sentence — which is also the sync map's highlight unit
 export const SENTENCE_CHUNKS: ChunkLimits = { mode: "sentence", maxChars: 240, minChars: 40 };
 
 export function chunkTextForTts(text: string, limits: ChunkLimits = NARRATOR_CHUNKS): string[] {
@@ -23,8 +22,6 @@ export function chunkTextForTts(text: string, limits: ChunkLimits = NARRATOR_CHU
   return limits.mode === "pack" ? balancePartition(units, limits) : mergeShortUnits(units, limits);
 }
 
-// Sentence mode: one unit per chunk, except that a fragment too short to stand on its own as a
-// highlight joins its neighbour.
 function mergeShortUnits(units: string[], limits: { maxChars: number; minChars: number }): string[] {
   const chunks: string[] = [];
 

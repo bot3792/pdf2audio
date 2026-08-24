@@ -14,9 +14,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".icc": "application/vnd.iccprofile",
 };
 
-// pdf.js fetches its wasm decoders, CMaps, standard fonts and colour profiles at runtime rather
-// than through the bundler; without them a scanned page renders blank. They ship inside the
-// package, so they are served straight from it in dev and copied beside the build output.
+// pdf.js fetches these at runtime, not through the bundler — without them a scanned page is blank
 function pdfjsAssets(): Plugin {
   const root = path.dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
 

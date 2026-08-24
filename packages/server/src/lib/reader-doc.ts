@@ -38,8 +38,7 @@ export type ReaderCue = { t: [number, number]; s: string; r?: CueRect[]; w?: [nu
 
 export type ReaderCues = { format: string; totalMs: number; granularity: CueGranularity; cues: ReaderCue[] };
 
-// A chapter whose spoken text no longer maps to the PDF — edited, synthetic, or extracted
-// before the text map existed — is honest about it instead of highlighting the wrong place.
+// Edited, synthetic, or extracted before the text map existed — no rects rather than wrong ones
 function chapterMode(chapter: Chapter): "page" | "text" {
   return chapter.textMap && !chapter.customText && Array.isArray(chapter.sourceBlocks) ? "page" : "text";
 }
@@ -172,7 +171,6 @@ async function cueRects(chapter: Chapter, texts: string[]): Promise<CueRect[][]>
   return ranges.map((range) => (range ? rectsForRange(context, range.start, range.end) : []));
 }
 
-// Pages of the files before this one, counted without parsing their geometry twice
 async function flatPageOffset(book: Book, fileIndex: number | null): Promise<number> {
   if (fileIndex === null || fileIndex === 0) return 0;
   const sources = await listMarkerSources(book);

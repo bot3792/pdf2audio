@@ -1,7 +1,5 @@
 import { cropStyle, type ReaderCue, type ReaderPage, type Rect } from "../../lib/reader-doc.ts";
 
-// Everything the reader draws over a page: the cue being spoken, and — with the debug toggles
-// on — every cue's rects and the boxes the layout was derived from.
 export function CueOverlay({
   page,
   crop,

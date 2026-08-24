@@ -2,8 +2,7 @@ import type { ChapterTextMap } from "../schema.ts";
 import type { SourceBlock } from "./marker.ts";
 import type { GeometryLine, GeometryPage } from "./page-geometry.ts";
 
-// [page, x, y, width, height] — page is the flat index across the book's PDFs, the rest are
-// ten-thousandths of the page box, origin top-left.
+// [page, x, y, w, h]: flat page index, then ten-thousandths of the page box, origin top-left
 export type CueRect = [number, number, number, number, number];
 
 export type RectContext = {
@@ -105,8 +104,7 @@ function joinLines(lines: GeometryLine[]): { text: string; origin: { line: numbe
   return { text, origin };
 }
 
-// Marker's block text and the PDF's own lines disagree on markdown, hyphen joins and spacing,
-// so both sides are reduced to letters and digits before the piece is looked for.
+// Reduced to letters and digits so markdown stripping and hyphen joins can't defeat the match
 function locate(haystack: string, needle: string): { start: number; end: number } | null {
   const target = project(haystack);
   const search = project(needle);
@@ -148,8 +146,7 @@ function normalize(page: number, box: Box, geometry: GeometryPage): CueRect {
   return [page, x, y, to(box[2], width) - x, to(box[3], height) - y];
 }
 
-// One rect per line is the good case; past the cap a cue falls back to a box per block, and
-// past that to a single box — coarser, never wrong.
+// Past the cap a cue degrades to a box per block, then to one per page — coarser, never wrong
 function capRects(perBlock: CueRect[][]): CueRect[] {
   const all = perBlock.flat();
   if (all.length <= MAX_RECTS) return all;

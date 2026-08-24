@@ -45,8 +45,7 @@ export function normalizeForTts(text: string): string {
 
 export type BlockSpan = { block: number; start: number; end: number };
 
-// Normalizing per block instead of over the joined chapter keeps every block's position in the
-// result. The regexes above are all block-local, so the text comes out identical either way.
+// The regexes above are block-local, so per-block output is identical to normalizing the join
 export function normalizeBlocks(blocks: { text: string; included: boolean }[]): { text: string; spans: BlockSpan[] } {
   const parts: string[] = [];
   const spans: BlockSpan[] = [];

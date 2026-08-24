@@ -1,5 +1,4 @@
-// Mirrors what the server serves at /read/... — the reader consumes these two documents and
-// nothing else, so anything missing from them shows up here rather than on a device later.
+// The reader consumes these two documents and nothing else — never a database row
 export type Rect = [x: number, y: number, width: number, height: number];
 export type CueRect = [page: number, x: number, y: number, width: number, height: number];
 
@@ -56,8 +55,8 @@ export function cueIndexAt(cues: ReaderCue[], ms: number): number {
       low = mid + 1;
     }
   }
-  // Between cues the last one stays lit rather than the highlight blinking out
-  return found;
+  // Before the first word (Kokoro's can start 275ms in) and in the gaps between cues, one stays lit
+  return found >= 0 ? found : cues.length > 0 ? 0 : -1;
 }
 
 export function wordIndexAt(cue: ReaderCue, ms: number): number {
@@ -68,8 +67,7 @@ export function wordIndexAt(cue: ReaderCue, ms: number): number {
   return -1;
 }
 
-// A rect is ten-thousandths of the whole page; a crop (in points) is what is actually on
-// screen. One conversion serves both, since the uncropped page is just the full-page crop.
+// Rects are ten-thousandths of the whole page; the crop, in points, is what is on screen
 export function cropStyle(page: ReaderPage, crop: Rect, x: number, y: number, width: number, height: number) {
   const left = (x / 10_000) * page.w;
   const top = (y / 10_000) * page.h;
@@ -85,8 +83,7 @@ export function wholePage(page: ReaderPage): Rect {
   return [0, 0, page.w, page.h];
 }
 
-// iOS body text is 17 logical points, which is the same number of CSS pixels here — so the
-// rendered size of the book's own type against 17 says whether a phone could read it.
+// iOS body text is 17 logical points, which is the same number of CSS pixels here
 export const COMFORTABLE_BODY_PX = 17;
 
 export function bodyFit(medianBodyPt: number | null, cropWidthPt: number, renderedWidthPx: number) {

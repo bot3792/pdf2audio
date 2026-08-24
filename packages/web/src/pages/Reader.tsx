@@ -44,8 +44,7 @@ const GRANULARITY_HINT: Record<ReaderCues["granularity"], string> = {
   chunk: "This audio predates word timings — a highlight covers a whole synthesis chunk",
 };
 
-// Below this the book's own type is too small to read at the chosen width, and text mode is
-// the only honest answer rather than something the reader has to discover by squinting.
+// Below this the book's own type is too small at the chosen width, and the reader says so
 const LEGIBLE_PERCENT = 70;
 
 type Spread = { key: string; page: ReaderPage; crop: Rect };
@@ -95,8 +94,7 @@ export function Reader() {
     fetchCues(chapter.cues).then(setCues).catch((err: Error) => setError(err.message));
   }, [chapter?.id]);
 
-  // A time update per frame while playing; the element's own timeupdate fires far too rarely
-  // for a highlight to look like it is following the voice.
+  // The element's own timeupdate fires far too rarely to look like it follows the voice
   useEffect(() => {
     if (!playing) return;
     let frame = 0;
@@ -327,8 +325,7 @@ export function Reader() {
   );
 }
 
-// The cue list is the chapter's spoken text, in order, so text view needs no second document —
-// and every cue highlights exactly, including for chapters that never map onto a page.
+// The cue list is the chapter's spoken text in order, so text view needs no second document
 function TextView({
   cues,
   activeIndex,
@@ -358,19 +355,30 @@ function TextView({
   );
 }
 
+// Marking a slice of the cue's own text, rather than re-joining the words, keeps the spacing
+// the book has — the words carry no punctuation spacing of their own.
 function CueText({ cue, word }: { cue: ReaderCue; word: number }) {
-  if (word < 0 || !cue.w) return <>{cue.s}</>;
+  const spoken = word >= 0 ? cue.w?.[word]?.[2] : undefined;
+  if (!spoken) return <>{cue.s}</>;
+
+  let cursor = 0;
+  for (let i = 0; i < word; i++) {
+    const at = cue.s.indexOf(cue.w![i][2], cursor);
+    if (at >= 0) cursor = at + cue.w![i][2].length;
+  }
+  const start = cue.s.indexOf(spoken, cursor);
+  if (start < 0) return <>{cue.s}</>;
+
   return (
     <>
-      {cue.w.slice(0, word).map((entry) => entry[2] + " ").join("")}
-      <mark className="bg-amber-300 dark:bg-amber-500/50" data-testid="reader-word">{cue.w[word][2]}</mark>
-      {" " + cue.w.slice(word + 1).map((entry) => entry[2]).join(" ")}
+      {cue.s.slice(0, start)}
+      <mark className="bg-amber-300 dark:bg-amber-500/50" data-testid="reader-word">{spoken}</mark>
+      {cue.s.slice(start + spoken.length)}
     </>
   );
 }
 
-// The spread showing this cue — in column view a page is several of them, and only the one
-// holding the rect should be scrolled to.
+// In column view a page is several spreads; only the one holding the rect should be scrolled to
 function spreadFor(cue: ReaderCue | null): HTMLElement | null {
   const rect = cue?.r?.[0];
   if (!rect) return null;

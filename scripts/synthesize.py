@@ -17,8 +17,7 @@ def write_chunk_manifest(chunks_dir, chunk_texts):
 
 
 def write_chunk_words(chunks_dir, index, tokens):
-    """Per-word timings, chunk-relative ms, written beside the chunk WAV so a resumed run
-    keeps the timings of the chunks it skips."""
+    """Chunk-relative ms, beside the chunk WAV so a resumed run keeps what it skips."""
     if not chunks_dir:
         return
     words = []
@@ -116,8 +115,7 @@ def main():
     safe_texts = []
     safe_tokens = []
     for ps, gs, tks in zip(phoneme_chunks, chunk_texts, chunk_tokens):
-        # Cutting the phoneme string desynchronizes it from the token list, so every piece of
-        # a split chunk goes without word timings rather than with wrong ones.
+        # Cutting the phoneme string desynchronizes it from the tokens, so no timings at all
         was_split = len(ps) > MAX_PHONEMES
         while len(ps) > MAX_PHONEMES:
             split_at = ps.rfind(' ', 0, MAX_PHONEMES)

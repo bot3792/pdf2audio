@@ -81,8 +81,7 @@ export type ChapterSource =
   | { kind: "note"; noteId: string }
   | { kind: "api"; client?: string };
 
-// Where each source block landed in cleanText, so a TTS chunk resolves to the PDF blocks it
-// came from instead of a proportional guess. Absent when the blocks no longer rebuild rawText.
+// Where each source block landed in cleanText; absent when the blocks no longer rebuild rawText
 export type ChapterTextMap = {
   version: 1;
   spans: { block: number; start: number; end: number }[];

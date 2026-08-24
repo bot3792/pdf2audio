@@ -1,7 +1,6 @@
 import type { SyncMap, SyncWord } from "./sync-map.ts";
 
-// A cue is one highlight unit: a sentence where the engine reported word timings, otherwise
-// the whole TTS chunk (which is paragraph-sized, and says so through `granularity`).
+// A highlight unit: a sentence where the engine timed words, else the whole (paragraph-sized) chunk
 export type Cue = { text: string; startMs: number; endMs: number; words?: SyncWord[] };
 export type CueGranularity = "word" | "sentence" | "chunk";
 export type CueList = { granularity: CueGranularity; cues: Cue[] };
