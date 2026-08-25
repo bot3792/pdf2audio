@@ -62,8 +62,8 @@ product, the upside is two extra voices out of 26.
   10,000 credits a month (~10 minutes of multilingual audio), issues an API key with no
   card, and **excludes commercial rights while requiring attribution in anything public**.
   Commercial use starts at Starter ($6/mo). Credits are 1 per character on
-  `eleven_multilingual_v2` and 0.5 on `eleven_flash_v2_5`, so the model choice
-  (`ELEVENLABS_MODEL`) doubles or halves what a free month buys. At list overage rates a
+  `eleven_multilingual_v2` and `eleven_v3`, 0.5 on `eleven_flash_v2_5`, so the model
+  choice (`ELEVENLABS_MODEL`) doubles or halves what a free month buys. At list overage rates a
   ten-hour book is $25–50, which is why this engine exists for demos and samples rather
   than for a library.
 - **Bulgarian MLX / MMS / KugelAudio** — never examined. MMS is Meta-derived; check its

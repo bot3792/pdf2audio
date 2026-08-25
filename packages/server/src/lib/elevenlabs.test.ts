@@ -4,7 +4,7 @@ vi.mock("../env.ts", () => ({
   env: { ELEVENLABS_API_KEY: "sk_eleven_test", ELEVENLABS_MODEL: "eleven_multilingual_v2", DATA_DIR: "/tmp/pdf2audio-test" },
 }));
 
-import { charactersToWords, listElevenLabsVoices } from "./elevenlabs.ts";
+import { charactersToWords, elevenLabsQuota, listElevenLabsVoices, recordElevenLabsSpend } from "./elevenlabs.ts";
 
 // The API hands back one entry per character; these helpers spell a sentence out the same way.
 function alignment(text: string, msPerChar = 50) {
@@ -52,6 +52,29 @@ describe("charactersToWords", () => {
   it("returns nothing when the timing arrays are ragged or missing", () => {
     expect(charactersToWords({ characters: ["a"], character_start_times_seconds: [0], character_end_times_seconds: [] }, "a")).toEqual([]);
     expect(charactersToWords(null, "a")).toEqual([]);
+  });
+});
+
+describe("elevenLabsQuota", () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", mockFetch);
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ character_count: 44, character_limit: 10_000, tier: "free" }) });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // Their balance takes ~10s to move, so a second chapter would otherwise preflight against a
+  // number that still thinks the first one never happened.
+  it("subtracts what this process has billed since the balance was last read", async () => {
+    expect((await elevenLabsQuota())!.remaining).toBe(9_956);
+
+    recordElevenLabsSpend(1_000);
+    expect((await elevenLabsQuota())!.remaining).toBe(8_956);
   });
 });
 

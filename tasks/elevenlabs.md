@@ -42,11 +42,14 @@ spoken string being the printed string.
 **Cost: the first voice here with a price per book.** Roughly 513,000 characters in a ten-hour
 audiobook (~90,000 words at ~5.7 characters each):
 
-| model | languages | max chars/request | list overage | a 10-hour book |
-| --- | --- | --- | --- | --- |
-| `eleven_multilingual_v2` | 29 | 10,000 | $0.10 / 1k chars | **~$51** |
-| `eleven_flash_v2_5` | 32 | 40,000 | $0.05 / 1k chars | **~$26** |
-| `eleven_v3` | 70+ | 5,000 | — | not usable, see below |
+| model | languages | max chars/request | credits/char | list overage | a 10-hour book |
+| --- | --- | --- | --- | --- | --- |
+| `eleven_multilingual_v2` | 29 | 10,000 | 1 | $0.10 / 1k chars | **~$51** |
+| `eleven_v3` | 70+ | 5,000 | 1 | $0.10 / 1k chars | **~$51** |
+| `eleven_flash_v2_5` | 32 | 40,000 | 0.5 | $0.05 / 1k chars | **~$26** |
+
+The credits column was measured on 2026-08-25 by billing 44 characters through each model on a
+free key and reading `character_count` back — the balance moved 44, 44 and 22.
 
 The Creator plan is $22/month for 121,000 credits ≈ 1 credit per character ≈ **2.4 hours of
 multilingual audio a month**. So: one demo book is a reasonable one-off; a library is not. Every
@@ -64,10 +67,10 @@ other engine in this repo is free and local, and that stays true — this is an 
   (premade / professional / cloned / famous), `labels` (accent, gender, …), `description` and
   `verified_languages`. Close enough to Cartesia's shape that `fetchAllCartesiaVoices` is the
   template, with `next_page_token` where Cartesia has `starting_after`.
-- **`eleven_v3` is not on the with-timestamps endpoint's model list.** Confirm before offering it,
-  and if it is genuinely absent, do not offer it at all: a v3 chapter would come back with no
-  timings, fall to `granularity: "chunk"`, and highlight a whole paragraph at a time. The best
-  voice in the catalogue is worth nothing to this project if the page cannot follow it.
+- **`eleven_v3` does return timestamps** — measured, not read. The docs' model table lists
+  timestamp support for nothing at all, which reads as "no" and is wrong. All three of
+  `eleven_multilingual_v2`, `eleven_v3` and `eleven_flash_v2_5` accepted the with-timestamps
+  endpoint on a free key and returned an alignment that rebuilt the text exactly.
 
 ## Design
 
@@ -187,5 +190,34 @@ Built as described, with three decisions the research did not anticipate:
 `previous_text` / `next_text` are **not** sent — until it is known whether those characters are
 billed, tripling a free month's spend for smoother chunk joins is not a trade worth guessing at.
 
-Still open: the v3 question, the Bulgarian A/B, and whether the free tier really serves `pcm_24000`
-(the docs restrict only the 44.1 kHz PCM and WAV formats to Pro, and the check script proves it).
+### Verified against a live free key, 2026-08-25
+
+`scripts/elevenlabs-check.mjs` passed on all three models. The free tier does serve `pcm_24000`
+(the Pro restriction really is only the 44.1 kHz formats), and the character alignment rebuilt the
+sentence exactly every time.
+
+Two things only a live key could have told us:
+
+- **`eleven_v3` returns timestamps**, at 1 credit per character like Multilingual v2. It is in
+  `MODELS` and pickable through `ELEVENLABS_MODEL`. The plan above assumed it was unusable.
+- **The balance lags about ten seconds.** Immediately after three billed requests the subscription
+  endpoint still reported only the first one; it settled ~10s later. So the preflight cannot trust
+  a fresh read taken right after spending — `recordElevenLabsSpend` tracks what this process has
+  billed since the last fetch and subtracts it inside the 60-second cache window, after which their
+  number has caught up.
+
+Still open: the Bulgarian A/B against BG-MLX, MMS and KugelAudio, and whether `previous_text`
+characters are billed.
+
+### Forced alignment is the cheap way to close the read-along gap
+
+Not part of this task, but the research turned it up and it belongs on the list.
+`POST /v1/forced-alignment` takes **existing audio plus its transcript** and returns per-word start
+and end times with a confidence score — the `ChunkWord` shape, from audio already on disk. Limits
+are 10 hours, 675,000 characters and 3 GB per call, so a whole book goes in one request, and
+**Bulgarian is among the 29 supported languages**.
+
+That is exactly the chapters stuck at `granularity: "chunk"`: everything the BG-MLX narrator
+produced, and everything synthesized before word timings existed. Billed at the Speech-to-Text rate
+— about 330 credits a minute, so ~30 minutes on a free month, but **$0.22 an hour paid**. Aligning
+a ten-hour book costs ~$2.20 against ~$51 to re-narrate it. Worth its own task.

@@ -15,10 +15,12 @@ const REQUEST_TIMEOUT_MS = 120_000;
 const VOICE_CACHE_TTL_MS = 10 * 60_000;
 const QUOTA_CACHE_TTL_MS = 60_000;
 
-// Flash bills half a credit per character, which on a 10,000-credit free month is the difference
-// between ten minutes of audio and twenty.
+// Measured against a free key on 2026-08-25 by billing 44 characters through each and reading the
+// balance back. All three return timestamps, v3 included — the docs' model table says otherwise by
+// omission, and it is wrong.
 const MODELS: Record<string, { creditsPerChar: number }> = {
   eleven_multilingual_v2: { creditsPerChar: 1 },
+  eleven_v3: { creditsPerChar: 1 },
   eleven_flash_v2_5: { creditsPerChar: 0.5 },
   eleven_turbo_v2_5: { creditsPerChar: 0.5 },
 };
@@ -132,10 +134,23 @@ export async function findElevenLabsVoice(voiceId: string): Promise<ElevenLabsVo
 }
 
 let quotaCache: { at: number; quota: ElevenLabsQuota } | null = null;
+let billedSinceFetch = 0;
+
+// Their character_count takes about ten seconds to catch up with a request, so a chapter started
+// straight after another would preflight against a balance that has not moved yet. Within the
+// cache window our own spend is the correction; past it, their number has settled.
+function withLocalSpend(quota: ElevenLabsQuota): ElevenLabsQuota {
+  if (billedSinceFetch === 0) return quota;
+  return { ...quota, used: quota.used + billedSinceFetch, remaining: Math.max(0, quota.remaining - billedSinceFetch) };
+}
+
+export function recordElevenLabsSpend(credits: number): void {
+  billedSinceFetch += credits;
+}
 
 export async function elevenLabsQuota(): Promise<ElevenLabsQuota | null> {
   if (!env.ELEVENLABS_API_KEY) return null;
-  if (quotaCache && Date.now() - quotaCache.at < QUOTA_CACHE_TTL_MS) return quotaCache.quota;
+  if (quotaCache && Date.now() - quotaCache.at < QUOTA_CACHE_TTL_MS) return withLocalSpend(quotaCache.quota);
 
   const res = await fetch(`${ELEVENLABS_URL}/v1/user/subscription`, {
     headers: headers(),
@@ -147,6 +162,7 @@ export async function elevenLabsQuota(): Promise<ElevenLabsQuota | null> {
   const limit = body.character_limit ?? 0;
   const quota: ElevenLabsQuota = { used, limit, remaining: Math.max(0, limit - used), tier: body.tier ?? "free" };
   quotaCache = { at: Date.now(), quota };
+  billedSinceFetch = 0;
   return quota;
 }
 
@@ -215,9 +231,6 @@ async function synthesizeChunkPcm(voiceId: string, modelId: string, text: string
     const body = await res.text().catch(() => "");
     throw new Error(`ElevenLabs TTS error ${res.status}: ${body.slice(0, 300)}`);
   }
-
-  // The balance just moved, and the next chapter's preflight must not trust the old one
-  quotaCache = null;
 
   const body = (await res.json()) as { audio_base64?: string; alignment?: Alignment };
   const pcm = Buffer.from(body.audio_base64 ?? "", "base64");
@@ -310,6 +323,7 @@ export async function elevenlabsSynthesize({
           throw err;
         }
         pcm = chunk.pcm;
+        recordElevenLabsSpend(Math.ceil(chunks[i].length * creditsPerChar));
         if (chunkPath) {
           await writeFile(chunkPath, Buffer.concat([pcm16WavHeader(pcm.length, SAMPLE_RATE), pcm]));
           await writeChunkWords(chunkPreviewDir!, i + 1, chunk.words);
