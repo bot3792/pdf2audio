@@ -2,7 +2,7 @@ import type { WorkerUtils } from "graphile-worker";
 import { db } from "../db.ts";
 import { books, bookFiles } from "../schema.ts";
 import { eq, asc, and, isNull, isNotNull } from "drizzle-orm";
-import { extractPdfRawText, countWords } from "../lib/pdf-raw-text.ts";
+import { extractPdfRawText, extractPdfAuthor, countWords } from "../lib/pdf-raw-text.ts";
 import { appendLog } from "../lib/log.ts";
 import { stat } from "node:fs/promises";
 
@@ -19,6 +19,16 @@ export async function rawExtract(payload: RawExtractPayload, { addJob }: { addJo
     .from(bookFiles)
     .where(and(eq(bookFiles.bookId, bookId), isNull(bookFiles.rawText)))
     .orderBy(asc(bookFiles.index));
+
+  // Whatever the first PDF says about itself, once, and never over an answer someone gave by hand
+  const [book] = await db.select().from(books).where(eq(books.id, bookId));
+  if (book && !book.author && files[0]) {
+    const author = await extractPdfAuthor(files[0].pdfPath);
+    if (author) {
+      await db.update(books).set({ author }).where(eq(books.id, bookId));
+      await appendLog(bookId, `Author from the PDF: ${author}`);
+    }
+  }
 
   let extracted = 0;
   for (const file of files) {

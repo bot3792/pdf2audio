@@ -20,6 +20,8 @@ function audioMediaType(ext: string): string {
   return AUDIO_MEDIA_TYPES[ext] ?? "audio/mpeg";
 }
 
+export type ReadaloudBook = { title: string; author: string | null; language: string | null };
+
 export type ReadaloudChapter = {
   id: string;
   index: number;
@@ -37,9 +39,14 @@ const LANGUAGE_CODES: Record<string, string> = {
   serbian: "sr", croatian: "hr", slovak: "sk", slovenian: "sl", macedonian: "mk",
 };
 
+// books.language holds an ISO code now and held a language's name before that, and only the names
+// were ever translated — so every book that actually had a language set came out "und", while the
+// ones that had none came out "en".
 export function languageCode(language: string | null): string {
   if (!language) return "en";
-  return LANGUAGE_CODES[language.trim().toLowerCase()] ?? "und";
+  const value = language.trim().toLowerCase();
+  if (LANGUAGE_CODES[value]) return LANGUAGE_CODES[value];
+  return /^[a-z]{2,3}(-[a-z0-9]+)*$/.test(value) ? value : "und";
 }
 
 function esc(text: string): string {
@@ -147,12 +154,13 @@ p { margin: 0 0 0.9em 0; }
 
 function packageOpf(opts: {
   title: string;
+  author: string | null;
   lang: string;
   hasCover: boolean;
   chapters: { base: string; title: string; audioExt: string; sync: SyncMap }[];
   p2af: P2afLayer | null;
 }): string {
-  const { title, lang, hasCover, chapters, p2af } = opts;
+  const { title, author, lang, hasCover, chapters, p2af } = opts;
   const totalMs = chapters.reduce((sum, ch) => sum + ch.sync.totalMs, 0);
   const modified = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
@@ -182,8 +190,8 @@ function packageOpf(opts: {
     <dc:identifier id="uid">urn:uuid:${randomUUID()}</dc:identifier>
     <dc:title id="title">${esc(title)}</dc:title>
     <meta refines="#title" property="title-type">main</meta>
-    <dc:creator id="creator">pdf2audio</dc:creator>
-    <meta refines="#creator" property="role" scheme="marc:relators">aut</meta>
+${author ? `    <dc:creator id="creator">${esc(author)}</dc:creator>
+    <meta refines="#creator" property="role" scheme="marc:relators">aut</meta>` : ""}
     <dc:language>${lang}</dc:language>
     <meta property="dcterms:modified">${modified}</meta>
 ${durations}
@@ -207,15 +215,16 @@ ${spine}
 
 export async function buildReadaloudEpub(opts: {
   title: string;
+  author?: string | null;
   language: string | null;
   chapters: ReadaloudChapter[];
   stagingDir: string;
   outputPath: string;
   // Given the names chosen here, returns the read-along layer to ride along. Inverted so this
   // file keeps owning the layout and stays free of the database.
-  p2af?: (exported: Map<string, ExportedChapter>) => Promise<P2afLayer | null>;
+  p2af?: (exported: Map<string, ExportedChapter>, cover: string | null) => Promise<P2afLayer | null>;
 }): Promise<void> {
-  const { title, language, chapters, stagingDir, outputPath } = opts;
+  const { title, author = null, language, chapters, stagingDir, outputPath } = opts;
   if (chapters.length === 0) throw new Error("No chapters to export");
   const lang = languageCode(language);
 
@@ -232,13 +241,13 @@ export async function buildReadaloudEpub(opts: {
     await mkdir(path.join(stagingDir, "OEBPS", dir), { recursive: true });
   }
 
+  const hasCover = await generateCover(path.join(stagingDir, "OEBPS", "images", "cover.jpg"), title);
+  if (!hasCover) await rm(path.join(stagingDir, "OEBPS", "images"), { recursive: true, force: true });
+
   const exported = new Map<string, ExportedChapter>(
     named.map((ch) => [ch.id, { base: ch.base, audioFile: `${ch.base}${ch.audioExt}` }]),
   );
-  const p2af = (await opts.p2af?.(exported)) ?? null;
-
-  const hasCover = await generateCover(path.join(stagingDir, "OEBPS", "images", "cover.jpg"), title);
-  if (!hasCover) await rm(path.join(stagingDir, "OEBPS", "images"), { recursive: true, force: true });
+  const p2af = (await opts.p2af?.(exported, hasCover ? "../images/cover.jpg" : null)) ?? null;
 
   await writeFile(path.join(stagingDir, "mimetype"), "application/epub+zip");
   await writeFile(
@@ -251,7 +260,7 @@ export async function buildReadaloudEpub(opts: {
 </container>
 `,
   );
-  await writeFile(path.join(stagingDir, "OEBPS", "package.opf"), packageOpf({ title, lang, hasCover, chapters: named, p2af }));
+  await writeFile(path.join(stagingDir, "OEBPS", "package.opf"), packageOpf({ title, author, lang, hasCover, chapters: named, p2af }));
   await writeFile(path.join(stagingDir, "OEBPS", "nav.xhtml"), navXhtml(title, named, lang));
   await writeFile(path.join(stagingDir, "OEBPS", "titlepage.xhtml"), titlepageXhtml(title, lang));
   await writeFile(path.join(stagingDir, "OEBPS", "css", "style.css"), STYLE_CSS);

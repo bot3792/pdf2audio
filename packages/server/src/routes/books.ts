@@ -423,6 +423,8 @@ export const booksRouter = router({
       chapterModel: modelKeySchema.optional(),
       // ISO-639-1 of the book's own text; "" clears it back to unknown
       language: z.string().max(8).nullable().optional(),
+      // "" clears it, so a wrong guess from the PDF can be taken back rather than only corrected
+      author: z.string().max(200).nullable().optional(),
     }))
     .mutation(async ({ input }) => {
       const updates: Record<string, unknown> = { updatedAt: new Date() };
@@ -435,6 +437,7 @@ export const booksRouter = router({
       if (input.llmChapterDetection !== undefined) updates.llmChapterDetection = input.llmChapterDetection;
       if (input.chapterModel !== undefined) updates.chapterModel = input.chapterModel;
       if (input.language !== undefined) updates.language = input.language || null;
+      if (input.author !== undefined) updates.author = input.author?.trim() || null;
       await db.update(books).set(updates).where(eq(books.id, input.id));
       return { success: true };
     }),

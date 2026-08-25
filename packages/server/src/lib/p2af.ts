@@ -26,9 +26,14 @@ function sourcePath(index: number): string {
 
 // A chapter the export left out keeps its pages and loses its narration — the same shape as a
 // chapter nobody has narrated yet, which both readers already know how to show.
-export async function buildP2afLayer(book: Book, exported: Map<string, ExportedChapter>): Promise<P2afLayer | null> {
+export async function buildP2afLayer(
+  book: Book,
+  exported: Map<string, ExportedChapter>,
+  cover: string | null,
+): Promise<P2afLayer | null> {
   const manifest = await buildManifest(book);
   if (manifest.pages.length === 0) return null;
+  manifest.book.cover = cover;
 
   const sources = await listMarkerSources(book);
   manifest.sources = manifest.sources.map((source, index) => ({ ...source, url: sourcePath(index) }));

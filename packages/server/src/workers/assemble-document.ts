@@ -54,7 +54,7 @@ export async function assembleDocument(
     if (!book) throw new Error(`Book ${bookId} not found`);
 
     if (format === "epub-sync") {
-      await assembleReadaloud(bookId, book.title, language ?? null, payload.copyToDropDir ?? false, log);
+      await assembleReadaloud(bookId, book, language ?? null, payload.copyToDropDir ?? false, log);
       await db.update(books).set({ status: "done", error: null, updatedAt: new Date() }).where(eq(books.id, bookId));
       await log("Synced EPUB export complete");
       return;
@@ -165,7 +165,7 @@ export async function assembleDocument(
 
 async function assembleReadaloud(
   bookId: string,
-  bookTitle: string,
+  book: typeof books.$inferSelect,
   language: string | null,
   copyToDropDir: boolean,
   log: (msg: string) => Promise<void>,
@@ -252,22 +252,21 @@ async function assembleReadaloud(
   const timestamp = formatTimestamp(new Date());
   const suffix = language ? `_${languageSlug(language)}` : "";
   const stagingDir = path.join(tmpDir, `readaloud${suffix}_${timestamp}`);
-  const outputPath = path.join(outDir, `${sanitizeFilename(bookTitle)}${suffix}_readaloud_${timestamp}.epub`);
+  const outputPath = path.join(outDir, `${sanitizeFilename(book.title)}${suffix}_readaloud_${timestamp}.epub`);
 
   await log(`Building synced EPUB (${readaloudChapters.length} chapters, read-along narration)`);
   try {
     await buildReadaloudEpub({
-      title: bookTitle,
+      title: book.title,
+      author: book.author,
       language,
       chapters: readaloudChapters,
       stagingDir,
       outputPath,
       p2af: language
         ? undefined
-        : async (exported) => {
-            const [book] = await db.select().from(books).where(eq(books.id, bookId));
-            if (!book) return null;
-            const layer = await buildP2afLayer(book, exported);
+        : async (exported, cover) => {
+            const layer = await buildP2afLayer(book, exported, cover);
             await log(layer
               ? `Read-along layer: ${layer.cues.length} chapter(s) on ${layer.manifest.pages.length} pages`
               : "No read-along layer — this book has no page geometry");
@@ -294,7 +293,7 @@ async function assembleReadaloud(
       // Storyteller's watch folder skips the entire directory while it holds more than one
       // read-along EPUB ("multiple epubs of the same kind"), so a re-export has to replace
       // its predecessor rather than pile up beside it — otherwise nothing imports again.
-      const superseded = `${sanitizeFilename(bookTitle)}${suffix}_readaloud_`;
+      const superseded = `${sanitizeFilename(book.title)}${suffix}_readaloud_`;
       const keep = path.basename(outputPath);
       for (const name of await readdir(env.READALOUD_DROP_DIR)) {
         if (name !== keep && name.startsWith(superseded) && name.endsWith(".epub")) {

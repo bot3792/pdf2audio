@@ -1,4 +1,4 @@
-import { test, expect, createApiBook, uploadFixtureBook } from "./fixtures.ts";
+import { test, expect, createApiBook, uploadFixtureBook, FIXTURE_CONTAINER } from "./fixtures.ts";
 
 test("UC8: read along is offered only once a chapter is on a page", async ({ page, request, profileId }) => {
   // Written rather than extracted, so there is no print behind it — the one case with nothing to open
@@ -13,6 +13,29 @@ test("UC8: read along is offered only once a chapter is on a page", async ({ pag
   const entry = page.getByTestId("book-read-link");
   await expect(entry).toBeVisible();
   await expect(entry).toHaveAttribute("title", /No chapter is on a page yet/);
+});
+
+test("UC8: a book sent as a file reads along from the file itself", async ({ page }) => {
+  // Nothing here touches the library or the server's own documents: the pages, the narration and
+  // the timings all come out of the zip, which is the whole claim the format makes.
+  await page.goto("/open");
+  await page.locator("input[type=file]").setInputFiles(FIXTURE_CONTAINER);
+
+  await expect(page.getByTestId("reader-page").first()).toBeVisible();
+  await expect(page.getByTestId("cue-rect").first()).toBeVisible();
+  await expect(page.getByTestId("reader-granularity")).toHaveText("word");
+  await expect(page.locator("audio")).toHaveAttribute("src", /^blob:/);
+  await expect(page.getByTestId("reader-chapter").locator("option")).toHaveCount(3);
+});
+
+test("UC8: an EPUB with no read-along layer says so instead of failing obscurely", async ({ page }) => {
+  await page.goto("/open");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "plain.epub",
+    mimeType: "application/epub+zip",
+    buffer: Buffer.from("PK\x05\x06" + "\0".repeat(18), "binary"),
+  });
+  await expect(page.getByTestId("reader-open-error")).toContainText(/no read-along layer/);
 });
 
 // marker_single and Kokoro both run for real here — full tier only (pnpm e2e:full)

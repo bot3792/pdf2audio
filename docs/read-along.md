@@ -14,7 +14,8 @@ anything it recognises, and say something useful about anything it does not.
 ```jsonc
 {
   "format": "p2af/1",
-  "book":    { "id": "…", "title": "…", "language": "en", "medianBodyPt": 11.7 },
+  "book":    { "id": "…", "title": "…", "author": "Mary Shelley", "language": "en",
+               "medianBodyPt": 11.7, "cover": "../images/cover.jpg" },
   "sources": [ { "index": 0, "filename": "book.pdf", "url": "/pdf/…", "pageCount": 294 } ],
   "pages":   [ { "i": 0, "src": 0, "p": 1, "w": 311, "h": 487, "rot": 0,
                  "content": [43, 45.7, 228.6, 387], "columns": [[43, 45.7, 228.6, 387]] } ],
@@ -36,6 +37,9 @@ anything it recognises, and say something useful about anything it does not.
   holds — not the font size the PDF reports, which several real files give as 1pt or 53pt for
   ordinary 10pt text. It is what tells a reader, before the reader squints, whether this book
   can be read at a given width.
+- **`author` and `cover` are both null when nothing knows them.** The author is the book's own,
+  taken from the PDF's metadata where it has any and editable on the book page; a container carries
+  a cover and says where it is, while the server serves none.
 - **`audio` and `cues` are both null for a chapter nobody has narrated.** There is no cue document
   to fetch, and a container cannot carry a path to a file it does not hold.
 - **Every URL is relative to `book.json` itself.** Served from `/read/book/:id/book.json` these are
@@ -145,6 +149,10 @@ slice of the file straight to a player or a PDF renderer without inflating anyth
 A chapter the export left out keeps its `pageStart`/`pageEnd` and loses its `audio` and `cues`,
 which is the same shape as a chapter nobody has narrated — so no reader needs a special case for
 a partial export.
+
+`e2e/fixtures/tiny-book-readalong.epub` is one of these, built from `fixtures/tiny-book.pdf` by
+the pipeline itself: three pages, three narrated chapters, word granularity, 1.2 MB. It is checked
+in because it is what a second implementation of this page is written against.
 
 `/open` reads such a file with no server involved: `lib/reader-source.ts` is the seam, with one
 implementation over HTTP and one over a container. Nothing that draws a page knows which it got.

@@ -16,6 +16,22 @@ async function zipEntry(epubPath: string, entry: string): Promise<string> {
 }
 
 describe("languageCode", () => {
+  it("passes an ISO code through, which is what the book row holds now", () => {
+    expect(languageCode("en")).toBe("en");
+    expect(languageCode("bg")).toBe("bg");
+    expect(languageCode("pt-BR")).toBe("pt-br");
+  });
+
+  it("still translates the names older rows were written with", () => {
+    expect(languageCode("Bulgarian")).toBe("bg");
+  });
+
+  it("says nothing rather than guessing at something that is not a language", () => {
+    expect(languageCode("gibberish text")).toBe("und");
+  });
+});
+
+describe("languageCode", () => {
   it("maps known names, defaults original to en and unknown to und", () => {
     expect(languageCode("Bulgarian")).toBe("bg");
     expect(languageCode(null)).toBe("en");

@@ -3,6 +3,9 @@ import path from "node:path";
 import { API_URL } from "./env.ts";
 
 export const FIXTURE_PDF = path.resolve(import.meta.dirname, "../../fixtures/tiny-book.pdf");
+// The same booklet after the whole pipeline, exported. Checked in because it is what the reader
+// consumes and what a second implementation is written against — see docs/read-along.md.
+export const FIXTURE_CONTAINER = path.resolve(import.meta.dirname, "../../fixtures/tiny-book-readalong.epub");
 
 export async function createApiBook(
   request: APIRequestContext,

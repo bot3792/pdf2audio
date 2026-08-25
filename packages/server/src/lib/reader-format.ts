@@ -33,7 +33,8 @@ export type ReaderChapter = {
 
 export type ReaderManifest = {
   format: string;
-  book: { id: string; title: string; language: string; medianBodyPt: number | null };
+  // `cover` is a URL like the rest, resolved against this document; null when nothing carries one
+  book: { id: string; title: string; author: string | null; language: string; medianBodyPt: number | null; cover: string | null };
   sources: ReaderSource[];
   pages: ReaderPage[];
   chapters: ReaderChapter[];

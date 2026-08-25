@@ -128,6 +128,8 @@ export const books = pgTable("books", {
   chapterProposal: jsonb("chapter_proposal").$type<ChapterProposal>(),
   translationLanguage: text("translation_language"),
   language: text("language"),
+  // Who wrote it, for a shelf that sorts by more than title — the PDF's own metadata when it has any
+  author: text("author"),
   skipSynthesis: boolean("skip_synthesis").notNull().default(false),
   totalChapters: integer("total_chapters").notNull().default(0),
   noteJob: jsonb("note_job").$type<NoteJob>(),

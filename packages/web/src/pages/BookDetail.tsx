@@ -440,6 +440,14 @@ export function BookDetail() {
                onRename={(title) => renameMutation.mutate({ id: book.id, title })}
              />
              <p className="text-sm text-(--text-muted) mt-1 flex items-center gap-2">
+               <EditableTitle
+                 title={book.author ?? ""}
+                 placeholder="Add an author"
+                 className="text-sm text-(--text-muted)"
+                 hint="Who wrote it — travels with the book when it is exported"
+                 onRename={(author) => updateSettingsMutation.mutate({ id: book.id, author })}
+               />
+               ·
                {book.language ? (
                  <span title="The language this book is written in — change it in Extract...">
                    {languageLabel(book.language)}

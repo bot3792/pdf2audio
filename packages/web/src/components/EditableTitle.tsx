@@ -1,6 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 
-export function EditableTitle({ title, onRename }: { title: string; onRename: (title: string) => void }) {
+export function EditableTitle({
+  title,
+  onRename,
+  placeholder,
+  className = "text-2xl font-bold text-(--text-primary)",
+  hint = "Click to rename",
+}: {
+  title: string;
+  onRename: (title: string) => void;
+  // Shown faintly when there is nothing yet, so an empty line is still something to click
+  placeholder?: string;
+  className?: string;
+  hint?: string;
+}) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -15,11 +28,8 @@ export function EditableTitle({ title, onRename }: { title: string; onRename: (t
 
   function save() {
     const trimmed = value.trim();
-    if (trimmed && trimmed !== title) {
-      onRename(trimmed);
-    } else {
-      setValue(title);
-    }
+    if (trimmed !== title && (trimmed || placeholder)) onRename(trimmed);
+    else setValue(title);
     setEditing(false);
   }
 
@@ -34,18 +44,20 @@ export function EditableTitle({ title, onRename }: { title: string; onRename: (t
           if (e.key === "Enter") save();
           if (e.key === "Escape") { setValue(title); setEditing(false); }
         }}
-        className="text-2xl font-bold text-(--text-primary) bg-transparent border-b-2 border-blue-500 outline-none w-full"
+        placeholder={placeholder}
+        className={`${className} bg-transparent border-b-2 border-blue-500 outline-none w-full`}
       />
     );
   }
 
+  const Tag = placeholder ? "span" : "h1";
   return (
-    <h1
+    <Tag
       onClick={() => setEditing(true)}
-      className="text-2xl font-bold text-(--text-primary) cursor-pointer hover:text-blue-700"
-      title="Click to rename"
+      className={`${title ? className : "text-(--text-faint)"} cursor-pointer hover:text-blue-700`}
+      title={hint}
     >
-      {title}
-    </h1>
+      {title || placeholder}
+    </Tag>
   );
 }
