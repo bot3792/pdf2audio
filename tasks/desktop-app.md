@@ -125,20 +125,58 @@ The data directory moves out of the Docker volume into Application Support, and 
 Shipping 2.7 GB of venv inside the bundle means signing every `.so` in it. Fetching it after
 install means signing nothing.
 
-**`uv` is the tool.** A single ~40 MB static binary that can install a specific CPython and resolve
-a locked dependency set, far faster than pip. The first run becomes `uv python install 3.12` then
-`uv sync` against a lockfile — which also fixes a real fragility: `scripts/requirements.txt` is a
-hand-pinned set that deliberately violates `mlx-audio`'s declared constraints and is installed with
-`--no-deps`. A `uv.lock` records what actually worked instead of what pip happened to resolve.
+**`uv` is the tool**, and it is the standard now rather than a bet. One static binary that installs
+a specific CPython *and* resolves a locked dependency set, far faster than pip. The first run
+becomes `uv python install 3.12` then `uv sync` against a lockfile.
+
+It also fixes a real fragility rather than merely being faster. `scripts/requirements.txt` is a
+hand-pinned set that **deliberately violates `mlx-audio`'s declared constraints**, which is why
+`setup.sh` installs three packages with `--no-deps` on top of it. That arrangement works and
+nothing records why. A `uv.lock` pins what actually resolved, and `tool.uv.override-dependencies`
+states the violation as intent rather than as a shell-script side effect.
 
 PyInstaller and py2app are the alternative and are a bad fit — they fight torch and MLX, and would
 put the result back inside the bundle where it needs signing.
 
-### 3. Node and the server — the easy one
+### 3. The runtime — **Bun, tested 2026-08-25**
 
-Bundle the Node binary (~50 MB) and `pnpm build`'s output. Node's own binary is signed by Node;
-our JS is not a binary. The few native `.node` files we ship (`@napi-rs/canvas`) do need signing,
-and there are seven of them, not seven thousand.
+Bun runs this server unmodified. Booted `src/main.ts` under Bun 1.4 against the embedded Postgres:
+all **7 worker pools** connected, `GET /trpc/folders.list` answered `{"result":{"data":[]}}`, no
+compatibility errors. Fastify, postgres.js, graphile-worker, drizzle and the AI SDK all just worked.
+
+It is also a much better thing to ship:
+
+| | Node | Bun |
+| --- | --- | --- |
+| Runtime on disk | **504 MB** (the fnm install here) | **61 MB**, one file |
+| Ship as | binary + a `node_modules` tree | `bun build --compile` -> **one 75 MB executable** |
+| Build time | — | **210 ms** for 965 modules |
+
+The compiled binary was run from outside the repo, with no `node_modules` anywhere near it, and
+served the API with all seven pools up.
+
+**The catch is ours, not Bun's.** Compiling changes `import.meta.dirname` to `/$bunfs/root`, the
+virtual filesystem inside the executable:
+
+```
+as source:  import.meta.dirname = <repo>/packages/server/src/lib
+            -> <repo>/scripts/synthesize.py     correct
+compiled:   import.meta.dirname = /$bunfs/root
+            -> /scripts/synthesize.py           wrong
+```
+
+**Ten places** locate Python scripts and `.env` by walking up from their own source file
+(`lib/tts.ts`, `lib/kokoro.ts`, `lib/pocket.ts`, `lib/embeddings.ts`, `lib/page-geometry.ts`,
+`env.ts`). They all need to come from one configured base directory instead. That is work the
+desktop app requires *regardless of runtime* — the scripts will live in Application Support, not
+beside the binary — and Node's own single-executable format has the identical problem.
+
+**One genuine risk:** Vivliostyle, which renders PDF exports, is a Node CLI with a native
+`@napi-rs/canvas` dependency, spawned as a subprocess. Under a Bun-only app that subprocess runs
+under Bun, and that is untested. Worst case: ship both runtimes, or PDF export needs Node.
+
+**Recommendation: adopt Bun, don't compile yet.** Ship the `bun` binary plus a bundled JS file —
+the size win is already 8x, and the path work can land on its own schedule.
 
 ### 4. The CLI tools — three static binaries
 
@@ -177,6 +215,27 @@ Upload a PDF, get raw text, narrate it with Kokoro — **that is the whole first
 it needs one 347 MB download.** Everything else is a feature you might never touch, and the app
 already knows how to fetch things lazily: Pocket languages download per language from the picker,
 KugelAudio is a prompt in `setup.sh`.
+
+### What first run asks, decided 2026-08-25
+
+Two tiers, not five. **Reading PDFs and turning them into audio are not optional** — they are the
+app. Show them ticked and disabled so it is clear what is about to happen, and download them before
+the window opens. That is ~2.4 GB, and it buys the whole point of the product.
+
+Everything else is genuinely optional and **gated at the moment it is asked for**, not guarded
+throughout the UI:
+
+| | Gate |
+| --- | --- |
+| Scanned books / OCR | the full-extraction checkbox at upload |
+| Search & chat across the library | pressing the library search button |
+| Bulgarian narration | choosing a Bulgarian voice in the picker |
+
+Gating at three doorways rather than sprinkling capability checks through every screen is the
+difference between a day of work and a month of it. And the pattern already exists twice: Pocket
+TTS downloads a language from inside the voice picker with progress, and `setup.sh` prompts before
+KugelAudio's 17 GB. An ungated feature keeps the house rule — **the button stays visible and
+disabled with a tooltip**, never hidden — and clicking it offers the download.
 
 So the first useful step is not packaging at all. It is **making `setup.sh` lazy** — the same
 mechanism the DMG will need anyway, testable today, and it turns an hour-long, 15 GB setup into a
