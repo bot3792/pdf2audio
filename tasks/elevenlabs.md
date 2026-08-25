@@ -209,9 +209,11 @@ Two things only a live key could have told us:
 Still open: the Bulgarian A/B against BG-MLX, MMS and KugelAudio, and whether `previous_text`
 characters are billed.
 
-### Forced alignment is the cheap way to close the read-along gap
+### Forced alignment — parked 2026-08-25, and not for cost reasons
 
-Not part of this task, but the research turned it up and it belongs on the list.
+The economics are good and the answer is still no: the audio it would fix is BG-MLX's, and BG-MLX
+is not worth two dollars a book. Reopen this if a Bulgarian narrator lands that is worth listening
+to — the mechanism below is sound, it just has nothing good to point at yet.
 `POST /v1/forced-alignment` takes **existing audio plus its transcript** and returns per-word start
 and end times with a confidence score — the `ChunkWord` shape, from audio already on disk. Limits
 are 10 hours, 675,000 characters and 3 GB per call, so a whole book goes in one request, and
