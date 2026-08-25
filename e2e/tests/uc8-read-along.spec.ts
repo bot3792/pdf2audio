@@ -161,6 +161,16 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
     await expect(page.getByTestId("cue-rect").first()).toBeVisible();
     await page.getByRole("button", { name: /^Chunk 1$/ }).hover();
     await expect(page.getByTestId("cue-linked-rect").first()).toBeVisible();
+
+    // Editing the text unbinds the narration from the print. The audio outlives the edit, so the
+    // pages must stop offering sentences to tap the moment the save lands, not on the next reload.
+    await page.getByTestId("view-tab-pages").click();
+    await page.getByTestId("chapter-edit").click();
+    await page.getByTestId("chapter-edit-text").fill("Rewritten by hand, so the print says something else now.");
+    await page.getByTestId("chapter-edit-save").click();
+    await expect(page.getByTestId("pages-unmarked")).toContainText("edited after extraction");
+    await expect(page.getByTestId("cue-rect")).toHaveCount(0);
+    await expect(page.getByTestId("chapter-read-along-off")).toBeVisible();
   });
 });
 

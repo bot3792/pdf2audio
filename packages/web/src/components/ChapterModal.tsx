@@ -115,16 +115,14 @@ export function ChapterModal({
 
   const isVariant = !!variant;
 
-  // Synthesis rewrites what both documents say about this chapter — it gains audio, and the text
-  // map that puts its words on the page is written on the way there. The modal stays open across
-  // all of that, so it refetches when the run lands rather than waiting for a reload. Queuing
-  // clears the path first, so this changes once when a run starts and once when it finishes —
-  // the statuses in between say nothing new, and the manifest is the whole book's.
-  const narration = chapter.audioPath ?? "";
+  // Both documents change under an open modal: synthesis writes the audio and the text map that
+  // puts its words on the page, and an edit leaves that map describing text nobody will hear.
+  // Neither is a reload, so the fetches below key on both rather than on the audio alone.
+  const revision = `${chapter.audioPath ?? ""}:${chapter.hasCustomText}`;
 
   useEffect(() => {
     fetchManifest(bookId).then(setManifest).catch(() => setManifest(null));
-  }, [bookId, narration]);
+  }, [bookId, revision]);
 
   const readerChapter = manifest?.chapters.find((entry) => entry.i === chapter.index);
   // Where a chapter sits in the book survives an edit or a translation; marking the audio on it does not
@@ -140,7 +138,7 @@ export function ChapterModal({
     setMs(0);
     if (!cueUrl) return;
     fetchCues(cueUrl).then(setCues).catch(() => setCues(null));
-  }, [cueUrl, narration]);
+  }, [cueUrl, revision]);
 
   const canMark = readerChapter?.mode === "page" && cues !== null;
 
@@ -680,6 +678,7 @@ export function ChapterModal({
                 onClick={handleSave}
                 disabled={updateTextMutation.isPending}
                 className="text-xs px-2.5 py-1 rounded bg-green-600 text-white hover:bg-green-700 font-medium disabled:opacity-50"
+                data-testid="chapter-edit-save"
               >
                 {updateTextMutation.isPending ? "Saving..." : "Save"}
               </button>
@@ -705,6 +704,7 @@ export function ChapterModal({
                 <button
                   onClick={startEditing}
                   className="text-xs px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 font-medium"
+                  data-testid="chapter-edit"
                 >
                   Edit
                 </button>
@@ -754,6 +754,7 @@ export function ChapterModal({
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
+                data-testid="chapter-edit-text"
                 className="flex-1 min-h-0 w-full max-w-4xl mx-auto rounded bg-(--bg-card) border border-amber-300 px-6 py-5 text-[15px] text-(--text-primary) whitespace-pre-wrap leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
             ) : viewMode === "pages" && manifest && readerChapter ? (
