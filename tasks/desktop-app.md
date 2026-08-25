@@ -57,26 +57,68 @@ pdf2audio.app                          signed, notarised, ~120 MB
 
 ## The four problems
 
-### 1. Postgres — solved, with a caveat
+### 1. Postgres — **tested end to end 2026-08-25, it works**
 
-**PGlite is out.** It is a lovely WASM Postgres with pgvector built in, and it is
-**single-connection**. `workers/setup.ts` runs seven pools, each with its own connection pool,
-alongside the API's `postgres.js` pool and `quickAddJob`'s ad-hoc connections. That is ~25
-concurrent connections. Not a tuning problem — an architectural one.
+**PGlite is out, and measurement confirms why.** With the real server running, `pg_stat_activity`
+shows **21 connections at idle**, 14 of them graphile-worker's. PGlite is single-connection. Not a
+tuning problem — an architectural one.
 
-So: **real Postgres binaries, spawned as a child process.** Two routes:
+So: **real Postgres binaries, spawned as a child process.** That was run for real against
+[`@boomship/postgres-vector-embedded`](https://github.com/boomship/postgres-vector-embedded)
+(PostgreSQL 17.5 + pgvector 0.8.0, MIT). It works, after three fixes nobody would guess.
 
-- [`@boomship/postgres-vector-embedded`](https://github.com/boomship/postgres-vector-embedded) —
-  PostgreSQL 17.5 + pgvector 0.8.0, prebuilt for macOS arm64, MIT, `new PostgresServer({dataDir,
-  port}).start()`. Exactly the shape we want. **Caveat: 49 commits and no release history to speak
-  of.** Verify it ships `pg_trgm` (a contrib module, present in a full build, absent from a minimal
-  one) before betting on it — we create both `vector` and `pg_trgm` in the migrations.
-- **Zonky's `embedded-postgres-binaries`** (darwin arm64v8) plus pgvector compiled against them.
-  More work, no dependency on a one-person package. This is what the Electric/Tauri writeups ended
-  up doing, and they described building pgvector as the hardest part of the project.
+**Use the `lite` variant, never `full`.** The `full` build links
+`/opt/homebrew/opt/icu4c@77/lib/libicuuc.77.dylib` — Homebrew's ICU, exactly the prerequisite this
+whole exercise exists to remove. It only started on this machine because brew happens to be here;
+on a fresh Mac it is dead. `lite` links **nothing outside `/usr/lib` and `/System`**, and is 32 MB.
 
-Either way the data directory moves out of a Docker volume and into Application Support, and
-`pnpm db:migrate` becomes something the launcher runs at startup.
+**Both variants ship non-relocatable binaries**, with the CI runner's absolute paths as their
+install names:
+
+```
+$ otool -L pg/bin/initdb
+  /Users/runner/work/postgres-vector-embedded/.../lib/libpq.5.dylib
+```
+
+`DYLD_LIBRARY_PATH` papers over it and **must not be used** — the hardened runtime strips `DYLD_*`.
+The fix is a post-download pass of `install_name_tool`: rewrite each dylib's id and every reference
+to `@rpath/<name>`, then `-add_rpath @loader_path/../lib`. About twenty lines, run once at install.
+
+**`pg_trgm` is not shipped** — the only extensions present are `plpgsql` and `vector`. But PGXS and
+the server headers *are* shipped, so it builds from the PostgreSQL 17.5 contrib source:
+
+```
+make install USE_PGXS=1 PG_CONFIG=<dir>/bin/pg_config PG_SYSROOT="$(xcrun --show-sdk-path)"
+```
+
+`USE_PGXS=1` because the contrib Makefile assumes an in-tree build, and `PG_SYSROOT` because
+`pg_config` reports the CI's Xcode 15.4 SDK, which does not exist here. Everything else about
+`pg_config` self-relocates correctly.
+
+With those three done, against a cluster spawned from that directory:
+
+| | |
+| --- | --- |
+| All 32 drizzle migrations | **applied** |
+| `pg_extension` | `pg_trgm 1.6`, `plpgsql 1.0`, `vector 0.8.0` |
+| HNSW index on `book_chunks.embedding` | created, and **the planner uses it** (`Index Scan using book_chunks_embedding_idx`) |
+| Cosine search over 500 rows | correct — a row is its own nearest neighbour at distance 0 |
+| Generated `tsvector` + GIN full-text | 500/500 hits |
+| `similarity('Frankenstein','Frankenstien')` | `0.529` |
+| The real `src/main.ts` | boots, all **7 worker pools** connect, no errors |
+
+One environmental limit worth remembering: **the Unix socket path is capped at 103 bytes**, and the
+first attempt failed on that alone. `~/Library/Application Support/pdf2audio/` is comfortably
+inside it, but a long username plus a deep data directory is not — put `unix_socket_directories`
+somewhere short, or use TCP on loopback.
+
+**And `pg_trgm` is created but never used.** It appears once, in migration
+`0026_violet_marrow.sql`, and nothing in the codebase references a trigram index, `similarity()`,
+or the `%` operator. Building it is proven and cheap, so build it — but if that ever becomes a
+burden, dropping it is a one-line migration rather than a feature loss.
+
+The data directory moves out of the Docker volume into Application Support, and `initdb` plus
+`drizzle-kit migrate` become things the launcher does on first run.
 
 ### 2. Python — download it, don't ship it
 
@@ -159,9 +201,9 @@ download.
 
 1. **Make model downloads lazy** (no packaging). Split `setup.sh` into "the ~350 MB you need" and
    per-feature fetches with progress, reusing the Pocket-language mechanism. Useful on its own.
-2. **Replace Docker Postgres with a spawned binary.** Prove `pg_trgm` and `vector` both load and
-   that seven pools connect. This is the single biggest risk and it can be tested without any app
-   shell at all — just point `DATABASE_URL` at it.
+2. **Replace Docker Postgres with a spawned binary.** ~~The single biggest risk.~~ **Proven** — see
+   above. What is left is engineering rather than discovery: a supervisor that runs `initdb` once,
+   starts and stops the cluster with the app, picks a free port, and applies migrations.
 3. **Replace `setup.sh`'s pip section with `uv` and a lockfile.** Also an improvement in place.
 4. **Vendor the three CLI tools**, or fetch them.
 5. **Only then** the Electron shell, signing, notarisation, and a DMG.
@@ -175,7 +217,10 @@ caught real onboarding bugs once (`4d0adfb`).
 
 ## Open questions
 
-- Does `@boomship/postgres-vector-embedded` include `pg_trgm`? If not, zonky plus a pgvector build.
+- Is `@boomship/postgres-vector-embedded` a dependency worth keeping, now that its binaries need
+  patching anyway? It is 49 commits by one author and its own README calls the TypeScript "example
+  usage only". We would use it for one thing: a URL to a tarball. Vendoring the download and the
+  `install_name_tool` pass into our own script is maybe fifty lines and drops the dependency.
 - Is BGE-M3 really 4.3 GB of *needed* files, or several formats where one would do? It is the
   single largest required download and worth ten minutes with `allow_patterns`.
 - Can the app run entirely from Application Support with no `.env` file, or does the settings UI
@@ -183,4 +228,4 @@ caught real onboarding bugs once (`4d0adfb`).
 
 ## Status
 
-Researched 2026-08-25, nothing built.
+Researched 2026-08-25. Postgres tested end to end and proven; everything else still on paper.
