@@ -38,7 +38,7 @@ pnpm monorepo with two packages:
 - `packages/server` — Fastify + tRPC + Graphile Worker + Drizzle ORM (port 3034)
 - `packages/web` — React 19 + Vite + Tailwind CSS v4 + react-router v7 (port 3033)
 
-Postgres runs in Docker (`docker-compose.yml` at root), mapped to host port **5433** (not 5432, to avoid conflicts).
+Postgres is **bundled, not Docker**: `scripts/pg.sh` downloads PostgreSQL 17.5 + pgvector (~32 MB, the `lite` build — the `full` one links Homebrew's icu4c) into `.pg/`, relocates the binaries' install names off the build machine's paths, and runs it as a child process on port **5433**. `pnpm db:up` / `db:down` / `db:psql`. `docker-compose.yml` is kept only as a rollback.
 
 Environment variables are managed via `.env` at the repo root (gitignored), with `.env.example` as template. The server loads env via `dotenv` in `packages/server/src/env.ts`, validated through a Zod schema. All server code imports the typed `env` object — never reads `process.env` directly. Vars: `DATABASE_URL`, `DATA_DIR`, `PORT`, `CONDA_ENV_PATH` (Python env bin dir; default `<repo>/.venv/bin`, created by `scripts/setup.sh`), `POCKET_ENV_PATH` (Pocket TTS Python env bin dir; default `<repo>/.venv-pocket/bin`), `HF_TOKEN` is read by `scripts/setup.sh` directly (setup-time only, for the gated Pocket TTS cloning weights) and is deliberately not in the Zod schema — no server code reads it, optional AI provider keys — `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY` — plus optional `LOCAL_LLM_URL`/`LOCAL_LLM_MODEL` (and `LOCAL_LLM_LABEL`/`LOCAL_LLM_CONTEXT_TOKENS`/`LOCAL_LLM_TOOLS`) for a *custom* OpenAI-compatible server — local Ollama and LM Studio servers are auto-discovered with no configuration (cached 30s, per-model tools capability and context length read from the server); each available model is pickable (registry in `lib/llm.ts`, extra entries via `DATA_DIR/llm-models.json`); the home page ⚙️ opens `SettingsModal` (`llmModels.status`/`setKey` tRPC) which shows detected local servers/models and edits cloud keys — written to `.env` via `lib/env-file.ts` and applied to the in-memory `env` without restart, never echoed back to the client, optional `READALOUD_DROP_DIR` (synced-EPUB drop folder for Storyteller auto-import).
 
@@ -122,7 +122,7 @@ Chapters can be individually queued (creates Graphile job) or suspended (no job,
 
 ## Database
 
-PostgreSQL 17 in Docker. Schema in `packages/server/src/schema.ts`. Migrations in `packages/server/drizzle/`.
+PostgreSQL 17.5, bundled (see above). Schema in `packages/server/src/schema.ts`. Migrations in `packages/server/drizzle/`.
 
 Connection string via `DATABASE_URL` env var (required, validated by Zod).
 

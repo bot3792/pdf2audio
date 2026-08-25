@@ -1,3 +1,5 @@
+# Rollback only. Postgres is bundled now — see scripts/pg.sh and `pnpm db:up`. This file and its
+# pgdata17 volume still hold the pre-migration data; `pnpm db:down && docker compose up -d` reverts.
 services:
   postgres:
     image: pgvector/pgvector:pg17

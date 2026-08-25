@@ -95,23 +95,24 @@ pnpm monorepo: `packages/server` (Fastify + tRPC + Graphile Worker + Drizzle/Pos
 
 ## Database
 
-PostgreSQL 17 with pgvector in Docker (`pgvector/pgvector:pg17`, host port **5433**), schema via Drizzle ORM: `profiles`, `folders`, `books`, `book_files`, `chapters`, `chapter_translations`, `assemblies`, `documents`, `notes`, `book_logs`, `book_chunks` (search index: FTS + embeddings). See AGENTS.md for column-level docs. Migrations: `pnpm db:generate` + `pnpm db:migrate`.
+PostgreSQL 17.5 with pgvector, **bundled rather than Docker** — `scripts/pg.sh` downloads a 32 MB build once into `.pg/` and runs it as a child process on host port **5433**. Schema via Drizzle ORM: `profiles`, `folders`, `books`, `book_files`, `chapters`, `chapter_translations`, `assemblies`, `documents`, `notes`, `book_logs`, `book_chunks` (search index: FTS + embeddings). See AGENTS.md for column-level docs. Migrations: `pnpm db:generate` + `pnpm db:migrate`.
 
-### One-time migration from the old `postgres:17-alpine` image (2026-08)
+### One-time migration off Docker (2026-08)
 
-The compose file switched from `postgres:17-alpine` to `pgvector/pgvector:pg17` (needed for the `vector` extension). The images use different C libraries (musl vs glibc), so the data volume is **not** reused — the compose volume was renamed `pgdata` → `pgdata17` and data moves via dump/restore:
+Postgres used to run in Docker. It now ships with the repo, on the same port and the same
+connection string, so `.env` does not change. Existing data moves by dump and restore — use the
+bundled `pg_dump`, since Homebrew's is often an older major version and will refuse a 17.x server:
 
 ```bash
-# 1. While still on the old container:
-docker compose exec postgres pg_dump -U pdf2audio --no-owner pdf2audio > pgbackup.sql
-# 2. Pull up the new image + fresh volume (compose file already updated):
-docker compose up -d
-# 3. Restore:
-docker compose exec -T postgres psql -U pdf2audio -d pdf2audio < pgbackup.sql
-# 4. Verify the app, then eventually: docker volume rm pdf2audio_pgdata
+pnpm db:up                                     # downloads the binaries, creates the cluster
+.pg/dist/bin/pg_dump -Fc -f old.dump "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio"
+docker compose down                            # free port 5433
+pnpm db:up
+.pg/dist/bin/pg_restore -h 127.0.0.1 -p 5433 -U pdf2audio -d pdf2audio -j 4 old.dump
 ```
 
-The old `pdf2audio_pgdata` volume stays untouched as a rollback until you delete it.
+A 5 GB library takes about three minutes. `docker-compose.yml` and its `pgdata17` volume are kept
+untouched as a rollback: `pnpm db:down && docker compose up -d`.
 
 After the restore, index the library for search: `pnpm db:migrate && pnpm backfill:index` (FTS is available within minutes; BGE-M3 embeddings fill in as a background pass).
 
@@ -133,7 +134,7 @@ data/previews/                    Voice preview M4As
 An Apple Silicon Mac (the MLX TTS engines need Metal) with:
 
 - [Homebrew](https://brew.sh), then: `brew install ffmpeg poppler espeak-ng python@3.12 node pnpm`
-- Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (for Postgres and optionally Storyteller; fine to install while setup downloads models — the setup script prints the two commands to finish the database step)
+- Docker — optional now, and only for Storyteller. Postgres no longer needs it.
 - Optional: an AI model for translation, rewrites, cleanup, digests, Ask AI, chat, and LLM chapter detection — [Ollama](https://ollama.com) or LM Studio running locally (auto-discovered, fully offline), or a [DeepSeek](https://platform.deepseek.com/) / OpenAI / Anthropic / Gemini API key
 - Optional: a [Cartesia](https://cartesia.ai) or [ElevenLabs](https://elevenlabs.io) API key for their cloud voices
 - Optional: a [HuggingFace](https://huggingface.co) account for Pocket TTS **voice cloning** — accept the terms at
@@ -166,8 +167,9 @@ Create the admin account at `http://localhost:8001`, then set `READALOUD_DROP_DI
 pnpm dev              # Start server + web in parallel
 pnpm dev:server       # Server only (port 3034)
 pnpm dev:web          # Web only (port 3033)
-pnpm db:up            # Start Postgres in Docker
-pnpm db:down          # Stop Postgres
+pnpm db:up            # Start the bundled Postgres (downloads it on first run)
+pnpm db:down          # Stop it
+pnpm db:psql          # A psql shell on it
 pnpm db:generate      # Generate Drizzle migration from schema changes
 pnpm db:migrate       # Apply migrations
 pnpm run setup        # Full setup (deps check, .venv + pinned Python deps, model caching, Postgres + migrations)
@@ -180,7 +182,7 @@ pnpm e2e:full         # Everything incl. slow tests (marker, TTS, exports)
 
 ## Notes
 
-- Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.
+- Postgres listens on **5433**, not 5432, to avoid colliding with any other Postgres on the machine. The binaries land in `.pg/dist` and the cluster in `.pg/data`; `bash scripts/pg.sh destroy` deletes the cluster and keeps the binaries.
 - Every TTS/extraction subprocess runs with `HF_HUB_OFFLINE=1`, so models never download at synthesis time — `pnpm run setup` caches them all up front (Kokoro-82M, Marker/Surya, BG-TTS V5, MMS Bulgarian, BGE-M3).
 - The first PDF/EPUB export downloads a rendering browser (~350 MB) into the Vivliostyle cache.
 - **Pocket TTS** runs in its own Python env (`.venv-pocket`) because it needs numpy 2.x while the marker/kokoro stack is pinned to 1.26. `pnpm run setup` builds both. It is CPU-only by design — it leaves the GPU free for the MLX engines — and has no speed parameter, so the UI disables the slider.

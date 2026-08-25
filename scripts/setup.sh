@@ -43,11 +43,7 @@ echo "  espeak-ng: $(which espeak-ng)"
 echo "  pdftotext: $(which pdftotext)"
 echo "  python: $PYTHON ($("$PYTHON" --version))"
 echo "  node: $(node --version), pnpm: $(pnpm --version)"
-if command -v docker >/dev/null 2>&1; then
-  echo "  docker: $(docker --version)"
-else
-  echo "  ! docker not found — continuing; install OrbStack or Docker Desktop before the database step"
-fi
+echo "  postgres: bundled (scripts/pg.sh downloads PostgreSQL 17.5 + pgvector, ~32 MB)"
 
 echo ""
 echo "Creating Python environment at .venv..."
@@ -143,14 +139,9 @@ cd "$REPO_DIR"
 pnpm install
 
 echo ""
-if docker info >/dev/null 2>&1; then
-  echo "Starting Postgres and running migrations..."
-  pnpm db:up
-  pnpm db:migrate
-else
-  echo "Docker is not available — install/start OrbStack or Docker Desktop, then run:"
-  echo "  pnpm db:up && pnpm db:migrate"
-fi
+echo "Setting up Postgres and running migrations..."
+bash "$REPO_DIR/scripts/pg.sh" setup
+pnpm db:migrate
 
 echo ""
 echo "=== Setup complete ==="
