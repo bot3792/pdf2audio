@@ -4,13 +4,11 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { env } from "../env.ts";
+import { scriptPath } from "./paths.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
 
-const SYNTHESIZE_SCRIPT = path.resolve(
-  import.meta.dirname,
-  "../../../../scripts/synthesize.py"
-);
+const SYNTHESIZE_SCRIPT = scriptPath("synthesize.py");
 
 type LogFn = (message: string) => Promise<void>;
 type ProgressFn = (chunk: number, totalChunks: number) => Promise<void>;

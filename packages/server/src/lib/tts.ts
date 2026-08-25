@@ -12,12 +12,13 @@ import { resolveSayVoice } from "./say-voices.ts";
 import { cartesiaSynthesize, CartesiaAbortedError, findCartesiaVoice } from "./cartesia.ts";
 import { elevenlabsSynthesize, ElevenLabsAbortedError, findElevenLabsVoice } from "./elevenlabs.ts";
 import { POCKET_SCRIPT, parsePocketVoice, pocketLanguageArgs, pocketPython, resolvePocketVoiceArg } from "./pocket.ts";
+import { scriptPath } from "./paths.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
-const BG_MLX_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_bg_tts_mlx.py");
-const BG_MMS_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_mms_tts.py");
-const KUGEL_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_kugel_tts.py");
-const SAY_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_say_tts.py");
+const BG_MLX_SCRIPT = scriptPath("synthesize_bg_tts_mlx.py");
+const BG_MMS_SCRIPT = scriptPath("synthesize_mms_tts.py");
+const KUGEL_SCRIPT = scriptPath("synthesize_kugel_tts.py");
+const SAY_SCRIPT = scriptPath("synthesize_say_tts.py");
 
 type LogFn = (message: string) => Promise<void>;
 type ProgressFn = (chunk: number, totalChunks: number) => Promise<void>;

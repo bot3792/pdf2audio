@@ -2,8 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 import path from "node:path";
 import { env } from "../env.ts";
+import { scriptPath } from "./paths.ts";
 
-const EMBED_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/embed_bge_m3.py");
+const EMBED_SCRIPT = scriptPath("embed_bge_m3.py");
 const IDLE_KILL_MS = 5 * 60 * 1000;
 const BATCH_TIMEOUT_MS = 5 * 60 * 1000;
 const QUERY_TIMEOUT_MS = 20_000;

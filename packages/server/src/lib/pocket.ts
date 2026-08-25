@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 
 import { env } from "../env.ts";
-import { pocketVoicesDir } from "./paths.ts";
+import { pocketVoicesDir, scriptPath } from "./paths.ts";
 
-export const POCKET_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/synthesize_pocket_tts.py");
+export const POCKET_SCRIPT = scriptPath("synthesize_pocket_tts.py");
 export const pocketPython = () => path.join(env.POCKET_ENV_PATH, "python");
 
 export type PocketLanguage = {

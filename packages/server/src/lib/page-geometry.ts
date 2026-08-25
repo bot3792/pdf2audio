@@ -5,11 +5,12 @@ import path from "node:path";
 import { env } from "../env.ts";
 import type { MarkerSource } from "./marker-sources.ts";
 
-const GEOMETRY_SCRIPT = path.resolve(import.meta.dirname, "../../../../scripts/page_geometry.py");
+const GEOMETRY_SCRIPT = scriptPath("page_geometry.py");
 const GEOMETRY_FILE = "geometry.json";
 
 export type { Rect } from "./reader-format.ts";
 import type { Rect } from "./reader-format.ts";
+import { scriptPath } from "./paths.ts";
 
 export type GeometryLine = {
   b: [number, number, number, number];
