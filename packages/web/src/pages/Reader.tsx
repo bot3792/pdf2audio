@@ -122,6 +122,16 @@ export function ReaderFor({ source, bookId, live = false }: { source: DocumentSo
 
   useAudioTime(audioRef, playing, setMs);
 
+  // Loading a resource resets playbackRate to defaultPlaybackRate, so setting only the former
+  // drops the reader back to 1x on every chapter change and every reload, with the picker still
+  // claiming otherwise. Setting both is what makes the preference survive the load.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.defaultPlaybackRate = speed;
+    audio.playbackRate = speed;
+  }, [speed, chapter?.audio]);
+
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio?.src) return false;
@@ -211,9 +221,9 @@ export function ReaderFor({ source, bookId, live = false }: { source: DocumentSo
               const rate = Number(event.target.value);
               setSpeed(rate);
               saveSpeed(rate);
-              if (audioRef.current) audioRef.current.playbackRate = rate;
             }}
             title="Playback speed"
+            data-testid="reader-speed"
             className="rounded border border-(--border) bg-(--bg-input) px-1 py-1 text-xs"
           >
             {SPEEDS.map((rate) => <option key={rate} value={rate}>{rate}x</option>)}
@@ -301,7 +311,7 @@ export function ReaderFor({ source, bookId, live = false }: { source: DocumentSo
         ref={audioRef}
         src={source.resolve(chapter.audio)}
         preload="metadata"
-        onPlay={() => { setPlaying(true); if (audioRef.current) audioRef.current.playbackRate = speed; }}
+        onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => {
           setPlaying(false);

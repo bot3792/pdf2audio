@@ -136,6 +136,13 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
     await page.locator("body").press("Space");
     await expect.poll(paused).toBe(wasPaused);
 
+    // A standing preference, not a per-chapter one. Loading another file resets the element's rate
+    // to defaultPlaybackRate, so a chapter change used to drop back to 1x with the picker still
+    // claiming otherwise.
+    const rate = () => page.locator("audio").evaluate((el: HTMLAudioElement) => el.playbackRate);
+    await page.getByTestId("reader-speed").selectOption("1.5");
+    await expect.poll(rate).toBe(1.5);
+
     // The chapter that was reading rolls on to the next narrated one when its audio ends
     const chapterPicker = page.getByTestId("reader-chapter");
     const leaving = await chapterPicker.inputValue();
@@ -145,6 +152,7 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
     });
     await expect(chapterPicker).not.toHaveValue(leaving, { timeout: 30_000 });
     expect(await page.locator("audio").evaluate((el: HTMLAudioElement) => el.paused)).toBe(false);
+    expect(await rate()).toBe(1.5);
 
     // Back lands on the chapter being read, not at the top of the table
     const rolled = await chapterPicker.evaluate((el: HTMLSelectElement) =>

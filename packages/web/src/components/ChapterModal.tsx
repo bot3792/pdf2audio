@@ -926,10 +926,14 @@ function ChunkPreviewPanel({
     audio.play().then(() => { audio.playbackRate = playbackRateRef.current; }).catch(() => {});
   }
 
-  // Apply speed changes immediately while a chunk is already playing.
+  // Apply speed changes immediately while a chunk is already playing — and again whenever the
+  // element loads another one, since a load resets playbackRate to defaultPlaybackRate.
   useEffect(() => {
-    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
-  }, [playbackRate]);
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.defaultPlaybackRate = playbackRate;
+    audio.playbackRate = playbackRate;
+  }, [playbackRate, audioSrc]);
 
   // Auto-play whenever the user explicitly picks a chunk (playNonce changes), but not on the
   // programmatic auto-select during synthesis (playNonce stays 0 then) — and not on a mount, which
