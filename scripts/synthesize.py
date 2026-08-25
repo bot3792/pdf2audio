@@ -6,7 +6,6 @@ import json
 import os
 import re
 import sys
-import numpy as np
 
 
 def write_chunk_manifest(chunks_dir, chunk_texts):
@@ -23,15 +22,18 @@ def write_chunk_words(chunks_dir, index, tokens):
     words = []
     for token in tokens:
         start, end = getattr(token, "start_ts", None), getattr(token, "end_ts", None)
-        if start is None or end is None:
-            return
-        if not token.text:
+        text = token.text or ""
+        if not text or start is None or end is None:
+            # A dash or a quote can come back untimed, and abandoning the chunk over one of those
+            # cost every word in it its timing. Only a real word with no timing is unplaceable.
+            if re.search(r"[^\W_]", text):
+                return
             # Its spacing still belongs between the neighbours, or cues weld words together
             if words:
-                words[-1]["after"] += token.whitespace or ""
+                words[-1]["after"] += text + (token.whitespace or "")
             continue
         words.append({
-            "text": token.text,
+            "text": text,
             "after": token.whitespace or "",
             "startMs": round(start * 1000),
             "endMs": round(end * 1000),
@@ -79,6 +81,7 @@ def main():
     lang_code = args.lang or args.voice[0]
 
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    import numpy as np
     import torch
     from kokoro import KPipeline
     import soundfile as sf

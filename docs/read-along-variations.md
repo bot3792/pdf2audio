@@ -52,6 +52,7 @@ The highlight can only be as fine as the timings the engine gives back.
 | Kokoro, English (`a`/`b` voices) | up to 510 phonemes | **per word**, from the model's own duration prediction | `word` |
 | Kokoro, espeak languages (es, fr, it, pt, hi, zh) | same | none — `en_tokenize` returns no tokens | `chunk` |
 | Kokoro chunk over 510 phonemes | re-split | none for the split pieces — the phonemes no longer line up with the tokens | `sentence` |
+| Kokoro chunk holding a dash or quote its aligner cannot place | as usual | **per word** — the untimed mark folds into the word before it rather than costing the chunk its timings | `word` |
 | macOS `say` | one sentence | none | `chunk` |
 | MMS (Bulgarian) | one sentence | none | `chunk` |
 | Pocket TTS | packed to ~285 chars | none | `chunk` |
