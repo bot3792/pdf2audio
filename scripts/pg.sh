@@ -19,11 +19,13 @@ RELEASE="v0.2.1"
 # shipping our own Postgres is meant to remove. `lite` links nothing outside /usr/lib.
 VARIANT="lite"
 
+# Pinned per platform: this is an unsigned tarball from a small third-party repo, executed on the
+# developer's machine as their own user. Verified 2026-08-26 against release $RELEASE.
 case "$(uname -s)/$(uname -m)" in
-  Darwin/arm64) PLATFORM="darwin-arm64" ;;
-  Darwin/x86_64) PLATFORM="darwin-x64" ;;
-  Linux/aarch64|Linux/arm64) PLATFORM="linux-arm64" ;;
-  Linux/x86_64) PLATFORM="linux-x64" ;;
+  Darwin/arm64) PLATFORM="darwin-arm64"; SHA256="8c632037e8947735891062b1b0563dabded9e93db0b39a0b39f21735c249a035" ;;
+  Darwin/x86_64) PLATFORM="darwin-x64"; SHA256="8f981038cf7ae901981d99ffa275dce8e1476edcce1c27357cb796d4a01080ad" ;;
+  Linux/aarch64|Linux/arm64) PLATFORM="linux-arm64"; SHA256="e9be17454c5b2e94a2e0e20ce470101da1a60c58064662e8ab25a6af2d1356ad" ;;
+  Linux/x86_64) PLATFORM="linux-x64"; SHA256="ada92759fbd1bd43ca5daee11eaf7570511f4394fb8512ca13616dc1d97579e3" ;;
   *) echo "No prebuilt PostgreSQL for $(uname -s)/$(uname -m)"; exit 1 ;;
 esac
 URL="https://github.com/boomship/postgres-vector-embedded/releases/download/$RELEASE/postgres-$VARIANT-$PLATFORM.tar.gz"
@@ -55,13 +57,29 @@ setup() {
   if [ ! -x "$PG_BIN/postgres" ]; then
     echo "Downloading PostgreSQL 17.5 + pgvector ($PLATFORM)..."
     mkdir -p "$PG_HOME/dist"
-    curl -fsSL "$URL" | tar -xz --strip-components=1 -C "$PG_HOME/dist"
+    local tarball="$PG_HOME/postgres-$VARIANT-$PLATFORM.tar.gz"
+    curl -fsSL -o "$tarball" "$URL"
+    local got
+    got=$(shasum -a 256 "$tarball" | cut -d' ' -f1)
+    if [ "$got" != "$SHA256" ]; then
+      rm -f "$tarball"
+      echo "Checksum mismatch for $URL" >&2
+      echo "  expected $SHA256" >&2
+      echo "  got      $got" >&2
+      exit 1
+    fi
+    tar -xz --strip-components=1 -C "$PG_HOME/dist" -f "$tarball"
+    rm -f "$tarball"
     if [ "$(uname -s)" = "Darwin" ]; then relocate_macos "$PG_HOME/dist"; fi
     "$PG_BIN/postgres" --version
   fi
 
   if [ ! -f "$PG_DATA/PG_VERSION" ]; then
     echo "Creating the cluster..."
+    mkdir -p "$PG_DATA"
+    # A live data directory is the worst possible backup subject: Time Machine would copy gigabytes
+    # of churning heap and WAL every hour and the copy would not be consistent anyway.
+    if command -v tmutil >/dev/null 2>&1; then tmutil addexclusion "$PG_DATA" 2>/dev/null || true; fi
     "$PG_BIN/initdb" -D "$PG_DATA" -U "$PG_USER" --auth=trust --encoding=UTF8 >/dev/null
   fi
 
@@ -80,6 +98,8 @@ start() {
   fi
   # unix_socket_directories inside the data dir: the socket path is capped at 103 bytes and the
   # default /tmp is shared with any other Postgres on this machine.
+  # pg_ctl only ever appends, so roll the log when it gets big rather than never
+  if [ -f "$PG_LOG" ] && [ "$(wc -c <"$PG_LOG")" -gt 10485760 ]; then mv -f "$PG_LOG" "$PG_LOG.1"; fi
   "$PG_BIN/pg_ctl" -D "$PG_DATA" -l "$PG_LOG" -w -o \
     "-p $PG_PORT -k $PG_DATA -c listen_addresses=127.0.0.1 -c max_connections=100 -c shared_buffers=512MB" start
 }

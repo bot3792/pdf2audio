@@ -183,6 +183,9 @@ pnpm e2e:full         # Everything incl. slow tests (marker, TTS, exports)
 ## Notes
 
 - Postgres listens on **5433**, not 5432, to avoid colliding with any other Postgres on the machine. The binaries land in `.pg/dist` and the cluster in `.pg/data`; `bash scripts/pg.sh destroy` deletes the cluster and keeps the binaries.
+- The Postgres tarball is checksum-pinned per platform in `scripts/pg.sh` — it is an unsigned build from a small third-party repo, run as your own user, so a mismatch aborts rather than warns. Bumping `RELEASE` means re-recording the four hashes.
+- `.pg/data` is excluded from Time Machine at `initdb` time. A live database is a bad backup subject: gigabytes of churn every hour and an inconsistent copy at the end. **Back it up with `pg_dump`, not with a file copy.**
+- Nothing supervises the cluster. It does not come back after a reboot or a crash — `pnpm db:up`. (The old compose file had no `restart:` policy either, so this is not a regression.)
 - Every TTS/extraction subprocess runs with `HF_HUB_OFFLINE=1`, so models never download at synthesis time — `pnpm run setup` caches them all up front (Kokoro-82M, Marker/Surya, BG-TTS V5, MMS Bulgarian, BGE-M3).
 - The first PDF/EPUB export downloads a rendering browser (~350 MB) into the Vivliostyle cache.
 - **Pocket TTS** runs in its own Python env (`.venv-pocket`) because it needs numpy 2.x while the marker/kokoro stack is pinned to 1.26. `pnpm run setup` builds both. It is CPU-only by design — it leaves the GPU free for the MLX engines — and has no speed parameter, so the UI disables the slider.
