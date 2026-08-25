@@ -158,6 +158,11 @@ describe("getPreviewTextForVoice", () => {
     expect(await getPreviewTextForVoice("cartesia:bg-voice-uuid")).toMatch(/пролетна|утрин/i);
     expect(await getPreviewTextForVoice("cartesia:unknown-voice")).toMatch(/quick brown fox/i);
   });
+
+  it("gives a metered engine one sentence rather than the paragraph", async () => {
+    const preview = await getPreviewTextForVoice("elevenlabs:XB0fDUnXU5powFXDhCwa");
+    expect(preview).toBe("The quick brown fox jumps over the lazy dog.");
+  });
 });
 
 describe("voiceSupportsSpeed", () => {

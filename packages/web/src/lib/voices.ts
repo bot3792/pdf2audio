@@ -35,10 +35,11 @@ export function providerOfVoice(voice: Voice): string {
   if (voice.id.startsWith("pocket:")) return "Pocket TTS";
   if (voice.id.startsWith("say:")) return "macOS system";
   if (voice.id.startsWith("cartesia:")) return "Cartesia";
+  if (voice.id.startsWith("elevenlabs:")) return "ElevenLabs";
   return "Kokoro";
 }
 
-export const PROVIDER_ORDER = ["Kokoro", "Pocket TTS", "KugelAudio", "Bulgarian narrators", "macOS system", "Cartesia"];
+export const PROVIDER_ORDER = ["Kokoro", "Pocket TTS", "KugelAudio", "Bulgarian narrators", "macOS system", "Cartesia", "ElevenLabs"];
 
 
 export const LANGUAGE_LABELS: Record<string, string> = {
@@ -212,11 +213,12 @@ export const staticVoices: Voice[] = [
 
 const voicesById = new Map(voiceGroups.flatMap((group) => group.voices).map((voice) => [voice.id, voice]));
 
-export type VoiceEngine = "kokoro" | "narrators" | "say" | "cartesia" | "pocket";
+export type VoiceEngine = "kokoro" | "narrators" | "say" | "cartesia" | "elevenlabs" | "pocket";
 
 const ENGINE_PREFIXES: { prefix: string; engine: VoiceEngine; supportsSpeed: boolean }[] = [
   { prefix: "say:", engine: "say", supportsSpeed: true },
   { prefix: "cartesia:", engine: "cartesia", supportsSpeed: true },
+  { prefix: "elevenlabs:", engine: "elevenlabs", supportsSpeed: true },
   { prefix: "pocket:", engine: "pocket", supportsSpeed: false },
   { prefix: "bg-", engine: "narrators", supportsSpeed: false },
   { prefix: "kugel:", engine: "narrators", supportsSpeed: false },
@@ -239,6 +241,7 @@ export function getVoiceLabel(voiceId: string): string {
   if (!voice) {
     if (voiceId.startsWith("say:")) return humanizeSayVoiceId(voiceId);
     if (voiceId.startsWith("cartesia:")) return `Cartesia ${voiceId.slice("cartesia:".length, "cartesia:".length + 8)}`;
+    if (voiceId.startsWith("elevenlabs:")) return `ElevenLabs ${voiceId.slice("elevenlabs:".length, "elevenlabs:".length + 8)}`;
     if (voiceId.startsWith(POCKET_CUSTOM_PREFIX)) return "Cloned voice";
     if (voiceId.startsWith("pocket:")) return `${voiceId.slice("pocket:".length)} (Pocket TTS)`;
     return voiceId;
@@ -275,6 +278,19 @@ export function cartesiaVoiceToEntry(voice: { id: string; name: string; language
     note: voice.tagline || voice.language,
     language: voice.language.split(/[_-]/)[0].toLowerCase(),
     engine: "cartesia",
+  };
+}
+
+export function elevenlabsVoiceToEntry(voice: { id: string; name: string; language: string; gender: string | null; tagline: string }): Voice {
+  return {
+    id: `elevenlabs:${voice.id}`,
+    label: voice.name,
+    gender: voice.gender === "male" ? "M" : voice.gender === "female" ? "F" : null,
+    grade: "API",
+    supportsSpeed: true,
+    note: voice.tagline || voice.language,
+    language: voice.language.split(/[_-]/)[0].toLowerCase(),
+    engine: "elevenlabs",
   };
 }
 

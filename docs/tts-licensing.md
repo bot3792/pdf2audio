@@ -58,9 +58,14 @@ product, the upside is two extra voices out of 26.
   service exposes this engine. Probably the highest-risk unexamined item here.
 - **Cartesia** (`cartesia:`) — commercial API, governed by their ToS rather than a
   content license. Paid tiers presumed to permit commercial output; confirm.
-- **ElevenLabs** — researched 2026-08-21 and parked (see the TTS backend memory).
-  Free tier explicitly excludes commercial rights and requires attribution; commercial
-  use starts at the Starter plan.
+- **ElevenLabs** (`elevenlabs:`) — shipped 2026-08-25 against the **free tier**, which is
+  10,000 credits a month (~10 minutes of multilingual audio), issues an API key with no
+  card, and **excludes commercial rights while requiring attribution in anything public**.
+  Commercial use starts at Starter ($6/mo). Credits are 1 per character on
+  `eleven_multilingual_v2` and 0.5 on `eleven_flash_v2_5`, so the model choice
+  (`ELEVENLABS_MODEL`) doubles or halves what a free month buys. At list overage rates a
+  ten-hour book is $25–50, which is why this engine exists for demos and samples rather
+  than for a library.
 - **Bulgarian MLX / MMS / KugelAudio** — never examined. MMS is Meta-derived; check its
   license before commercial use.
 

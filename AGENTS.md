@@ -116,6 +116,7 @@ Chapters can be individually queued (creates Graphile job) or suspended (no job,
 | **pdftotext** (poppler, system binary) | Fast raw text extraction at upload | `lib/pdf-raw-text.ts` |
 | **LLM providers** (auto-discovered local Ollama / LM Studio; DeepSeek / OpenAI / Anthropic / Gemini via API keys) | Translation, transforms, cleanup, TOC detection, digests, Ask AI, chat | `lib/llm.ts` |
 | **Cartesia API** (`CARTESIA_API_KEY`; voices `cartesia:<uuid>` from the live library via tRPC `cartesiaVoices.list`, "Cartesia" picker tab) | Neural cloud TTS (Sonic 3.5, 44.1kHz, speed 0.6–1.5x); TS-native chunked client, no Python | `lib/cartesia.ts`, dispatched by `lib/tts.ts` |
+| **ElevenLabs API** (`ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL`; voices `elevenlabs:<handle>` via tRPC `elevenlabsVoices.list`) | Neural cloud TTS (24kHz pcm — 44.1k needs their Pro tier; speed 0.7–1.2x). **Metered**: the free tier is 10k characters/month, so synthesis preflights `elevenlabsVoices.quota` and refuses before spending if the chapter will not fit. Word timings come from character-level `alignment`, grouped in `charactersToWords` | `lib/elevenlabs.ts`, dispatched by `lib/tts.ts` |
 | **Vivliostyle CLI** (npm, spawns a rendering browser) | PDF/EPUB document export | `lib/vivliostyle.ts` |
 | **zip/unzip** (system binaries) | EPUB packaging for synced exports | `lib/readaloud-epub.ts` |
 

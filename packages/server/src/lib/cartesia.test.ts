@@ -5,7 +5,8 @@ vi.mock("../env.ts", () => ({
   env: { CARTESIA_API_KEY: "sk_car_test", DATA_DIR: "/tmp/pdf2audio-test" },
 }));
 
-import { listCartesiaVoices, pcm16WavHeader } from "./cartesia.ts";
+import { listCartesiaVoices } from "./cartesia.ts";
+import { pcm16WavHeader } from "./wav.ts";
 
 const mockFetch = vi.fn();
 

@@ -27,6 +27,8 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v !== "false" && v !== "0"),
   CARTESIA_API_KEY: z.string().optional(),
+  ELEVENLABS_API_KEY: z.string().optional(),
+  ELEVENLABS_MODEL: z.string().default("eleven_multilingual_v2"),
   READALOUD_DROP_DIR: z.string().optional(),
 });
 

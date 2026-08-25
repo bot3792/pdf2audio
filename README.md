@@ -46,7 +46,7 @@ Upload → rawExtract (pdftotext, seconds, always)
 
 Jobs run through [Graphile Worker](https://github.com/graphile/worker) in six pools (TTS, raw text, extraction, assembly, AI/translation, search indexing) with `maxAttempts: 1` — nothing retries silently; the user reviews failures and decides. Chapter text falls back `customText ?? cleanText ?? rawText` at synthesis time.
 
-TTS engines (see [Languages](#languages) for what covers what): [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English, French, Spanish, Italian, Brazilian Portuguese, Hindi, Mandarin), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal. Plus [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) from Kyutai (100M params, **CPU-only** at ~12x realtime, 26 built-in voices, optional voice cloning from a ~20s sample), every installed macOS system voice (via `say`, free and ~25x realtime), and optional [Cartesia](https://cartesia.ai) Sonic cloud TTS (`CARTESIA_API_KEY`).
+TTS engines (see [Languages](#languages) for what covers what): [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) (English, French, Spanish, Italian, Brazilian Portuguese, Hindi, Mandarin), KugelAudio (24 EU languages incl. Bulgarian, local 4-bit MLX quant), BG-TTS V5 MLX, and Meta MMS Bulgarian — all local, GPU-accelerated via MPS/Metal. Plus [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) from Kyutai (100M params, **CPU-only** at ~12x realtime, 26 built-in voices, optional voice cloning from a ~20s sample), every installed macOS system voice (via `say`, free and ~25x realtime), and two optional cloud engines: [Cartesia](https://cartesia.ai) Sonic (`CARTESIA_API_KEY`) and [ElevenLabs](https://elevenlabs.io) (`ELEVENLABS_API_KEY`, whose free tier is 10,000 characters a month — synthesis checks what is left and refuses before spending rather than stopping halfway).
 
 During synthesis the server keeps a text↔audio timing map (`chNNN.sync.json`) next to each chapter's M4A — per chunk always, and per word where the engine reports it (Kokoro does, straight out of its own duration prediction). That map powers the web UI's read-along player and the synced EPUB export — and once it is written, the worker deletes the intermediate chunk WAVs to reclaim disk (`pnpm --filter server cleanup:chunks` sweeps leftovers from older runs).
 
@@ -63,7 +63,7 @@ Every engine covers a different set, so the answer to "does it do language X" de
 | Hindi | 4 | Kokoro |
 | Mandarin Chinese | 8 | Kokoro |
 | 24 EU languages | 1 multilingual narrator | KugelAudio (opt-in ~5 GB download) |
-| Most others | many | [Cartesia](https://cartesia.ai) (cloud, needs an API key), plus any macOS system voice you have installed |
+| Most others | many | [Cartesia](https://cartesia.ai) and [ElevenLabs](https://elevenlabs.io) (cloud, need an API key), plus any macOS system voice you have installed |
 
 ![Scrolling the voice picker's Italian list: 49 voices grouped under Kokoro, Pocket TTS, KugelAudio, macOS system voices and Cartesia](docs/images/voice-picker-languages.gif)
 
@@ -135,7 +135,7 @@ An Apple Silicon Mac (the MLX TTS engines need Metal) with:
 - [Homebrew](https://brew.sh), then: `brew install ffmpeg poppler espeak-ng python@3.12 node pnpm`
 - Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (for Postgres and optionally Storyteller; fine to install while setup downloads models — the setup script prints the two commands to finish the database step)
 - Optional: an AI model for translation, rewrites, cleanup, digests, Ask AI, chat, and LLM chapter detection — [Ollama](https://ollama.com) or LM Studio running locally (auto-discovered, fully offline), or a [DeepSeek](https://platform.deepseek.com/) / OpenAI / Anthropic / Gemini API key
-- Optional: a [Cartesia](https://cartesia.ai) API key for the Sonic cloud TTS voices
+- Optional: a [Cartesia](https://cartesia.ai) or [ElevenLabs](https://elevenlabs.io) API key for their cloud voices
 - Optional: a [HuggingFace](https://huggingface.co) account for Pocket TTS **voice cloning** — accept the terms at
   [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) and put a read token in `HF_TOKEN`. The 26 built-in
   Pocket TTS voices need no account and no token.
@@ -185,7 +185,7 @@ pnpm e2e:full         # Everything incl. slow tests (marker, TTS, exports)
 - The first PDF/EPUB export downloads a rendering browser (~350 MB) into the Vivliostyle cache.
 - **Pocket TTS** runs in its own Python env (`.venv-pocket`) because it needs numpy 2.x while the marker/kokoro stack is pinned to 1.26. `pnpm run setup` builds both. It is CPU-only by design — it leaves the GPU free for the MLX engines — and has no speed parameter, so the UI disables the slider.
 - **Pocket TTS voice licensing is mixed.** The built-in voices are embeddings of real recordings under different licenses: most are CC0 or CC BY 4.0, but `cosette` and `jean` are **CC BY-NC 4.0 (non-commercial only)** and `estelle`'s provenance is unverified. Each voice shows its license in the picker. This is irrelevant while pdf2audio is noncommercial (see [LICENSE](LICENSE)) — it matters if you ever sell audio made with it. Details in [docs/tts-licensing.md](docs/tts-licensing.md).
-- The Bulgarian-capable narrators are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, `KugelAudio (7B, 24 EU languages)`, the macOS `Daria` system voice, and Cartesia's Bulgarian voices. The local model narrators run at fixed speed (UI disables the slider); macOS and Cartesia voices support the speed control.
+- The Bulgarian-capable narrators are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, `KugelAudio (7B, 24 EU languages)`, the macOS `Daria` system voice, and the Bulgarian voices from Cartesia and ElevenLabs. The local model narrators run at fixed speed (UI disables the slider); macOS and the cloud engines support the speed control.
 - KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm run setup --kugel` downloads and converts it. ~1.5x realtime on an M4 Pro.
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.
 - Best Kokoro voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).

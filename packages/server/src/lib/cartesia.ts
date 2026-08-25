@@ -1,9 +1,10 @@
-import { open, writeFile, readFile, mkdir } from "node:fs/promises";
+import { open, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import { env } from "../env.ts";
 import { chunkTextForTts } from "./tts-chunks.ts";
 import { dropStaleChunks, writeChunkWords, type ChunkWord } from "./chunk-previews.ts";
+import { pcm16WavHeader, readWavPcm } from "./wav.ts";
 
 const CARTESIA_URL = "https://api.cartesia.ai";
 const CARTESIA_VERSION = "2026-08-14";
@@ -176,33 +177,6 @@ function toChunkWords(timestamps: unknown): ChunkWord[] {
   }));
 }
 
-export function pcm16WavHeader(dataBytes: number, sampleRate: number): Buffer {
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0);
-  header.writeUInt32LE(36 + dataBytes, 4);
-  header.write("WAVE", 8);
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(1, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(sampleRate * 2, 28);
-  header.writeUInt16LE(2, 32);
-  header.writeUInt16LE(16, 34);
-  header.write("data", 36);
-  header.writeUInt32LE(dataBytes, 40);
-  return header;
-}
-
-async function readChunkPcm(wavPath: string): Promise<Buffer | null> {
-  try {
-    const bytes = await readFile(wavPath);
-    return bytes.length > 44 ? bytes.subarray(44) : null;
-  } catch {
-    return null;
-  }
-}
-
 type CartesiaSynthesizeOptions = {
   inputText: string;
   outputPath: string;
@@ -254,7 +228,7 @@ export async function cartesiaSynthesize({
       if (signal?.aborted) throw new CartesiaAbortedError();
 
       const chunkPath = chunkPreviewDir ? path.join(chunkPreviewDir, `chunk-${String(i + 1).padStart(3, "0")}.wav`) : null;
-      let pcm = chunkPath ? await readChunkPcm(chunkPath) : null;
+      let pcm = chunkPath ? await readWavPcm(chunkPath) : null;
       if (!pcm) {
         let chunk: ChunkAudio;
         try {

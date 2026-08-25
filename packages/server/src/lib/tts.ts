@@ -10,6 +10,7 @@ import { dropStaleChunks } from "./chunk-previews.ts";
 import { synthesize as kokoroSynthesize, KokoroAbortedError } from "./kokoro.ts";
 import { resolveSayVoice } from "./say-voices.ts";
 import { cartesiaSynthesize, CartesiaAbortedError, findCartesiaVoice } from "./cartesia.ts";
+import { elevenlabsSynthesize, ElevenLabsAbortedError, findElevenLabsVoice } from "./elevenlabs.ts";
 import { POCKET_SCRIPT, parsePocketVoice, pocketLanguageArgs, pocketPython, resolvePocketVoiceArg } from "./pocket.ts";
 
 const CONDA_BIN = env.CONDA_ENV_PATH;
@@ -34,7 +35,7 @@ type SynthesizeOptions = {
 };
 
 type ParsedTtsVoice = {
-  engine: "kokoro" | "bg-mlx" | "bg-mms" | "kugel" | "say" | "cartesia" | "pocket";
+  engine: "kokoro" | "bg-mlx" | "bg-mms" | "kugel" | "say" | "cartesia" | "elevenlabs" | "pocket";
   voice: string;
   raw: string;
 };
@@ -80,6 +81,12 @@ export function previewFileBase(voice: string): string {
 function previewTextFor(languageCode: string): string {
   return PREVIEW_TEXT_BY_LANGUAGE[languageCode] ?? ENGLISH_PREVIEW_TEXT;
 }
+
+// Auditioning a voice on a metered engine spends the credits the book needs, and a free ElevenLabs
+// month is about ten minutes of audio in total. One sentence is enough to judge a narrator.
+function firstSentence(text: string): string {
+  return text.match(/^[^.!?]*[.!?]/)?.[0] ?? text;
+}
 const BG_MLX_VOICES = new Set(["narrator"]);
 const BG_MMS_VOICES = new Set(["bul"]);
 const KUGEL_VOICES = new Set(["default"]);
@@ -87,6 +94,8 @@ const KUGEL_VOICES = new Set(["default"]);
 const SAY_VOICE_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 // Cartesia voice ids are UUIDs from the live library
 const CARTESIA_VOICE_PATTERN = /^[A-Za-z0-9_-]{6,}$/;
+// ElevenLabs voice ids are 20-character alphanumeric handles
+const ELEVENLABS_VOICE_PATTERN = /^[A-Za-z0-9]{16,}$/;
 // macOS `say` default speaking rate, scaled by the user's speed multiplier
 const SAY_BASE_RATE_WPM = 175;
 const KOKORO_VOICE_PATTERN = /^[a-z]{2}_[a-z]+$/;
@@ -147,6 +156,14 @@ export function parseTtsVoice(rawVoice: string): ParsedTtsVoice {
     return { engine: "cartesia", voice, raw: rawVoice };
   }
 
+  if (rawVoice.startsWith("elevenlabs:")) {
+    const voice = rawVoice.slice("elevenlabs:".length);
+    if (!ELEVENLABS_VOICE_PATTERN.test(voice)) {
+      throw new Error(`Unsupported voice ID: ${rawVoice}`);
+    }
+    return { engine: "elevenlabs", voice, raw: rawVoice };
+  }
+
   if (rawVoice.startsWith("pocket:")) {
     const voice = rawVoice.slice("pocket:".length);
     if (!parsePocketVoice(voice)) {
@@ -183,12 +200,16 @@ export async function getPreviewTextForVoice(voice: string): Promise<string> {
     const cartesiaVoice = await findCartesiaVoice(resolved.voice);
     return previewTextFor(cartesiaVoice?.language.split(/[_-]/)[0].toLowerCase() ?? "en");
   }
+  if (resolved.engine === "elevenlabs") {
+    const elevenVoice = await findElevenLabsVoice(resolved.voice);
+    return firstSentence(previewTextFor(elevenVoice?.language.split(/[_-]/)[0].toLowerCase() ?? "en"));
+  }
   return BULGARIAN_PREVIEW_TEXT;
 }
 
 export function voiceSupportsSpeed(voice: string): boolean {
   const engine = parseTtsVoice(voice).engine;
-  return engine === "kokoro" || engine === "say" || engine === "cartesia";
+  return engine === "kokoro" || engine === "say" || engine === "cartesia" || engine === "elevenlabs";
 }
 
 export async function synthesize({ inputText, outputPath, voice, speed, chunkPreviewDir = null, chunkPreviewUrlBase = null, log = noopLog, onProgress = noopProgress, signal }: SynthesizeOptions): Promise<void> {
@@ -222,6 +243,28 @@ export async function synthesize({ inputText, outputPath, voice, speed, chunkPre
       return;
     } catch (error) {
       if (error instanceof CartesiaAbortedError) {
+        throw new TtsAbortedError();
+      }
+      throw error;
+    }
+  }
+
+  if (resolved.engine === "elevenlabs") {
+    try {
+      await elevenlabsSynthesize({
+        inputText,
+        outputPath,
+        voiceId: resolved.voice,
+        speed,
+        chunkPreviewDir,
+        chunkPreviewUrlBase,
+        log,
+        onProgress,
+        signal,
+      });
+      return;
+    } catch (error) {
+      if (error instanceof ElevenLabsAbortedError) {
         throw new TtsAbortedError();
       }
       throw error;

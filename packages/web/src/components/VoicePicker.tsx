@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { TOOLBAR_BUTTON } from "../lib/button-classes.ts";
 import {
   cartesiaVoiceToEntry,
+  elevenlabsVoiceToEntry,
   engineForVoiceId,
   getVoiceLabel,
   normalizeVoiceId,
@@ -26,19 +27,21 @@ function useSelectedVoiceLabel(selectedId: string): string {
   const engine = engineForVoiceId(selectedId);
   const { data: sayVoices = [] } = trpc.sayVoices.list.useQuery(undefined, { staleTime: Infinity, enabled: engine === "say" });
   const { data: cartesiaVoices = [] } = trpc.cartesiaVoices.list.useQuery(undefined, { staleTime: Infinity, enabled: engine === "cartesia" });
+  const { data: elevenlabsVoices = [] } = trpc.elevenlabsVoices.list.useQuery(undefined, { staleTime: Infinity, enabled: engine === "elevenlabs" });
   const { data: pocket } = trpc.pocketVoices.list.useQuery(undefined, { staleTime: Infinity, enabled: engine === "pocket" });
 
   return useMemo(() => {
     const candidates: Voice[] =
       engine === "say" ? sayVoices.map(sayVoiceToEntry)
       : engine === "cartesia" ? cartesiaVoices.map(cartesiaVoiceToEntry)
+      : engine === "elevenlabs" ? elevenlabsVoices.map(elevenlabsVoiceToEntry)
       : engine === "pocket" ? [
           ...(pocket?.custom ?? []).map(pocketCustomVoiceToEntry),
           ...(pocket?.voices ?? []).map((voice) => pocketVoiceToEntry(voice, pocketLanguageOf(selectedId))),
         ]
       : [];
     return candidates.find((voice) => voice.id === selectedId)?.label ?? getVoiceLabel(selectedId);
-  }, [selectedId, engine, sayVoices, cartesiaVoices, pocket]);
+  }, [selectedId, engine, sayVoices, cartesiaVoices, elevenlabsVoices, pocket]);
 }
 
 // `pocket:it:giovanni` — the middle segment is the language; bare and `custom:` ids are English.

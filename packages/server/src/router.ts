@@ -10,6 +10,7 @@ import { profilesRouter } from "./routes/profiles.ts";
 import { searchRouter } from "./routes/search.ts";
 import { sayVoicesRouter } from "./routes/say-voices.ts";
 import { cartesiaVoicesRouter } from "./routes/cartesia-voices.ts";
+import { elevenlabsVoicesRouter } from "./routes/elevenlabs-voices.ts";
 import { pocketVoicesRouter } from "./routes/pocket-voices.ts";
 import { llmModelsRouter } from "./routes/llm-models.ts";
 
@@ -24,6 +25,7 @@ export const appRouter = router({
   search: searchRouter,
   sayVoices: sayVoicesRouter,
   cartesiaVoices: cartesiaVoicesRouter,
+  elevenlabsVoices: elevenlabsVoicesRouter,
   pocketVoices: pocketVoicesRouter,
   llmModels: llmModelsRouter,
 });

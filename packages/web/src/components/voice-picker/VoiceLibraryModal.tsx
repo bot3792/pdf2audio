@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   cartesiaVoiceToEntry,
+  elevenlabsVoiceToEntry,
   languageLabel,
   MULTILINGUAL,
   voiceCoversLanguage,
@@ -27,6 +28,14 @@ const ALL = "all";
 // Showing 500 Cartesia voices at once answers nothing; a taste of each provider does.
 const PREVIEW_PER_PROVIDER = 6;
 const RAIL_LANGUAGE_LIMIT = 8;
+
+// Every other engine here is free; this one is metered, and running out mid-chapter is the
+// normal case on a free month. What is left belongs where the voices are chosen.
+function sectionLabel(provider: string, count: number, quota: { remaining: number; limit: number } | null | undefined): string {
+  const base = `${provider} \u00b7 ${count}`;
+  if (provider !== "ElevenLabs" || !quota?.limit) return base;
+  return `${base} \u00b7 ${quota.remaining.toLocaleString()} of ${quota.limit.toLocaleString()} characters left`;
+}
 
 // What this book is being translated into comes first — that's what you're here to synthesize —
 // then English, then the rest by how many voices they have.
@@ -81,6 +90,8 @@ export function VoiceLibraryModal({
 
   const { data: sayVoices = [] } = trpc.sayVoices.list.useQuery(undefined, { staleTime: Infinity });
   const { data: cartesiaVoices = [] } = trpc.cartesiaVoices.list.useQuery(undefined, { staleTime: Infinity });
+  const { data: elevenlabsVoices = [] } = trpc.elevenlabsVoices.list.useQuery(undefined, { staleTime: Infinity });
+  const { data: elevenlabsQuota } = trpc.elevenlabsVoices.quota.useQuery(undefined, { staleTime: 60_000, enabled: elevenlabsVoices.length > 0 });
   const { data: pocket, refetch: refetchPocket } = trpc.pocketVoices.list.useQuery(undefined, { staleTime: Infinity });
   const { data: pocketLanguages = [] } = trpc.pocketVoices.languages.useQuery(undefined, {
     refetchInterval: (q) => (q.state.data?.some((l) => l.downloading) ? 1500 : false),
@@ -99,8 +110,8 @@ export function VoiceLibraryModal({
   );
 
   const allVoices = useMemo<Voice[]>(
-    () => [...staticVoices, ...sayVoices.map(sayVoiceToEntry), ...cartesiaVoices.map(cartesiaVoiceToEntry), ...pocketVoices],
-    [sayVoices, cartesiaVoices, pocketVoices],
+    () => [...staticVoices, ...sayVoices.map(sayVoiceToEntry), ...cartesiaVoices.map(cartesiaVoiceToEntry), ...elevenlabsVoices.map(elevenlabsVoiceToEntry), ...pocketVoices],
+    [sayVoices, cartesiaVoices, elevenlabsVoices, pocketVoices],
   );
 
   const languageCounts = useMemo(() => {
@@ -335,7 +346,7 @@ export function VoiceLibraryModal({
                         const capped = activeProvider === ALL && !expanded.has(name) && voices.length > PREVIEW_PER_PROVIDER;
                         const rows = capped ? voices.slice(0, PREVIEW_PER_PROVIDER) : voices;
                         return (
-                          <Section key={name} label={`${name} · ${voices.length}`}>
+                          <Section key={name} label={sectionLabel(name, voices.length, elevenlabsQuota)}>
                             {rows.map((voice) => <VoiceRow key={voice.id} voice={voice} />)}
                             {capped && (
                               <button
@@ -358,6 +369,7 @@ export function VoiceLibraryModal({
                             <>
                               No {languageLabel(language)} voices installed.
                               {cartesiaVoices.length === 0 && " Cartesia's cloud catalogue covers most languages — set CARTESIA_API_KEY in .env to list it here."}
+                              {elevenlabsVoices.length === 0 && " ElevenLabs' free tier gives an API key and 10,000 characters a month — set ELEVENLABS_API_KEY in .env."}
                             </>
                           )}
                         </Empty>
