@@ -90,6 +90,7 @@ export function BookFilesSection({
   }
 
   const extractingCount = files.filter((f) => f.status === "extracting" || f.status === "pending").length;
+  const isEmpty = files.length === 0;
 
   return (
     <section className={`relative overflow-hidden mb-6 rounded-xl border border-(--border) border-t-2 bg-(--bg-card) p-4 ${
@@ -123,8 +124,9 @@ export function BookFilesSection({
         <AddFilesButton bookId={bookId} onFilesAdded={onFilesAdded} />
         <button
           onClick={() => setExtractOpen(true)}
-          title="Extract files again, or re-detect chapter boundaries"
-          className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border)"
+          disabled={isEmpty}
+          title={isEmpty ? "Add a PDF first" : "Extract files again, or re-detect chapter boundaries"}
+          className="px-3 py-1.5 bg-(--bg-subtle) text-(--text-secondary) rounded-md text-xs font-medium hover:bg-(--border) disabled:opacity-50 disabled:cursor-not-allowed"
           data-testid="open-extract-modal"
         >
           Extract...
@@ -155,7 +157,8 @@ export function BookFilesSection({
                   checked={allSelected}
                   ref={(el) => { if (el) el.indeterminate = !allSelected && !noneSelected; }}
                   onChange={() => onSetAllSelected(!allSelected)}
-                  className="rounded"
+                  disabled={isEmpty}
+                  className="rounded disabled:opacity-40"
                 />
               </th>
               <th className="px-3 py-2 text-left text-xs font-medium text-(--text-muted) uppercase">#</th>
@@ -267,6 +270,13 @@ export function BookFilesSection({
                 </td>
               </tr>
             ))}
+            {isEmpty && (
+              <tr>
+                <td colSpan={6} className="px-3 py-8 text-center text-sm text-(--text-muted)" data-testid="no-source-files">
+                  No source files. Use <span className="font-medium text-(--text-secondary)">Add files</span> to upload a PDF.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

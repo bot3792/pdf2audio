@@ -86,11 +86,14 @@ export function bodyFit(medianBodyPt: number | null, cropWidthPt: number, render
 }
 
 // What took the page mapping away, in the reader's words. The document states which it was, so
-// neither surface has to guess from a database row.
+// neither surface has to guess from a database row. The map is written while a chapter is
+// narrated, which is what separates the last two: one has never been narrated, the other was
+// narrated before the map existed, and narrating it again is the fix.
 export const UNMAPPED: Record<ReaderUnmapped, string> = {
   edited: "This chapter's text was edited after extraction, so the narration can't be lined up with the print.",
   generated: "This chapter's text was written rather than extracted, so there is no print to line it up with.",
-  unmapped: "This chapter was extracted before pages could be lined up — re-extract the file to enable it.",
+  unmapped: "This chapter was narrated before pages could be lined up — re-synthesize it to mark the words.",
+  unnarrated: "This chapter hasn't been narrated yet.",
 };
 
 // The pages a chapter covers, in flat order — the same set both surfaces render

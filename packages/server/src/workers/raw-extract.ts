@@ -4,6 +4,7 @@ import { books, bookFiles } from "../schema.ts";
 import { eq, asc, and, isNull, isNotNull } from "drizzle-orm";
 import { extractPdfRawText, countWords } from "../lib/pdf-raw-text.ts";
 import { appendLog } from "../lib/log.ts";
+import { stat } from "node:fs/promises";
 
 export type RawExtractPayload = {
   bookId: string;
@@ -27,6 +28,9 @@ export async function rawExtract(payload: RawExtractPayload, { addJob }: { addJo
       await db.update(bookFiles).set({ rawText: text, rawWords: words }).where(eq(bookFiles.id, file.id));
       await appendLog(bookId, `Raw text: "${file.filename}" — ${words.toLocaleString()} words`, file.index);
       extracted++;
+    } else if (!(await stat(file.pdfPath).catch(() => null))) {
+      // Blaming the PDF for bytes that are not there sends the reader looking for the wrong fault
+      await appendLog(bookId, `"${file.filename}" is missing from disk — remove it from the book`, file.index);
     } else {
       await appendLog(bookId, `Raw text unavailable for "${file.filename}" — PDF may be scanned or encrypted`, file.index);
     }

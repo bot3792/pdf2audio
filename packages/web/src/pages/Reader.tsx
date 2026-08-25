@@ -37,6 +37,12 @@ const GRANULARITY_HINT: Record<ReaderCues["granularity"], string> = {
 // Below this the book's own type is too small at the chosen width, and the reader says so
 const LEGIBLE_PERCENT = 70;
 
+// How often an un-narrated chapter asks whether it has been narrated since
+const NARRATION_POLL_MS = 10_000;
+
+const WARN_BANNER = "mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40";
+const NOTE_BANNER = "mb-3 rounded border border-(--border) bg-(--bg-subtle) px-3 py-2 text-sm text-(--text-muted)";
+
 export function Reader() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -61,23 +67,49 @@ export function Reader() {
 
   const requested = searchParams.get("chapter");
   const list = manifest?.chapters ?? [];
-  // Opening on a chapter that was never narrated is a dead end, so fall back to one that was
+  // A chapter nobody has narrated still opens on its pages, but a narrated one is the better landing
   const chapter =
     (requested === null ? undefined : list.find((entry) => entry.i === Number(requested))) ??
     list.find((entry) => entry.audio) ??
     list[0] ??
     null;
 
+  const pages = useMemo(
+    () => (manifest && chapter ? chapterPages(manifest, chapter) : []),
+    [manifest, chapter?.id],
+  );
+
+  // The pages come from the PDF, so they are there long before a word is spoken. Only a chapter
+  // with no pages at all has to fall back to the reflowed text.
+  useEffect(() => {
+    if (chapter && pages.length === 0) setView("text");
+  }, [chapter?.id, pages.length]);
+
   useEffect(() => {
     if (!chapter) return;
     setCues(null);
     setMs(0);
     setCueError(null);
-    if (chapter.mode === "text") setView("text");
     if (!chapter.audio) return;
     // A chapter's own failure, not the reader's — the picker has to stay usable
     fetchCues(chapter.cues).then(setCues).catch((err: Error) => setCueError(err.message));
-  }, [chapter?.id]);
+  }, [chapter?.id, chapter?.audio]);
+
+  // The reader holds no database row by design, so a chapter narrated while it is open can only be
+  // noticed by asking the manifest again — while there is something to wait for, and someone looking
+  useEffect(() => {
+    if (!id || !chapter || chapter.audio) return;
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchManifest(id).then(setManifest).catch(() => {});
+    };
+    const timer = setInterval(check, NARRATION_POLL_MS);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [id, chapter?.id, chapter?.audio]);
 
   useAudioTime(audioRef, playing, setMs);
 
@@ -88,11 +120,6 @@ export function Reader() {
     return true;
   }, []);
   usePlayPauseKey(togglePlay);
-
-  const pages = useMemo(
-    () => (manifest && chapter ? chapterPages(manifest, chapter) : []),
-    [manifest, chapter?.id],
-  );
 
   // Rolling on to the next narrated chapter, audiobook-style: the flag survives the chapter
   // swap and the new audio element plays itself once it has metadata
@@ -140,6 +167,7 @@ export function Reader() {
   if (!manifest || !chapter) return <ReaderShell bookId={id}><p className="text-sm text-(--text-muted)">Loading…</p></ReaderShell>;
 
   const maxWidth = WIDTHS.find((w) => w.id === width)!.px;
+  const hasPages = pages.length > 0;
 
   return (
     <ReaderShell bookId={id} chapterId={chapter.id} title={manifest.book.title}>
@@ -237,15 +265,19 @@ export function Reader() {
       </div>
 
       {cueError && (
-        <p className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40" data-testid="reader-cue-error">
+        <p className={WARN_BANNER} data-testid="reader-cue-error">
           {cueError} — the audio still plays, but nothing can be highlighted. Re-synthesizing this
           chapter writes one.
         </p>
       )}
 
       {chapter.mode === "text" && (
-        <p className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40" data-testid="reader-text-mode">
-          {UNMAPPED[chapter.why ?? "unmapped"]} It reads as text rather than on the page.
+        <p
+          className={hasPages ? NOTE_BANNER : WARN_BANNER}
+          data-testid="reader-text-mode"
+        >
+          {UNMAPPED[chapter.why ?? "unmapped"]}{" "}
+          {hasPages ? "Its pages are below, with nothing marked on them." : "It reads as text rather than on the page."}
         </p>
       )}
 

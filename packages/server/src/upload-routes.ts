@@ -8,7 +8,7 @@ import { tmpDir, uploadsDir } from "./lib/paths.ts";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { quickAddJob } from "graphile-worker";
 import { rm } from "node:fs/promises";
@@ -155,7 +155,9 @@ export function registerUploadRoutes(fastify: FastifyInstance) {
       .from(bookFiles)
       .where(eq(bookFiles.bookId, bookId));
 
-    if (existingFiles.length === 0 && book.pdfPath) {
+    // …but only for a file that is still on disk. A book whose files were all removed also has no
+    // rows, and its pdfPath describes bytes that were deleted with them — never a file to restore.
+    if (existingFiles.length === 0 && book.pdfPath && (await stat(book.pdfPath).catch(() => null))) {
       await db.insert(bookFiles).values({
         bookId,
         index: 0,

@@ -115,9 +115,16 @@ export function ChapterModal({
 
   const isVariant = !!variant;
 
+  // Synthesis rewrites what both documents say about this chapter — it gains audio, and the text
+  // map that puts its words on the page is written on the way there. The modal stays open across
+  // all of that, so it refetches when the run lands rather than waiting for a reload. Queuing
+  // clears the path first, so this changes once when a run starts and once when it finishes —
+  // the statuses in between say nothing new, and the manifest is the whole book's.
+  const narration = chapter.audioPath ?? "";
+
   useEffect(() => {
     fetchManifest(bookId).then(setManifest).catch(() => setManifest(null));
-  }, [bookId]);
+  }, [bookId, narration]);
 
   const readerChapter = manifest?.chapters.find((entry) => entry.i === chapter.index);
   // Where a chapter sits in the book survives an edit or a translation; marking the audio on it does not
@@ -126,12 +133,14 @@ export function ChapterModal({
   // The manifest states where a chapter's narration lives; nothing here builds that URL itself
   const cueUrl = isVariant ? null : readerChapter?.audio ? readerChapter.cues : null;
 
+  // A re-synthesis leaves the cue URL untouched and its contents replaced, so the URL alone is not
+  // enough to know the timings are the ones on disk
   useEffect(() => {
     setCues(null);
     setMs(0);
     if (!cueUrl) return;
     fetchCues(cueUrl).then(setCues).catch(() => setCues(null));
-  }, [cueUrl]);
+  }, [cueUrl, narration]);
 
   const canMark = readerChapter?.mode === "page" && cues !== null;
 
@@ -531,6 +540,7 @@ export function ChapterModal({
                     : `Re-synthesize this chapter's audio from text (from scratch)${withVoice}`
             }
             className={TOOLBAR_BUTTON}
+            data-testid="chapter-synthesize"
           >
             {canContinueSynthesis ? "Start over" : "Re-synthesize"}
           </button>

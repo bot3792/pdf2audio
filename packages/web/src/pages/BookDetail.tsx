@@ -54,6 +54,9 @@ export function BookDetail() {
   );
 
   const hasChapterAudio = book?.chapters?.some((c: { audioPath?: string | null }) => !!c.audioPath) ?? false;
+  // The pages are readable as soon as extraction places a chapter on them — the narration is what
+  // gets followed across them later, not what makes them worth opening
+  const hasChapterPages = book?.chapters?.some((c: { pageStart?: number | null }) => c.pageStart != null) ?? false;
 
   const invalidate = () => {
     utils.books.get.invalidate({ id: id! });
@@ -450,10 +453,12 @@ export function BookDetail() {
              </p>
            </div>
           <div className="shrink-0 pt-1 flex items-center gap-2">
-            {hasChapterAudio ? (
+            {hasChapterAudio || hasChapterPages ? (
               <Link
                 to={`/books/${book.id}/read`}
-                title="Follow the narration on the PDF page, and tap a sentence to jump there"
+                title={hasChapterAudio
+                  ? "Follow the narration on the PDF page, and tap a sentence to jump there"
+                  : "Read the book's own pages — synthesize a chapter to follow the narration across them"}
                 className="text-sm px-3 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-(--text-secondary) hover:text-(--text-primary) hover:bg-(--bg-hover)"
                 data-testid="book-read-link"
               >
@@ -461,7 +466,7 @@ export function BookDetail() {
               </Link>
             ) : (
               <span
-                title="No chapter has audio yet — synthesize one to read along with it"
+                title="No chapter is on a page yet — extract chapters to read this book on its own print"
                 className="text-sm px-3 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-(--text-faint) opacity-50 cursor-not-allowed"
                 data-testid="book-read-link"
               >
@@ -487,38 +492,36 @@ export function BookDetail() {
         )}
 
         {/* STAGE 1: Input — source files & extraction */}
-        {book.files && book.files.length > 0 && (
-          <BookFilesSection
-            files={book.files}
-            chapters={book.chapters}
-            bookId={book.id}
-            isProcessing={isProcessing}
-            forceOcr={book.forceOcr}
-            llmChapterDetection={book.llmChapterDetection}
-            chapterModel={book.chapterModel ?? null}
-            language={book.language ?? null}
-            onUpdateExtractionSettings={(settings) => updateSettingsMutation.mutate({ id: book.id, ...settings })}
-            onSetSelected={(fid, selected) => setFileSelectedMutation.mutate({ id: fid, selected })}
-            onSetAllSelected={(selected) => setAllFilesSelectedMutation.mutate({ bookId: book.id, selected })}
-            onSetSelectedBatch={(ids, selected) => setFileSelectedBatchMutation.mutate({ ids, selected })}
-            onRemove={(fid) => removeFileMutation.mutate({ id: fid })}
-            onReExtract={(fid) => reExtractFileMutation.mutate({ id: fid })}
-            voiceLabel={getVoiceLabel(book.voice)}
-            onStartExtraction={async (scope, autoSynthesize) => {
-              await setAutoSynthesizeMutation.mutateAsync({ id: book.id, autoSynthesize });
-              if (scope === "selected") reExtractSelectedMutation.mutate({ bookId: book.id });
-              else if (scope === "book") retryMutation.mutate({ id: book.id });
-              else redetectMutation.mutate({ id: book.id });
-            }}
-            onCancelExtraction={() => {
-              if (confirm("Stop the running extraction? Files already extracted are kept.")) {
-                cancelMutation.mutate({ id: book.id });
-              }
-            }}
-            onCancel={(fid) => cancelFileMutation.mutate({ id: fid })}
-            onFilesAdded={invalidate}
-          />
-        )}
+        <BookFilesSection
+          files={book.files ?? []}
+          chapters={book.chapters}
+          bookId={book.id}
+          isProcessing={isProcessing}
+          forceOcr={book.forceOcr}
+          llmChapterDetection={book.llmChapterDetection}
+          chapterModel={book.chapterModel ?? null}
+          language={book.language ?? null}
+          onUpdateExtractionSettings={(settings) => updateSettingsMutation.mutate({ id: book.id, ...settings })}
+          onSetSelected={(fid, selected) => setFileSelectedMutation.mutate({ id: fid, selected })}
+          onSetAllSelected={(selected) => setAllFilesSelectedMutation.mutate({ bookId: book.id, selected })}
+          onSetSelectedBatch={(ids, selected) => setFileSelectedBatchMutation.mutate({ ids, selected })}
+          onRemove={(fid) => removeFileMutation.mutate({ id: fid })}
+          onReExtract={(fid) => reExtractFileMutation.mutate({ id: fid })}
+          voiceLabel={getVoiceLabel(book.voice)}
+          onStartExtraction={async (scope, autoSynthesize) => {
+            await setAutoSynthesizeMutation.mutateAsync({ id: book.id, autoSynthesize });
+            if (scope === "selected") reExtractSelectedMutation.mutate({ bookId: book.id });
+            else if (scope === "book") retryMutation.mutate({ id: book.id });
+            else redetectMutation.mutate({ id: book.id });
+          }}
+          onCancelExtraction={() => {
+            if (confirm("Stop the running extraction? Files already extracted are kept.")) {
+              cancelMutation.mutate({ id: book.id });
+            }
+          }}
+          onCancel={(fid) => cancelFileMutation.mutate({ id: fid })}
+          onFilesAdded={invalidate}
+        />
 
         {/* STAGE 2: Work — chapter structure, text, translation */}
         <section className="mb-6 rounded-xl border border-(--border) border-t-2 border-t-blue-400/80 bg-(--bg-card) p-4">

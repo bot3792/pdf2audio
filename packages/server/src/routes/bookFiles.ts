@@ -2,7 +2,7 @@ import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
 import { db } from "../db.ts";
 import { books, bookFiles, chapters } from "../schema.ts";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, asc, inArray } from "drizzle-orm";
 import { appendLog } from "../lib/log.ts";
 import { bookTmpDir } from "../lib/paths.ts";
 import { quickAddJob } from "graphile-worker";
@@ -29,6 +29,23 @@ async function deleteChaptersForFile(bookId: string, fileIndex: number) {
     .where(and(eq(chapters.bookId, bookId), eq(chapters.sourceFileIndex, fileIndex)));
 
   return fileChapters.length;
+}
+
+// books.pdfPath predates book_files, and three places still read it as "the book's only PDF" when
+// no rows remain — the legacy single-file shape. Left pointing at a file that was just deleted, it
+// resurrects that file the next time one is added, so it follows the rows it describes.
+async function repointBookPdf(bookId: string) {
+  const [first] = await db
+    .select({ pdfPath: bookFiles.pdfPath, filename: bookFiles.filename })
+    .from(bookFiles)
+    .where(eq(bookFiles.bookId, bookId))
+    .orderBy(asc(bookFiles.index))
+    .limit(1);
+
+  await db
+    .update(books)
+    .set({ pdfPath: first?.pdfPath ?? null, filename: first?.filename ?? null, updatedAt: new Date() })
+    .where(eq(books.id, bookId));
 }
 
 function guardActiveChapters(fileChapters: { status: string }[]) {
@@ -107,6 +124,7 @@ export const bookFilesRouter = router({
 
       const deletedCount = await deleteChaptersForFile(file.bookId, file.index);
       await db.delete(bookFiles).where(eq(bookFiles.id, input.id));
+      await repointBookPdf(file.bookId);
       await unlink(file.pdfPath).catch(() => {});
       await rm(path.join(bookTmpDir(file.bookId), `file_${file.index}`), { recursive: true, force: true }).catch(() => {});
       await updateBookTotalChapters(file.bookId);

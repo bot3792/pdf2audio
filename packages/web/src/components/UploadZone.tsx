@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, type DragEvent } from "react";
+import { useState, useRef, useCallback, type DragEvent, type ReactNode } from "react";
 import { VoicePicker } from "./VoicePicker.tsx";
 import { SpeedSlider } from "./SpeedSlider.tsx";
 import { getVoiceById, voiceSupportsSpeedControl, getVoiceLabel } from "../lib/voices.ts";
@@ -16,6 +16,33 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type OptionProps = {
+  label: string;
+  hint: ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  title?: string;
+  testId?: string;
+};
+
+function Option({ label, hint, checked, onChange, title, testId }: OptionProps) {
+  return (
+    <label className="flex gap-2 cursor-pointer" title={title}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 rounded"
+        data-testid={testId}
+      />
+      <span className="min-w-0">
+        <span className="block text-sm text-(--text-primary)">{label}</span>
+        <span className="block text-xs text-(--text-muted)">{hint}</span>
+      </span>
+    </label>
+  );
 }
 
 export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProps) {
@@ -230,8 +257,17 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
 
   const hasFiles = stagedFiles.length > 0;
   const isMultiFile = stagedFiles.length > 1;
+  const isReorderable = isMultiFile && !separateBooks;
+  const totalSize = stagedFiles.reduce((sum, file) => sum + file.size, 0);
   const selectedVoice = getVoiceById(voice);
   const speedEnabled = voiceSupportsSpeedControl(voice);
+  const noteTarget = isMultiFile && separateBooks ? "each book" : "the whole book";
+
+  const outcome = !fullExtract
+    ? "Raw text lands in seconds. Chapters and audio can follow later from the book page."
+    : autoSynthesize
+      ? "Extraction then narration, both in the background — minutes per book."
+      : "Marker reads the whole PDF in the background — minutes per book.";
 
   return (
     <div className="space-y-4">
@@ -242,7 +278,7 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
         onClick={() => !isUploading && fileInputRef.current?.click()}
         className={`
           border-2 border-dashed rounded-lg text-center transition-colors
-          ${hasFiles ? "p-4" : "p-12"}
+          ${hasFiles ? "p-3" : "p-12"}
           ${isDragging ? "border-blue-500 bg-(--bg-drag)" : hasFiles ? "border-(--border-input) bg-(--bg-card)" : "border-(--border-input) hover:border-(--text-faint) bg-(--bg-subtle)"}
           ${isUploading ? "opacity-50 pointer-events-none" : "cursor-pointer"}
         `}
@@ -256,37 +292,53 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
           className="hidden"
         />
         {hasFiles ? (
-          <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+          <div className="text-left space-y-1" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 px-3 pb-2 border-b border-(--border)">
+              <span className="text-xs font-medium text-(--text-secondary)">
+                {stagedFiles.length} PDF{stagedFiles.length === 1 ? "" : "s"} · {formatFileSize(totalSize)}
+              </span>
+              {isReorderable && <span className="text-xs text-(--text-faint)">drag to set the volume order</span>}
+              <button
+                type="button"
+                onClick={() => setStagedFiles([])}
+                className="ml-auto text-xs text-(--text-muted) hover:text-(--text-secondary)"
+              >
+                Clear
+              </button>
+            </div>
             {stagedFiles.map((file, index) => (
               <div
                 key={`${file.name}-${file.size}-${index}`}
-                draggable
+                draggable={isReorderable}
                 onDragStart={(e) => handleRowDragStart(e, index)}
                 onDragOver={(e) => handleRowDragOver(e, index)}
                 onDrop={(e) => handleRowDrop(e, index)}
                 onDragEnd={handleRowDragEnd}
                 className={`
-                  flex items-center gap-3 px-3 py-2 rounded-md transition-colors
+                  flex items-center gap-3 px-3 py-1.5 rounded-md transition-colors
                   ${dragIndex === index ? "opacity-40" : ""}
                   ${dragOverIndex === index && dragIndex !== index ? "bg-(--bg-drag) border border-blue-400 border-dashed" : "hover:bg-(--bg-subtle)"}
                 `}
               >
-                <span className="cursor-grab text-(--text-faint) select-none" title="Drag to reorder">
-                  <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-                  </svg>
+                {isReorderable && (
+                  <span className="cursor-grab text-(--text-faint) select-none" title="Drag to reorder">
+                    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
+                      <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                    </svg>
+                  </span>
+                )}
+                {isMultiFile && (
+                  <span className="text-xs font-mono text-(--text-muted) w-5 text-right shrink-0">{index + 1}</span>
+                )}
+                <span className="shrink-0 h-6 rounded px-1.5 bg-red-50 dark:bg-red-950/50 flex items-center">
+                  <span className="text-red-600 dark:text-red-400 text-[10px] font-bold">PDF</span>
                 </span>
-                <span className="text-xs font-mono text-(--text-muted) w-5 text-right shrink-0">{index + 1}</span>
-                <div className="shrink-0 h-8 w-8 rounded bg-red-50 flex items-center justify-center">
-                  <span className="text-red-600 text-[10px] font-bold">PDF</span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-(--text-primary) truncate">{file.name}</p>
-                  <p className="text-xs text-(--text-muted)">{formatFileSize(file.size)}</p>
-                </div>
+                <span className="min-w-0 flex-1 text-sm text-(--text-primary) truncate">{file.name}</span>
+                <span className="shrink-0 text-xs text-(--text-muted)">{formatFileSize(file.size)}</span>
                 <button
                   type="button"
                   onClick={() => removeFile(index)}
+                  title={`Remove ${file.name}`}
                   className="shrink-0 p-1 text-(--text-faint) hover:text-(--text-tertiary) rounded"
                 >
                   <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -311,128 +363,173 @@ export function UploadZone({ onUploadComplete, folderId = null }: UploadZoneProp
         )}
       </div>
 
-      {isMultiFile && (
-        <div className="flex gap-6" data-testid="upload-mode">
-          <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="All files become one book — use for multi-volume works; drag rows to set the volume order">
-            <input type="radio" name="upload-mode" checked={!separateBooks} onChange={() => setSeparateBooks(false)} />
-            One book (volumes)
-          </label>
-          <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Each PDF becomes its own book, titled after its filename">
-            <input type="radio" name="upload-mode" checked={separateBooks} onChange={() => setSeparateBooks(true)} />
-            Separate books
-          </label>
-        </div>
-      )}
-
-      {isMultiFile && !separateBooks && (
-        <div>
-          <label className="block text-sm text-(--text-secondary) mb-1">Book title</label>
-          <input
-            type="text"
-            value={customTitle}
-            onChange={(e) => setCustomTitle(e.target.value)}
-            placeholder={stagedFiles[0]?.name.replace(/\.pdf$/i, "").replace(/[_-]/g, " ")}
-            className="w-full px-3 py-2 text-sm border border-(--border-input) rounded-md bg-(--bg-card) text-(--text-primary) placeholder:text-(--text-faint)"
-          />
-        </div>
-      )}
-
       {hasFiles && (
-        <>
-          <div className="flex gap-6 flex-wrap">
-            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Run the slow Marker extraction right away to detect chapters (takes minutes per book). Off by default — raw text is always extracted in seconds, and you can extract chapters later from the book page.">
-              <input type="checkbox" checked={fullExtract} onChange={(e) => setFullExtract(e.target.checked)} className="rounded" data-testid="full-extract" />
-              Extract chapters now
-            </label>
-            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Only needed for scanned PDFs without selectable text. Saved on the book — also applies when you extract chapters later.">
-              <input type="checkbox" checked={forceOcr} onChange={(e) => setForceOcr(e.target.checked)} className="rounded" />
-              Force OCR
-            </label>
-            {fullExtract && (
-              <>
-                <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title="Uses AI to identify chapter boundaries from the table of contents">
-                  <input type="checkbox" checked={llmChapterDetection} onChange={(e) => setLlmChapterDetection(e.target.checked)} className="rounded" />
-                  LLM chapter detection
+        <div className="max-w-3xl rounded-lg border border-(--border) bg-(--bg-card) divide-y divide-(--divide)">
+          {isMultiFile && (
+            <fieldset className="p-4 space-y-2" data-testid="upload-mode">
+              <legend className="text-xs font-medium text-(--text-secondary) mb-1">These {stagedFiles.length} files are</legend>
+              {[
+                { separate: false, label: "One book", detail: "Volumes of a single title, joined in the order above." },
+                { separate: true, label: "Separate books", detail: "Each PDF becomes its own book, titled after its filename." },
+              ].map((entry) => (
+                <label
+                  key={entry.label}
+                  className={`flex gap-2 rounded-md border p-2 cursor-pointer ${
+                    separateBooks === entry.separate ? "border-blue-500 bg-(--bg-selected)" : "border-(--border) hover:bg-(--bg-subtle)"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="upload-mode"
+                    checked={separateBooks === entry.separate}
+                    onChange={() => setSeparateBooks(entry.separate)}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm text-(--text-primary)">{entry.label}</span>
+                    <span className="block text-xs text-(--text-muted)">{entry.detail}</span>
+                  </span>
                 </label>
-                {llmChapterDetection && <ModelPicker value={chapterModel} onChange={setChapterModel} testId="upload-chapter-model" />}
-                <AfterExtractChoice
-                  autoSynthesize={autoSynthesize}
-                  onChange={setAutoSynthesize}
-                  voiceLabel={getVoiceLabel(voice)}
-                />
-              </>
-            )}
-            <label className="flex items-center gap-2 text-sm text-(--text-secondary)" title={`Run an AI prompt against ${isMultiFile && separateBooks ? "each book's" : "the book's"} raw text right after upload — the answer is saved to the book's notes`}>
-              <input type="checkbox" checked={askAi} onChange={(e) => setAskAi(e.target.checked)} className="rounded" data-testid="upload-ask-ai" />
-              Ask AI after upload
-            </label>
-          </div>
+              ))}
 
-          {askAi && (
-            <div className="rounded-lg border border-(--border) bg-(--bg-subtle) p-3 space-y-2" data-testid="upload-ai-section">
-              <div className="flex flex-wrap gap-1.5">
-                {AI_PRESETS.map((p) => (
-                  <button
-                    key={p.key}
-                    type="button"
-                    onClick={() => {
-                      setNotePreset(p.key);
-                      setNotePrompt(p.prompt("book"));
-                    }}
-                    className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
-                      notePreset === p.key
-                        ? "bg-blue-600 border-blue-600 text-white"
-                        : "border-(--border) text-(--text-secondary) hover:bg-(--bg-card)"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-                <div className="ml-auto">
-                  <ModelPicker value={noteModel} onChange={setNoteModel} testId="upload-note-model" />
-                </div>
+              {!separateBooks && (
+                <label className="block pt-1">
+                  <span className="block text-xs font-medium text-(--text-secondary) mb-1">Book title</span>
+                  <input
+                    type="text"
+                    value={customTitle}
+                    onChange={(e) => setCustomTitle(e.target.value)}
+                    placeholder={stagedFiles[0]?.name.replace(/\.pdf$/i, "").replace(/[_-]/g, " ")}
+                    className="w-full px-3 py-2 text-sm border border-(--border-input) rounded-md bg-(--bg-input) text-(--text-primary) placeholder:text-(--text-faint)"
+                  />
+                </label>
+              )}
+            </fieldset>
+          )}
+
+          <fieldset className="p-4 space-y-2">
+            <legend className="text-xs font-medium text-(--text-secondary) mb-1">Text extraction</legend>
+
+            <Option
+              label="Extract chapters now"
+              hint="Marker reads the whole PDF — minutes per book. Off, raw text still lands in seconds and chapters can wait."
+              title="Raw text is always extracted in seconds. Marker is the slow, layout-aware pass that finds chapter boundaries — you can also run it later from the book page."
+              checked={fullExtract}
+              onChange={setFullExtract}
+              testId="full-extract"
+            />
+
+            {fullExtract && (
+              <div className="pl-6 space-y-2">
+                <Option
+                  label="Follow the table of contents"
+                  hint="AI takes chapter boundaries from the TOC instead of from headings."
+                  checked={llmChapterDetection}
+                  onChange={setLlmChapterDetection}
+                />
+                {llmChapterDetection && (
+                  <div className="flex items-center gap-2 pl-6 text-xs text-(--text-muted)">
+                    <span>Model</span>
+                    <ModelPicker value={chapterModel} onChange={setChapterModel} testId="upload-chapter-model" />
+                  </div>
+                )}
               </div>
-              <textarea
-                value={notePrompt}
-                onChange={(e) => setNotePrompt(e.target.value)}
-                rows={3}
-                maxLength={4000}
-                className="w-full resize-y rounded-md border border-(--border-input) bg-(--bg-card) p-2.5 text-sm text-(--text-primary) leading-relaxed focus:outline-none focus:border-blue-500"
-                placeholder="What should the AI answer about each uploaded book?"
-                data-testid="upload-ai-prompt"
+            )}
+
+            <Option
+              label="Scanned PDF — needs OCR"
+              hint="The pages are images; any text layer the file carries is discarded. Saved on the book, so later extractions use it too."
+              title="Also covers a phone photo printed to PDF, where the only selectable text is the print header."
+              checked={forceOcr}
+              onChange={setForceOcr}
+            />
+          </fieldset>
+
+          {fullExtract && (
+            <div className="p-4 space-y-3">
+              <AfterExtractChoice
+                autoSynthesize={autoSynthesize}
+                onChange={setAutoSynthesize}
+                voiceLabel={getVoiceLabel(voice)}
               />
-              <p className="text-xs text-(--text-faint)">
-                Runs against the raw text of {isMultiFile && separateBooks ? "each book" : "the whole book"} once it's extracted (seconds after upload). The answer lands in the book's notes.
-              </p>
+              {autoSynthesize && (
+                <div className="pl-6 space-y-1">
+                  <div className="flex flex-wrap items-end gap-4">
+                    <VoicePicker value={voice} onChange={setVoice} />
+                    <SpeedSlider value={speed} onChange={setSpeed} disabled={!speedEnabled} />
+                  </div>
+                  {!speedEnabled && selectedVoice && (
+                    <p className="text-xs text-(--text-muted)">{selectedVoice.label} uses a fixed speed in v1.</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          {fullExtract && autoSynthesize && (
-            <>
-              <div className="flex gap-6 items-end">
-                <VoicePicker value={voice} onChange={setVoice} />
-                <SpeedSlider value={speed} onChange={setSpeed} disabled={!speedEnabled} />
-              </div>
-              {!speedEnabled && selectedVoice && (
-                <p className="text-xs text-(--text-muted)">{selectedVoice.label} uses a fixed speed in v1.</p>
-              )}
-            </>
-          )}
+          <div className="p-4 space-y-2">
+            <Option
+              label="Ask AI after upload"
+              hint={`Runs a prompt over the raw text of ${noteTarget} — the answer lands in the book's notes.`}
+              checked={askAi}
+              onChange={setAskAi}
+              testId="upload-ask-ai"
+            />
 
-          <button
-            type="button"
-            onClick={upload}
-            disabled={isUploading}
-            className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isUploading ? "Uploading..." : !fullExtract ? "Upload" : autoSynthesize ? "Extract & synthesize" : "Extract"}
-            {isMultiFile ? ` (${stagedFiles.length} ${separateBooks ? "books" : "files"})` : ""}
-          </button>
-        </>
+            {askAi && (
+              <div className="ml-6 rounded-lg border border-(--border) bg-(--bg-subtle) p-3 space-y-2" data-testid="upload-ai-section">
+                <div className="flex flex-wrap gap-1.5">
+                  {AI_PRESETS.map((p) => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => {
+                        setNotePreset(p.key);
+                        setNotePrompt(p.prompt("book"));
+                      }}
+                      className={`text-xs px-2.5 py-1 rounded-full border font-medium ${
+                        notePreset === p.key
+                          ? "bg-blue-600 border-blue-600 text-white"
+                          : "border-(--border) text-(--text-secondary) hover:bg-(--bg-card)"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={notePrompt}
+                  onChange={(e) => setNotePrompt(e.target.value)}
+                  rows={3}
+                  maxLength={4000}
+                  className="w-full resize-y rounded-md border border-(--border-input) bg-(--bg-card) p-2.5 text-sm text-(--text-primary) leading-relaxed focus:outline-none focus:border-blue-500"
+                  placeholder={`What should the AI answer about ${noteTarget}?`}
+                  data-testid="upload-ai-prompt"
+                />
+                <div className="flex items-center gap-2 text-xs text-(--text-muted)">
+                  <span>Model</span>
+                  <ModelPicker value={noteModel} onChange={setNoteModel} testId="upload-note-model" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <button
+              type="button"
+              onClick={upload}
+              disabled={isUploading}
+              className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isUploading ? "Uploading..." : !fullExtract ? "Upload" : autoSynthesize ? "Extract & synthesize" : "Extract"}
+              {isMultiFile ? ` (${stagedFiles.length} ${separateBooks ? "books" : "files"})` : ""}
+            </button>
+            <p className="min-w-0 flex-1 text-xs text-(--text-muted)">{outcome}</p>
+          </div>
+        </div>
       )}
 
       {error && (
-        <p className="text-red-600 text-sm">{error}</p>
+        <p className="text-red-600 text-sm" role="alert">{error}</p>
       )}
     </div>
   );

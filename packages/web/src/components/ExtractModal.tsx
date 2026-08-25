@@ -171,7 +171,9 @@ export function ExtractModal({
               />
               <span>
                 <span className="block text-(--text-secondary)">Scanned PDF — needs OCR</span>
-                Set this when the pages are images with no selectable text. Much slower; the original PDF is untouched.
+                Set this when the pages are images. Whatever text layer the file carries is discarded and the pages
+                are read afresh — a phone photo printed to PDF brings its print headers along, and those are enough
+                to look like text. Much slower; the original PDF is untouched.
               </span>
             </label>
 

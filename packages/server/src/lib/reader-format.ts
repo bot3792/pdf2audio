@@ -15,7 +15,7 @@ export type ReaderPage = { i: number; src: number; p: number; w: number; h: numb
 export type ReaderSource = { index: number; filename: string; url: string; pageCount: number };
 
 // `why` says what took the marking away, so a reader can explain itself rather than guess
-export type ReaderUnmapped = "edited" | "generated" | "unmapped";
+export type ReaderUnmapped = "edited" | "generated" | "unmapped" | "unnarrated";
 
 export type ReaderChapter = {
   i: number;

@@ -22,12 +22,13 @@ import {
 // The reader reads these documents, never the database — every gap in them shows up here first
 export * from "./reader-format.ts";
 
-// Edited, synthetic, or extracted before the text map existed — no rects rather than wrong ones,
-// and the reason travels with the document so a reader can say which it was
-function chapterMode(chapter: Chapter): Pick<ReaderChapter, "mode" | "why"> {
+// Edited, synthetic, or never narrated — no rects rather than wrong ones, and the reason travels
+// with the document so a reader can say which it was. The pages are unaffected: they come from the
+// PDF, so a chapter that cannot be marked is still a chapter that can be read.
+export function chapterMode(chapter: Chapter): Pick<ReaderChapter, "mode" | "why"> {
   if (!Array.isArray(chapter.sourceBlocks)) return { mode: "text", why: "generated" };
   if (chapter.customText) return { mode: "text", why: "edited" };
-  if (!chapter.textMap) return { mode: "text", why: "unmapped" };
+  if (!chapter.textMap) return { mode: "text", why: chapter.audioPath ? "unmapped" : "unnarrated" };
   return { mode: "page" };
 }
 

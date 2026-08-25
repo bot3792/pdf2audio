@@ -36,11 +36,16 @@ anything it recognises, and say something useful about anything it does not.
   holds — not the font size the PDF reports, which several real files give as 1pt or 53pt for
   ordinary 10pt text. It is what tells a reader, before the reader squints, whether this book
   can be read at a given width.
-- **`mode`** is `"page"` when the chapter's spoken text can be pinned to the PDF, and `"text"`
-  when it cannot. A `"text"` chapter still has cues and audio; it just has no rectangles — and
-  it carries **`why`**: `"edited"` (a chapter whose text was changed after extraction),
-  `"generated"` (text that was written rather than extracted), or `"unmapped"` (extracted before
-  the text map existed). A reader that says which of these it is beats one that guesses.
+- **`mode`** says whether the chapter can be *marked*, not whether it has pages: `"page"` when
+  the spoken text can be pinned to the PDF, `"text"` when it cannot. A `"text"` chapter still
+  lists its `pageStart`/`pageEnd`, and both surfaces still draw those pages — the pages come from
+  the PDF, so they are there long before a word is spoken. `mode` carries **`why`**: `"edited"`
+  (a chapter whose text was changed after extraction), `"generated"` (text that was written
+  rather than extracted), `"unnarrated"` (nothing has spoken it yet, and the map is written while
+  a chapter is narrated), or `"unmapped"` (narrated before the map existed, so narrating it again
+  writes one). The last two are the same missing map for opposite reasons, and the document
+  separates them so neither reader has to work it out from `audio`.
+  Only a chapter with no pages at all falls back to the reflowed text.
 
 ## `GET /read/chapter/:chapterId/cues.json`
 

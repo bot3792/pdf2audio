@@ -363,15 +363,18 @@ export class ExtractAbortedError extends Error {
   }
 }
 
-function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu", log: LogFn, disableOcr: boolean, signal?: AbortSignal): Promise<void> {
+function runMarkerSingle(pdfPath: string, outDir: string, device: "mps" | "cpu", log: LogFn, forceOcr: boolean, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted) {
       reject(new ExtractAbortedError());
       return;
     }
 
+    // Marker decides for itself whether a page needs OCR, and a page carrying any text layer at
+    // all counts as good — a phone photo printed to PDF brings the print headers along, which is
+    // enough for it to skip the picture entirely. Forcing it means discarding that layer.
     const args = [pdfPath, "--output_format", "json", "--output_dir", outDir];
-    if (disableOcr) args.push("--disable_ocr");
+    args.push(forceOcr ? "--force_ocr" : "--disable_ocr");
     const proc = spawn(
       path.join(CONDA_BIN, "marker_single"),
       args,
@@ -537,15 +540,15 @@ async function detectChaptersFromMarkerJsonPath(markerJsonPath: string, pdfPath:
 export async function extractPdf(pdfPath: string, outDir: string, log: LogFn = noopLog, options: ExtractOptions = {}): Promise<DetectionResult> {
   await mkdir(outDir, { recursive: true });
 
-  const disableOcr = !options.forceOcr;
-  await log(`Running marker_single on "${path.basename(pdfPath)}"${disableOcr ? " (OCR disabled)" : " (OCR enabled)"}`);
+  const forceOcr = options.forceOcr ?? false;
+  await log(`Running marker_single on "${path.basename(pdfPath)}"${forceOcr ? " (forcing OCR)" : " (OCR disabled)"}`);
 
   try {
-    await runMarkerSingle(pdfPath, outDir, "mps", log, disableOcr, options.signal);
+    await runMarkerSingle(pdfPath, outDir, "mps", log, forceOcr, options.signal);
   } catch (mpsError) {
     if (mpsError instanceof ExtractAbortedError) throw mpsError;
     await log(`MPS extraction failed — known PyTorch MPS bug with certain PDFs. Retrying with CPU...`);
-    await runMarkerSingle(pdfPath, outDir, "cpu", log, disableOcr, options.signal);
+    await runMarkerSingle(pdfPath, outDir, "cpu", log, forceOcr, options.signal);
   }
 
   if (options.signal?.aborted) throw new ExtractAbortedError();

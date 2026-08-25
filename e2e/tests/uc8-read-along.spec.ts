@@ -1,6 +1,7 @@
 import { test, expect, createApiBook, uploadFixtureBook } from "./fixtures.ts";
 
-test("UC8: read along is offered only once a chapter has audio", async ({ page, request, profileId }) => {
+test("UC8: read along is offered only once a chapter is on a page", async ({ page, request, profileId }) => {
+  // Written rather than extracted, so there is no print behind it — the one case with nothing to open
   await createApiBook(request, profileId, {
     title: "Nothing Spoken Yet",
     chapters: [{ title: "Only text", text: "A chapter that has never been synthesized." }],
@@ -11,7 +12,7 @@ test("UC8: read along is offered only once a chapter has audio", async ({ page, 
 
   const entry = page.getByTestId("book-read-link");
   await expect(entry).toBeVisible();
-  await expect(entry).toHaveAttribute("title", /No chapter has audio yet/);
+  await expect(entry).toHaveAttribute("title", /No chapter is on a page yet/);
 });
 
 // marker_single and Kokoro both run for real here — full tier only (pnpm e2e:full)
@@ -31,6 +32,31 @@ test.describe("read along on the page", { tag: "@slow" }, () => {
     await expect(page.getByTestId("pages-unmarked")).toContainText("Synthesize");
     await expect(page.getByTestId("cue-rect")).toHaveCount(0);
     await expect(page.getByTestId("chapter-read-along-off")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("chapter-modal")).toBeHidden();
+
+    // …and so does the full reader, on the same pages: the print is the book's, not the narration's.
+    // Nothing here waits on audio, so nothing here may be withheld until there is some.
+    await expect(page.getByTestId("book-read-link")).toHaveAttribute("title", /synthesize a chapter/);
+    await page.getByTestId("book-read-link").click();
+    await expect(page.getByTestId("reader-page").first()).toBeVisible();
+    await expect(page.getByTestId("reader-text-mode")).toContainText("hasn't been narrated yet");
+    await expect(page.getByTestId("cue-rect")).toHaveCount(0);
+    await expect(page.getByTestId("reader-play")).toBeDisabled();
+    // The whole page too, not just the cropped column — both are the PDF, drawn the same way
+    await page.getByTestId("reader-view-page").click();
+    await expect(page.getByTestId("reader-page").first()).toBeVisible();
+    // Back deep-links to the chapter it was reading, which opens the modal over the book page
+    await page.getByTestId("reader-back").click();
+    await expect(page.getByTestId("chapter-modal")).toBeVisible();
+
+    // Narrating a chapter with its own modal open marks the pages as soon as the run lands. The
+    // modal outlives the synthesis, so nothing it holds may be left waiting for a reload.
+    await page.getByTestId("view-tab-pages").click();
+    await expect(page.getByTestId("pages-unmarked")).toBeVisible();
+    await page.getByTestId("chapter-synthesize").click();
+    await expect(page.getByTestId("cue-rect").first()).toBeVisible({ timeout: 5 * 60_000 });
+    await expect(page.getByTestId("pages-unmarked")).toBeHidden();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("chapter-modal")).toBeHidden();
 
