@@ -283,18 +283,48 @@ three-minute, 350 MB one for everyone including us.
 
 ## The shell
 
-- **Tauri** — ~10 MB, uses the system WKWebView, spawns sidecars natively. Right size, and we do
-  not need Chromium for our own UI. Cost: Rust in the tree, and the sidecar/permissions model to
-  learn.
-- **Electron** — ~150 MB, but it is the ecosystem everything is documented against, and
-  `electron-builder` handles signing, notarising and DMG creation as one command. LM Studio is
-  Electron.
-- **Neither** — a `.app` that is a launcher script plus the default browser. Ugliest, cheapest,
-  and would genuinely work: start Postgres, start the server, open `http://localhost:3033`.
+- **Tauri** — ~10 MB, uses whatever webview the OS already has, spawns sidecars natively. Cost:
+  Rust in the tree, and a signing path less trodden than Electron's.
+- **Electron** — ~150 MB because it ships Chromium, which is also the whole argument for it: the
+  same engine on every platform. `electron-builder` does signing, notarising and DMG in one
+  command. LM Studio is Electron.
+- **Neither** — a `.app` that is a launcher plus the default browser. Ugliest, cheapest, works.
 
-Recommendation: **Electron**, for `electron-builder` alone. The signing and notarisation path is
-the part nobody wants to invent, and the 140 MB difference is noise against a 350 MB first-run
-download.
+**The UI runs in WebKit, tested 2026-08-25.** The objection to Tauri was that our UI is only ever
+exercised in Chromium and Safari's engine might differ. So the whole smoke suite was run under
+Playwright's WebKit: **14 of 14 passed**, including the container reader and its
+`DecompressionStream("deflate-raw")`, which was the likeliest thing to break.
+
+**Recommendation: Tauri — and the choice is not load-bearing.** The app is already a local server
+plus a page in a browser; the wrapper starts child processes and opens a window. Swapping it later
+is a day, not a rewrite.
+
+### What that means per platform
+
+Tauri is the cross-platform answer — there is no separate Linux equivalent to pick, it is the same
+project. But it uses the **system** webview, and that is a different engine on each:
+
+| | webview | risk |
+| --- | --- | --- |
+| macOS | WKWebView (Safari) | **tested, 14/14** |
+| Windows | WebView2 — **Chromium** | lowest: the engine our tests already use |
+| Linux | **WebKitGTK** | highest: a different WebKit build, version varies by distro |
+
+Which inverts the intuition. Tauri's weakest platform is Linux, and Electron's "same Chromium
+everywhere" pitch only starts earning its 150 MB if Linux is a real target. For macOS alone, or
+macOS plus Windows, Tauri wins on every axis that matters.
+
+### The `say:` engine off macOS
+
+Not critical — an engine that is not there simply is not offered, which is what `ENGINE_PREFIXES`
+and the disabled-button rule already do. But Linux does have an equivalent, and we already depend
+on it: **espeak-ng**, required for Kokoro's phonemisation, synthesises to WAV on its own
+(`espeak-ng -v en-us -w out.wav "..."`), covers **142 languages including Bulgarian**, and is
+instant. It is also robotic.
+
+So the honest answer is that Linux's free-instant-local slot belongs to **Piper**
+(`tasks/piper-voices.md`) rather than to espeak: 50 languages, real prosody, ~20x realtime on CPU,
+and cross-platform. espeak-ng is the floor that guarantees *something* can always speak.
 
 ## Order of work
 
