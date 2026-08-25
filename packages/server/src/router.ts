@@ -13,6 +13,7 @@ import { cartesiaVoicesRouter } from "./routes/cartesia-voices.ts";
 import { elevenlabsVoicesRouter } from "./routes/elevenlabs-voices.ts";
 import { pocketVoicesRouter } from "./routes/pocket-voices.ts";
 import { llmModelsRouter } from "./routes/llm-models.ts";
+import { rendererRouter } from "./routes/renderer.ts";
 
 export const appRouter = router({
   books: booksRouter,
@@ -28,6 +29,7 @@ export const appRouter = router({
   elevenlabsVoices: elevenlabsVoicesRouter,
   pocketVoices: pocketVoicesRouter,
   llmModels: llmModelsRouter,
+  renderer: rendererRouter,
 });
 
 export type AppRouter = typeof appRouter;

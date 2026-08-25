@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 const execFileAsync = promisify(execFile);
@@ -13,7 +15,27 @@ function resolveCliBin(): string {
   return path.join(path.dirname(pkgPath), pkg.bin.vivliostyle);
 }
 
-// First run downloads a rendering browser into the Vivliostyle cache; later runs are offline.
+// Vivliostyle fetches its own browser on first use, into this cache. Knowing whether it is there
+// is what lets the UI say "345 MB first" instead of appearing to hang for the length of a download.
+const BROWSER_CACHE = path.join(homedir(), "Library", "Caches", "vivliostyle", "browsers", "chrome");
+
+export async function rendererInstalled(dir = BROWSER_CACHE): Promise<boolean> {
+  return readdir(dir).then((entries) => entries.length > 0).catch(() => false);
+}
+
+// Rendering one paragraph is the only way to make the CLI fetch its browser: there is no install
+// subcommand, and the download happens solely as a side effect of a build.
+export async function installRenderer(): Promise<void> {
+  const dir = await mkdtemp(path.join(tmpdir(), "vivliostyle-install-"));
+  try {
+    const htmlPath = path.join(dir, "probe.html");
+    await writeFile(htmlPath, "<!doctype html><title>.</title><p>.</p>", "utf-8");
+    await buildDocument(htmlPath, path.join(dir, "probe.pdf"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 export async function buildDocument(htmlPath: string, outputPath: string): Promise<void> {
   const bin = resolveCliBin();
   try {

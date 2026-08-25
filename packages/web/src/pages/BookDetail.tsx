@@ -22,6 +22,10 @@ export function BookDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const utils = trpc.useUtils();
+  // Above the `!book` early return below: hooks after it run only once the book loads, and a
+  // render that calls a different number of hooks than the last one takes the page down.
+  const { data: renderer } = trpc.renderer.status.useQuery(undefined, { staleTime: Infinity });
+  const installRenderer = trpc.renderer.install.useMutation({ onSuccess: () => void utils.renderer.status.invalidate() });
   const [searchParams, setSearchParams] = useSearchParams();
   const activeVariant = searchParams.get("variant");
 
@@ -373,10 +377,12 @@ export function BookDetail() {
     : selectedWithAudio;
   const viewPendingExports = pendingExports.filter((e) => (e.language ?? null) === activeVariant);
   const pendingExportFor = (format: "pdf" | "epub" | "epub-sync") => viewPendingExports.find((e) => e.format === format);
-  const canExportDocument = selectedExportable > 0 && !isAssembling && !exportDocumentMutation.isPending;
+  const rendererReady = renderer?.installed !== false;
+  const canExportDocument = selectedExportable > 0 && !isAssembling && !exportDocumentMutation.isPending && rendererReady;
   const canExportSync = (selectedSyncExportable > 0 || deferOutputs) && !isAssembling && !exportDocumentMutation.isPending;
   const exportTooltip = (format: "pdf" | "epub") =>
-    pendingExportFor(format)?.running ? `${format.toUpperCase()} export is rendering`
+    !rendererReady ? "PDF and EPUB need a page renderer — download it once, below"
+      : pendingExportFor(format)?.running ? `${format.toUpperCase()} export is rendering`
       : pendingExportFor(format) ? `${format.toUpperCase()} export ${pendingExportLabel(pendingExportFor(format)!)} — click again to replace it`
       : selectedExportable === 0
       ? (activeVariant ? `No selected chapters have finished ${activeLabel} text` : "No chapters selected")
@@ -1015,6 +1021,17 @@ export function BookDetail() {
                   >
                     Export EPUB ({selectedExportable}){langSuffix}
                   </button>
+                  {!rendererReady && (
+                    <button
+                      onClick={() => installRenderer.mutate()}
+                      disabled={installRenderer.isPending}
+                      title="Vivliostyle renders these two formats and brings its own browser, once"
+                      className="px-4 py-2 rounded-md text-sm font-medium border border-(--border-input) text-(--text-secondary) hover:bg-(--bg-subtle) disabled:opacity-50 disabled:cursor-not-allowed"
+                      data-testid="install-renderer"
+                    >
+                      {installRenderer.isPending ? "Downloading renderer…" : "Download page renderer (345 MB)"}
+                    </button>
+                  )}
                   <div className="ml-1 flex flex-col gap-1.5 border-l border-(--border) pl-3">
                     <button
                       onClick={() => exportDocumentMutation.mutate({
