@@ -120,6 +120,24 @@ burden, dropping it is a one-line migration rather than a feature loss.
 The data directory moves out of the Docker volume into Application Support, and `initdb` plus
 `drizzle-kit migrate` become things the launcher does on first run.
 
+**The real library migrates cleanly.** Not a fixture — the actual 5.2 GB development database,
+578 books and 273,049 embedded chunks, dumped from Docker's PostgreSQL 17.10 and restored into the
+embedded 17.5:
+
+| | |
+| --- | --- |
+| Dump | 52 s, 1.6 GB compressed |
+| Restore, 4 jobs | 2 m 24 s, no errors |
+| Row counts across 8 tables | identical |
+| Indexes | 22, HNSW among them |
+| Nearest-neighbour over 273k real vectors | **3 ms**, `Index Scan using book_chunks_embedding_idx` |
+| Full text | 233,691 hits for "the", 32,362 for "war" |
+| The app itself | served the real library under **Bun**, 7 worker pools |
+
+One trap: **use the embedded build's own `pg_dump`.** Homebrew's here is 14.19 and refuses a 17.x
+server, so a migration tool has to ship the matching binary rather than trust what is on the
+machine.
+
 ### 2. Python — download it, don't ship it
 
 Shipping 2.7 GB of venv inside the bundle means signing every `.so` in it. Fetching it after
