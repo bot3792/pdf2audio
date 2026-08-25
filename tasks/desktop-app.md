@@ -171,9 +171,9 @@ compiled:   import.meta.dirname = /$bunfs/root
 desktop app requires *regardless of runtime* — the scripts will live in Application Support, not
 beside the binary — and Node's own single-executable format has the identical problem.
 
-**One genuine risk:** Vivliostyle, which renders PDF exports, is a Node CLI with a native
-`@napi-rs/canvas` dependency, spawned as a subprocess. Under a Bun-only app that subprocess runs
-under Bun, and that is untested. Worst case: ship both runtimes, or PDF export needs Node.
+~~**One genuine risk:** Vivliostyle runs as a Node subprocess and might not run under Bun.~~
+**Tested — it does.** The same document built under Node and under Bun produced byte-comparable
+PDFs, dotted-leader table of contents and page numbers intact. No need to ship two runtimes.
 
 **Recommendation: adopt Bun, don't compile yet.** Ship the `bun` binary plus a bundled JS file —
 the size win is already 8x, and the path work can land on its own schedule.
@@ -186,8 +186,30 @@ arm64 builds; poppler and espeak-ng need building), or vendor them into the bund
 binaries, which is tolerable. **espeak-ng also needs its data directory**, which Kokoro's G2P
 depends on — that is a path to get right, not a size problem.
 
-Chromium for Vivliostyle is already a runtime download by puppeteer; leave it that way and let PDF
-export be the one feature that says "fetching a renderer, one moment".
+### Vivliostyle, and whether the desktop app needs it
+
+`@vivliostyle/cli` is a typesetting engine: HTML and CSS in, print-quality PDF out. It is used in
+exactly one place — `workers/assemble-document.ts`, behind the Export PDF and Export EPUB buttons.
+`renderDocumentHtml` builds one HTML file and Vivliostyle sets it.
+
+**What it buys, from our own `PRINT_CSS`:** page numbers in the footer, mirrored margins on left and
+right pages, running headers carrying the chapter title via `string-set`, and a contents page with
+**dotted leaders and real page numbers** (`leader(dotted)` + `target-counter`). A browser's
+print-to-PDF handles the margins and the page breaks; it implements neither `target-counter` nor
+`leader()`, so the same document printed from Chrome gets a table of contents with no page numbers
+in it. That gap is the entire reason this dependency exists, and it is a real one.
+
+**What it costs:** a 345 MB rendering browser — already fetched lazily on first export, so it costs
+nothing until someone presses the button — plus a native `@napi-rs/canvas` module and a subprocess.
+
+**How much it is used, measured on this library:** 7 PDFs and 1 EPUB, ever, the most recent nine
+days ago. Over the same period there are **34 `epub-sync` exports**, and those are
+`lib/readaloud-epub.ts` — our own zip writer, which never touches Vivliostyle.
+
+So it solves something genuinely hard for a feature that is genuinely marginal. It is already lazy
+and now proven to run under Bun, so there is no reason to remove it from the repo. But it is the
+strongest candidate for "not in v1 of the desktop app": cutting it drops 345 MB, a native module
+and a subprocess, and the export people actually use keeps working.
 
 ## The finding that matters most
 
