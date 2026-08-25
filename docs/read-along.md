@@ -19,7 +19,7 @@ anything it recognises, and say something useful about anything it does not.
   "pages":   [ { "i": 0, "src": 0, "p": 1, "w": 311, "h": 487, "rot": 0,
                  "content": [43, 45.7, 228.6, 387], "columns": [[43, 45.7, 228.6, 387]] } ],
   "chapters":[ { "i": 0, "id": "…", "title": "…",
-                 "audio": "/audio/chapter/…", "cues": "/read/chapter/…/cues.json",
+                 "audio": "/audio/chapter/…", "cues": "/read/chapter/…/cues.json",   // both null when unnarrated
                  "durationMs": 2706000, "pageStart": 168, "pageEnd": 180, "mode": "page" } ]
 }
 ```
@@ -36,6 +36,10 @@ anything it recognises, and say something useful about anything it does not.
   holds — not the font size the PDF reports, which several real files give as 1pt or 53pt for
   ordinary 10pt text. It is what tells a reader, before the reader squints, whether this book
   can be read at a given width.
+- **`audio` and `cues` are both null for a chapter nobody has narrated.** There is no cue document
+  to fetch, and a container cannot carry a path to a file it does not hold.
+- **Every URL is relative to `book.json` itself.** Served from `/read/book/:id/book.json` these are
+  root-relative and name routes on this server; inside a container they name entries beside it.
 - **`mode`** says whether the chapter can be *marked*, not whether it has pages: `"page"` when
   the spoken text can be pinned to the PDF, `"text"` when it cannot. A `"text"` chapter still
   lists its `pageStart`/`pageEnd`, and both surfaces still draw those pages — the pages come from
@@ -118,3 +122,29 @@ timings existed.
 The ladder, coarser but never wrong: character-exact line rects → the whole line → the block's
 box → nothing at all when the page's geometry is unknown. A range crossing many lines becomes
 the shape a text selection takes: partial first line, solid middle, partial last.
+
+## Carrying the documents in a file
+
+The synced EPUB export (`lib/readaloud-epub.ts`) carries these documents alongside the reflowed
+text and media overlays it already produced, under `OEBPS/p2af/`:
+
+```
+OEBPS/chNNN.xhtml, chNNN_overlay.smil   reflowed text and its media overlay
+OEBPS/audio/chNNN.m4a                   one copy, shared by both layers
+OEBPS/p2af/book.json                    the manifest, urls relative to itself
+OEBPS/p2af/cues/chNNN.json              one per narrated chapter
+OEBPS/p2af/source/NN.pdf                the original, untouched
+```
+
+The extra entries are manifested in `package.opf` but kept out of the spine, so a reader that
+knows nothing about them opens an ordinary read-along audiobook, and one that does draws the
+pages. The audio and the PDFs are **stored rather than deflated**, which lets a reader hand a
+slice of the file straight to a player or a PDF renderer without inflating anything —
+`lib/zip.ts` in the web package does exactly that, with no dependency beyond `DecompressionStream`.
+
+A chapter the export left out keeps its `pageStart`/`pageEnd` and loses its `audio` and `cues`,
+which is the same shape as a chapter nobody has narrated — so no reader needs a special case for
+a partial export.
+
+`/open` reads such a file with no server involved: `lib/reader-source.ts` is the seam, with one
+implementation over HTTP and one over a container. Nothing that draws a page knows which it got.

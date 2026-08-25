@@ -4,6 +4,8 @@ import { mkdir, writeFile, copyFile, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { SyncMap } from "./sync-map.ts";
+import type { ExportedChapter, P2afLayer } from "./p2af.ts";
+import { P2AF_DIR } from "./p2af.ts";
 import { generateCover } from "./cover.ts";
 
 const execFileAsync = promisify(execFile);
@@ -19,11 +21,13 @@ function audioMediaType(ext: string): string {
 }
 
 export type ReadaloudChapter = {
+  id: string;
   index: number;
   title: string;
   audioPath: string;
   sync: SyncMap;
 };
+
 
 const LANGUAGE_CODES: Record<string, string> = {
   english: "en", bulgarian: "bg", german: "de", french: "fr", spanish: "es",
@@ -146,8 +150,9 @@ function packageOpf(opts: {
   lang: string;
   hasCover: boolean;
   chapters: { base: string; title: string; audioExt: string; sync: SyncMap }[];
+  p2af: P2afLayer | null;
 }): string {
-  const { title, lang, hasCover, chapters } = opts;
+  const { title, lang, hasCover, chapters, p2af } = opts;
   const totalMs = chapters.reduce((sum, ch) => sum + ch.sync.totalMs, 0);
   const modified = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
@@ -160,6 +165,16 @@ function packageOpf(opts: {
     .map((ch) => `    <meta property="media:duration" refines="#${ch.base}_overlay">${clock(ch.sync.totalMs)}</meta>`)
     .join("\n");
   const spine = chapters.map((ch) => `    <itemref linear="yes" idref="${ch.base}"/>`).join("\n");
+
+  // Manifested but outside the spine: an EPUB reader never opens them, and a reader that knows
+  // the p2af layer finds the pages here. The audio is the EPUB's own — one copy, two layers.
+  const extras = p2af
+    ? [
+        `    <item id="p2af_book" href="${P2AF_DIR}/book.json" media-type="application/json"/>`,
+        ...p2af.sources.map((src, i) => `    <item id="p2af_src_${i}" href="${P2AF_DIR}/${src.path}" media-type="application/pdf"/>`),
+        ...p2af.cues.map((cue, i) => `    <item id="p2af_cues_${i}" href="${P2AF_DIR}/${cue.path}" media-type="application/json"/>`),
+      ].join("\n")
+    : "";
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" xml:lang="${lang}" unique-identifier="uid" prefix="media: http://www.idpf.org/epub/vocab/overlays/#">
@@ -180,6 +195,7 @@ ${durations}
     <item id="titlepage" href="titlepage.xhtml" media-type="application/xhtml+xml"/>
 ${hasCover ? `    <item id="cover-image" properties="cover-image" href="images/cover.jpg" media-type="image/jpeg"/>\n` : ""}    <item id="style" href="css/style.css" media-type="text/css"/>
 ${manifest}
+${extras}
   </manifest>
   <spine>
     <itemref linear="yes" idref="titlepage"/>
@@ -195,6 +211,9 @@ export async function buildReadaloudEpub(opts: {
   chapters: ReadaloudChapter[];
   stagingDir: string;
   outputPath: string;
+  // Given the names chosen here, returns the read-along layer to ride along. Inverted so this
+  // file keeps owning the layout and stays free of the database.
+  p2af?: (exported: Map<string, ExportedChapter>) => Promise<P2afLayer | null>;
 }): Promise<void> {
   const { title, language, chapters, stagingDir, outputPath } = opts;
   if (chapters.length === 0) throw new Error("No chapters to export");
@@ -213,6 +232,11 @@ export async function buildReadaloudEpub(opts: {
     await mkdir(path.join(stagingDir, "OEBPS", dir), { recursive: true });
   }
 
+  const exported = new Map<string, ExportedChapter>(
+    named.map((ch) => [ch.id, { base: ch.base, audioFile: `${ch.base}${ch.audioExt}` }]),
+  );
+  const p2af = (await opts.p2af?.(exported)) ?? null;
+
   const hasCover = await generateCover(path.join(stagingDir, "OEBPS", "images", "cover.jpg"), title);
   if (!hasCover) await rm(path.join(stagingDir, "OEBPS", "images"), { recursive: true, force: true });
 
@@ -227,10 +251,12 @@ export async function buildReadaloudEpub(opts: {
 </container>
 `,
   );
-  await writeFile(path.join(stagingDir, "OEBPS", "package.opf"), packageOpf({ title, lang, hasCover, chapters: named }));
+  await writeFile(path.join(stagingDir, "OEBPS", "package.opf"), packageOpf({ title, lang, hasCover, chapters: named, p2af }));
   await writeFile(path.join(stagingDir, "OEBPS", "nav.xhtml"), navXhtml(title, named, lang));
   await writeFile(path.join(stagingDir, "OEBPS", "titlepage.xhtml"), titlepageXhtml(title, lang));
   await writeFile(path.join(stagingDir, "OEBPS", "css", "style.css"), STYLE_CSS);
+
+  if (p2af) await writeP2afLayer(path.join(stagingDir, "OEBPS", P2AF_DIR), p2af);
 
   for (const ch of named) {
     await writeFile(path.join(stagingDir, "OEBPS", `${ch.base}.xhtml`), chapterXhtml(ch.base, ch.title, ch.sync, lang));
@@ -242,6 +268,21 @@ export async function buildReadaloudEpub(opts: {
   await rm(outputPath, { force: true });
   const zipOpts = { cwd: stagingDir, timeout: 600_000, maxBuffer: 16 * 1024 * 1024 };
   await execFileAsync("zip", ["-X", "-q", "-0", outputPath, "mimetype"], zipOpts);
-  await execFileAsync("zip", ["-X", "-q", "-9", "-r", outputPath, "META-INF", "OEBPS", "-x", "OEBPS/audio/*"], zipOpts);
-  await execFileAsync("zip", ["-X", "-q", "-0", "-r", outputPath, "OEBPS/audio"], zipOpts);
+  const storedDirs = ["OEBPS/audio", ...(p2af ? [`OEBPS/${P2AF_DIR}/source`] : [])];
+  await execFileAsync(
+    "zip",
+    ["-X", "-q", "-9", "-r", outputPath, "META-INF", "OEBPS", ...storedDirs.flatMap((dir) => ["-x", `${dir}/*`])],
+    zipOpts,
+  );
+  await execFileAsync("zip", ["-X", "-q", "-0", "-r", outputPath, ...storedDirs], zipOpts);
+}
+
+// The cues are the bulk of the layer and compress to about a quarter; the PDFs are already
+// compressed and are stored, so a reader can hand their bytes straight to a PDF renderer.
+async function writeP2afLayer(dir: string, layer: P2afLayer): Promise<void> {
+  await mkdir(path.join(dir, "cues"), { recursive: true });
+  await mkdir(path.join(dir, "source"), { recursive: true });
+  await writeFile(path.join(dir, "book.json"), JSON.stringify(layer.manifest));
+  for (const cue of layer.cues) await writeFile(path.join(dir, cue.path), JSON.stringify(cue.doc));
+  for (const source of layer.sources) await copyFile(source.pdfPath, path.join(dir, source.path));
 }

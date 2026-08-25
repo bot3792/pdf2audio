@@ -31,6 +31,7 @@ export function CuePages({
   onHoverCue,
   debug = { rects: false, layout: false },
   empty = "This chapter has no pages to show.",
+  resolve = (url) => url,
 }: {
   manifest: ReaderManifest;
   chapter: ReaderChapter;
@@ -44,6 +45,8 @@ export function CuePages({
   onHoverCue?: (index: number | null) => void;
   debug?: { rects: boolean; layout: boolean };
   empty?: string;
+  // A container's PDF is a blob URL, a server's is a route; the pages are drawn the same either way
+  resolve?: (url: string) => string | undefined;
 }) {
   const [hoverCue, setHoverCue] = useState(-1);
   const pages = useMemo(() => chapterPages(manifest, chapter), [manifest, chapter.pageStart, chapter.pageEnd]);
@@ -75,7 +78,7 @@ export function CuePages({
       {spreads.map((spread) => (
         <div key={spread.key} data-page-index={spread.page.i}>
           <PdfCanvas
-            url={manifest.sources[spread.page.src]?.url ?? ""}
+            url={resolve(manifest.sources[spread.page.src]?.url ?? "") ?? ""}
             pageNumber={spread.page.p}
             crop={spread.crop}
             pageSize={{ w: spread.page.w, h: spread.page.h }}

@@ -22,7 +22,8 @@ export type ReaderChapter = {
   id: string;
   title: string;
   audio: string | null;
-  cues: string;
+  // null when the chapter has no narration: a container cannot carry a path to a missing file
+  cues: string | null;
   durationMs: number | null;
   pageStart: number | null;
   pageEnd: number | null;

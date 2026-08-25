@@ -50,8 +50,8 @@ describe("buildReadaloudEpub", () => {
       title: "Fish & Chips",
       language: "Bulgarian",
       chapters: [
-        { index: 0, title: "Intro <1>", audioPath: mp3a, sync: sync(["Здравей & добре дошъл.", "Втора част."], 1500) },
-        { index: 1, title: "Chapter Two", audioPath: m4ab, sync: sync(["More text."], 2000) },
+        { id: "ch-0", index: 0, title: "Intro <1>", audioPath: mp3a, sync: sync(["Здравей & добре дошъл.", "Втора част."], 1500) },
+        { id: "ch-1", index: 1, title: "Chapter Two", audioPath: m4ab, sync: sync(["More text."], 2000) },
       ],
       stagingDir: path.join(baseDir, "staging"),
       outputPath,

@@ -12,6 +12,7 @@ import { BookDetail } from "./pages/BookDetail.tsx";
 import { Chat } from "./pages/Chat.tsx";
 // Lazy so every other page stops paying for pdf.js
 const Reader = lazy(() => import("./pages/Reader.tsx").then((m) => ({ default: m.Reader })));
+const ReaderOpen = lazy(() => import("./pages/ReaderOpen.tsx").then((m) => ({ default: m.ReaderOpen })));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +43,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/folders/:folderId" element={<Home />} />
             <Route path="/books/:id" element={<BookDetail />} />
             <Route path="/books/:id/read" element={<Suspense fallback={null}><Reader /></Suspense>} />
+            <Route path="/open" element={<Suspense fallback={null}><ReaderOpen /></Suspense>} />
             <Route path="/chat" element={<Chat />} />
           </Routes>
         </BrowserRouter>

@@ -9,6 +9,7 @@ import { languageSlug, translationChunkPreviewDir } from "./synthesize-translati
 import { chapterChunkPreviewDir } from "../lib/chunk-previews.ts";
 import { ensureSyncMap } from "../lib/sync-map.ts";
 import { buildReadaloudEpub, type ReadaloudChapter } from "../lib/readaloud-epub.ts";
+import { buildP2afLayer } from "../lib/p2af.ts";
 import { deferUntilInputsSettle, documentJobKey } from "../lib/output-readiness.ts";
 import type { WorkerUtils } from "graphile-worker";
 import { mkdir, writeFile, unlink, rm, copyFile, readdir } from "node:fs/promises";
@@ -230,7 +231,7 @@ async function assembleReadaloud(
       skipped.push(ch.title);
       continue;
     }
-    readaloudChapters.push({ index: ch.index, title: ch.title, audioPath: ch.audioPath, sync });
+    readaloudChapters.push({ id: ch.id, index: ch.index, title: ch.title, audioPath: ch.audioPath, sync });
     includedIds.push(ch.id);
   }
 
@@ -261,6 +262,17 @@ async function assembleReadaloud(
       chapters: readaloudChapters,
       stagingDir,
       outputPath,
+      p2af: language
+        ? undefined
+        : async (exported) => {
+            const [book] = await db.select().from(books).where(eq(books.id, bookId));
+            if (!book) return null;
+            const layer = await buildP2afLayer(book, exported);
+            await log(layer
+              ? `Read-along layer: ${layer.cues.length} chapter(s) on ${layer.manifest.pages.length} pages`
+              : "No read-along layer — this book has no page geometry");
+            return layer;
+          },
     });
   } finally {
     await rm(stagingDir, { recursive: true, force: true }).catch(() => {});

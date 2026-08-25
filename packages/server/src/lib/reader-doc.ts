@@ -88,7 +88,7 @@ export async function buildManifest(book: Book): Promise<ReaderManifest> {
         id: chapter.id,
         title: chapter.title,
         audio: chapter.audioPath ? `/audio/chapter/${chapter.id}` : null,
-        cues: `/read/chapter/${chapter.id}/cues.json`,
+        cues: chapter.audioPath ? `/read/chapter/${chapter.id}/cues.json` : null,
         durationMs: chapter.durationMs,
         pageStart: chapter.pageStart === null ? null : offset + chapter.pageStart - 1,
         pageEnd: chapter.pageEnd === null ? null : offset + chapter.pageEnd - 1,

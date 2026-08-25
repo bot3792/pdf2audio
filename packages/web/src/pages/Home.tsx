@@ -49,6 +49,14 @@ export function Home() {
           >
             💬 Chat with library
           </Link>
+          <Link
+            to="/open"
+            title="Read along with a book someone sent you — nothing is uploaded"
+            className="ml-2 text-sm px-3 py-1.5 rounded-md border border-(--border) bg-(--bg-card) text-(--text-secondary) hover:text-(--text-primary) hover:bg-(--bg-hover)"
+            data-testid="open-container-link"
+          >
+            📖 Open a book
+          </Link>
           <button
             onClick={() => setShowSettings(true)}
             title="AI model settings"

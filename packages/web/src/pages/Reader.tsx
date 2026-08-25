@@ -3,7 +3,8 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { CueTranscript } from "../components/reader/CueTranscript.tsx";
 import { CuePages } from "../components/reader/CuePages.tsx";
-import { bodyFit, chapterPages, fetchCues, fetchManifest, UNMAPPED, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
+import { bodyFit, chapterPages, UNMAPPED, type ReaderCues, type ReaderManifest } from "../lib/reader-doc.ts";
+import { httpSource, type DocumentSource } from "../lib/reader-source.ts";
 import { formatDuration } from "../lib/format.ts";
 import { useFollowCue, type FollowBand } from "../lib/cue-follow.ts";
 import { useAudioTime } from "../lib/use-audio-time.ts";
@@ -43,8 +44,17 @@ const NARRATION_POLL_MS = 10_000;
 const WARN_BANNER = "mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40";
 const NOTE_BANNER = "mb-3 rounded border border-(--border) bg-(--bg-subtle) px-3 py-2 text-sm text-(--text-muted)";
 
+// The route the library links to. A container opened from disk renders the same reader with a
+// different source and no book to go back to.
 export function Reader() {
   const { id } = useParams<{ id: string }>();
+  const source = useMemo(() => (id ? httpSource(id) : null), [id]);
+  if (!source) return null;
+  return <ReaderFor source={source} bookId={id} live />;
+}
+
+export function ReaderFor({ source, bookId, live = false }: { source: DocumentSource; bookId?: string; live?: boolean }) {
+  const id = bookId;
   const [searchParams, setSearchParams] = useSearchParams();
   const [manifest, setManifest] = useState<ReaderManifest | null>(null);
   const [cues, setCues] = useState<ReaderCues | null>(null);
@@ -61,9 +71,8 @@ export function Reader() {
   const pagesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!id) return;
-    fetchManifest(id).then(setManifest).catch((err: Error) => setError(err.message));
-  }, [id]);
+    source.manifest().then(setManifest).catch((err: Error) => setError(err.message));
+  }, [source]);
 
   const requested = searchParams.get("chapter");
   const list = manifest?.chapters ?? [];
@@ -90,18 +99,18 @@ export function Reader() {
     setCues(null);
     setMs(0);
     setCueError(null);
-    if (!chapter.audio) return;
+    if (!chapter.audio || !chapter.cues) return;
     // A chapter's own failure, not the reader's — the picker has to stay usable
-    fetchCues(chapter.cues).then(setCues).catch((err: Error) => setCueError(err.message));
-  }, [chapter?.id, chapter?.audio]);
+    source.cues(chapter.cues).then(setCues).catch((err: Error) => setCueError(err.message));
+  }, [source, chapter?.id, chapter?.audio]);
 
   // The reader holds no database row by design, so a chapter narrated while it is open can only be
   // noticed by asking the manifest again — while there is something to wait for, and someone looking
   useEffect(() => {
-    if (!id || !chapter || chapter.audio) return;
+    if (!live || !chapter || chapter.audio) return;
     const check = () => {
       if (document.visibilityState !== "visible") return;
-      fetchManifest(id).then(setManifest).catch(() => {});
+      source.manifest().then(setManifest).catch(() => {});
     };
     const timer = setInterval(check, NARRATION_POLL_MS);
     document.addEventListener("visibilitychange", check);
@@ -109,7 +118,7 @@ export function Reader() {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", check);
     };
-  }, [id, chapter?.id, chapter?.audio]);
+  }, [live, source, chapter?.id, chapter?.audio]);
 
   useAudioTime(audioRef, playing, setMs);
 
@@ -290,7 +299,7 @@ export function Reader() {
 
       <audio
         ref={audioRef}
-        src={chapter.audio ?? undefined}
+        src={source.resolve(chapter.audio)}
         preload="metadata"
         onPlay={() => { setPlaying(true); if (audioRef.current) audioRef.current.playbackRate = speed; }}
         onPause={() => setPlaying(false)}
@@ -319,6 +328,7 @@ export function Reader() {
             columns={view === "column"}
             onSeek={seek}
             debug={debug}
+            resolve={source.resolve}
             empty="This chapter has no pages to show — switch to text view to read it."
           />
         )}
