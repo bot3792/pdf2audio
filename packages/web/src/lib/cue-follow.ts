@@ -44,7 +44,13 @@ export function followDelta(
 ): number | null {
   const safeTop = band.top;
   const safeBottom = viewHeight - band.bottom;
-  const focus = cue.bottom - cue.top <= safeBottom - safeTop ? cue : word ?? { top: cue.top, bottom: cue.top };
+  const tall = cue.bottom - cue.top > safeBottom - safeTop;
+  // Between two words there is no word, and that says nothing new about where the reader is.
+  // Re-aiming at the top of a long sentence during one of those gaps is what makes the page
+  // jitter — the last word placed is still the best guess, so stay where it left us. A jump has
+  // nothing on screen yet, so there the sentence's own top is the only thing to aim at.
+  const focus = tall ? word ?? (jump ? { top: cue.top, bottom: cue.top } : null) : cue;
+  if (!focus) return null;
 
   if (!jump && focus.top >= safeTop && focus.bottom <= safeBottom) return null;
 
