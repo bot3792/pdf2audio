@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 PINS_FILE = Path(__file__).parent / "pins.json"
-PINNED = {k: v for k, v in json.loads(PINS_FILE.read_text())["bundledTools"].items() if not k.startswith("_")}
+PINNED = json.loads(PINS_FILE.read_text())["bundledTools"]["versions"]
 TOOLS = list(PINNED)
 SYSTEM_PREFIXES = ("/usr/lib/", "/System/")
 
@@ -118,7 +118,7 @@ def check_versions(originals: list[Path], update: bool) -> int:
     found = {t: installed_version(p) for t, p in zip(TOOLS, originals)}
     if update:
         pins = json.loads(PINS_FILE.read_text())
-        pins["bundledTools"].update({t: v for t, v in found.items() if v})
+        pins["bundledTools"]["versions"].update({t: v for t, v in found.items() if v})
         PINS_FILE.write_text(json.dumps(pins, indent=2) + "\n")
         print(f"pins.json updated: {', '.join(f'{t} {v}' for t, v in found.items())}")
         return 0
@@ -133,7 +133,8 @@ def check_versions(originals: list[Path], update: bool) -> int:
         "\nThese go inside the DMG, so a change here reaches every user. Adopt it deliberately:\n"
         "  1. extract and synthesize a real book with the new versions\n"
         "  2. python3 scripts/bundle-tools.py --update-pins\n"
-        "  3. commit pins.json with what you checked in the message",
+        "  3. tar -czf pdf2audio-tools-arm64.tar.gz -C packages/desktop/resources bin\n"
+        "  4. gh release create tools-N that tarball, and put its url + sha256 in pins.json",
         file=sys.stderr,
     )
     return 1

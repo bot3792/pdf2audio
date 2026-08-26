@@ -37,14 +37,24 @@ if [ -z "$BUN" ]; then
   fi
 fi
 
-# ffmpeg/pdftotext/pdfinfo are copied out of Homebrew, so this one genuinely is a prerequisite —
-# saying so here beats failing three minutes in with a python traceback.
-for tool in ffmpeg pdftotext; do
-  command -v "$tool" >/dev/null || { echo "$tool is needed to build the bundle: brew install ffmpeg poppler"; exit 1; }
-done
 
-# Slow and rarely changing, so only when absent. Delete the folder to force them.
-[ -d "$DESKTOP/resources/bin" ] || { echo "==> bundling ffmpeg, pdftotext, pdfinfo"; python3 scripts/bundle-tools.py; }
+
+# The three CLI tools that ship inside the app are downloaded, not built: Homebrew has no versioned
+# formula for them and upgrades them under you, so a machine that installs "ffmpeg" gets whatever is
+# current — which is how CI came to hold 8.1.2 against the 7.1.1 this was tested with. Pinned and
+# checksummed here for the same reason uv and bun are. scripts/bundle-tools.py rebuilds it.
+if [ ! -d "$DESKTOP/resources/bin" ]; then
+  echo "==> fetching the bundled CLI tools"
+  read -r TOOLS_URL TOOLS_SHA <<<"$(node -e '
+    const p = require("./scripts/pins.json").bundledTools;
+    console.log(p.url, p.sha256);
+  ')"
+  mkdir -p "$DESKTOP/resources"
+  curl -fsSL --retry 3 -o /tmp/p2a-tools.tar.gz "$TOOLS_URL"
+  echo "$TOOLS_SHA  /tmp/p2a-tools.tar.gz" | shasum -a 256 -c - >/dev/null
+  tar -xzf /tmp/p2a-tools.tar.gz -C "$DESKTOP/resources"
+  rm -f /tmp/p2a-tools.tar.gz
+fi
 [ -f "$DESKTOP/build/icon.icns" ] || { echo "==> rendering the icon"; bash scripts/make-icon.sh; }
 
 echo "==> building the web bundle"

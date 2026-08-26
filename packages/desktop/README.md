@@ -151,20 +151,28 @@ install. Both are published; only the DMG needs to be linked.
 The workflow uploads a **draft** release. Open it on GitHub, paste the note below, and press
 Publish — the draft step exists so a bad build can be deleted before anyone sees it.
 
-### The three bundled tools are pinned by assertion
+### The three bundled tools are downloaded, not built
 
-`scripts/pins.json` records the ffmpeg and poppler versions the bundle was built and tested with.
-Homebrew has no versioned formula for either, so they cannot be pinned by installing them — instead
-`bundle-tools.py` compares what is installed against the pin and **stops the build** if they differ.
-That is the point: these binaries go inside the DMG, so a silent upgrade reaches every user as a
-book that extracts differently, and the release is where it would first be noticed.
+ffmpeg, pdftotext and pdfinfo ship inside the DMG. Homebrew has no versioned formula for any of
+them and upgrades them under you, so "install ffmpeg on the build machine" means a different ffmpeg
+every few weeks — the first CI release proved it, arriving with **8.1.2** where this was tested with
+**7.1.1**, and poppler **26.07.0** against **25.05.0**. That difference is invisible in a DMG and
+surfaces as a book that extracts differently on somebody else's machine.
 
-Adopting a new version is deliberate:
+So the built bundle is the artefact. `scripts/pins.json` holds its URL and sha256, `desktop-build.sh`
+downloads and verifies it exactly like `uv` and `bun`, and no build machine needs Homebrew for it.
+It lives in a `tools-N` GitHub release, which is not an app release.
+
+Rebuilding it is deliberate:
 
 ```bash
 brew upgrade ffmpeg poppler
+python3 scripts/bundle-tools.py           # refuses unless the versions match pins.json
 # extract and synthesize a real book with the new versions
 python3 scripts/bundle-tools.py --update-pins
+tar -czf pdf2audio-tools-arm64.tar.gz -C packages/desktop/resources bin
+gh release create tools-2 pdf2audio-tools-arm64.tar.gz --latest=false
+# then put the new url + sha256 in pins.json
 ```
 
 ### The note an unsigned release needs
