@@ -186,6 +186,12 @@ from `uv.lock`, fetches the Kokoro voice, and starts the server — which serves
 is one port and no Vite. About 2.8 GB, once; later launches take seconds. **Docker is the one thing
 it cannot install for you**, and the first-run screen says so rather than failing.
 
+Running the app **and** `pnpm dev` against the same Docker Postgres needs one more thing: the
+database stores absolute paths to audio and PDFs, so both must use the same `DATA_DIR`. Write
+`~/Library/Application Support/pdf2audio/config.json` with
+`{"dataDir": "<repo>/packages/server/data"}` and they agree; otherwise the app lists your books and
+cannot play them.
+
 It is **not signed yet**, so macOS refuses it until you right-click → Open. `scripts/vm-verify.sh`
 runs the whole thing inside a fresh macOS VM, checking first that the VM has no Homebrew, no Python
 and no cached models — this machine has all three and hides bugs because of it.

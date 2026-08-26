@@ -29,6 +29,23 @@ narrates a sentence.
 `curl: (56) Failure writing output to destination`, which tells a user nothing, and it runs an
 unverified script as them.
 
+## Sharing a library with a checkout
+
+The database records **absolute paths** to every PDF and every audio file, so the data directory is
+not a preference — it is the other half of the database. Point the app at a different one than
+wrote the files and you get a library that lists 578 books and can play none of them: the audio
+route resolves the stored path relative to `DATA_DIR`, and a path that escapes it is a 403.
+
+`~/Library/Application Support/pdf2audio/config.json` says where they already are:
+
+```json
+{ "dataDir": "/Users/you/repos/pdf2audio/packages/server/data" }
+```
+
+`databaseUrl` is accepted there too. A real install needs neither — the default is
+`<home>/data` beside everything else the app fetched. This exists so a developer running both the
+app and `pnpm dev` against one Docker Postgres has one library rather than two halves of one.
+
 ## The three CLI tools ship inside
 
 `scripts/bundle-tools.py` copies ffmpeg, pdftotext and pdfinfo out of Homebrew at build time along

@@ -14,9 +14,22 @@ function defaultHome() {
   return process.env.PDF2AUDIO_HOME || path.join(app.getPath("appData"), "pdf2audio");
 }
 
+// The database records absolute paths to every PDF and every audio file, so the data directory is
+// not a preference — it is half of a pair, and pointing the app at a different one than wrote the
+// files gives a library that lists books it cannot play. A developer sharing one database with a
+// checkout needs to say where those files already are.
+function readConfig(home) {
+  try {
+    return JSON.parse(require("node:fs").readFileSync(path.join(home, "config.json"), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
 let HOME = null;
 let RESOURCES = null;
-const DATABASE_URL = process.env.DATABASE_URL || "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
+let CONFIG = {};
+const DEFAULT_DATABASE_URL = "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
 
 const CLI_CANDIDATES = [
   "/usr/local/bin/docker",
@@ -77,11 +90,11 @@ function serverEnv() {
     ...process.env,
     PDF2AUDIO_HOME: HOME,
     SCRIPTS_DIR: path.join(HOME, "scripts"),
-    DATA_DIR: path.join(HOME, "data"),
+    DATA_DIR: process.env.DATA_DIR || CONFIG.dataDir || path.join(HOME, "data"),
     CONDA_ENV_PATH: path.join(HOME, "python/bin"),
     POCKET_ENV_PATH: path.join(HOME, "python-pocket/bin"),
     WEB_DIR: path.join(RESOURCES, "web"),
-    DATABASE_URL,
+    DATABASE_URL: process.env.DATABASE_URL || CONFIG.databaseUrl || DEFAULT_DATABASE_URL,
     PORT: String(PORT),
     // A GUI app's PATH omits Homebrew, and the workers spawn ffmpeg, pdftotext and pdfinfo
     PATH: setup.toolPath(RESOURCES),
@@ -102,6 +115,7 @@ async function boot() {
   const send = (id, state, detail) => win?.webContents.send("step", { id, state, detail });
 
   HOME = defaultHome();
+  CONFIG = readConfig(HOME);
   RESOURCES = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../resources");
 
   const missing = setup.missingTools(RESOURCES);
@@ -160,7 +174,7 @@ function menu(url) {
     {
       label: "Help",
       submenu: [
-        { label: "Show data folder", click: () => shell.openPath(path.join(HOME || "", "data")) },
+        { label: "Show data folder", click: () => shell.openPath(process.env.DATA_DIR || CONFIG.dataDir || path.join(HOME || "", "data")) },
         { label: "Where things live", click: () => dialog.showMessageBox({ message: `Everything the app installed: ${HOME}\nYour library: Postgres in Docker, port 5433\nServer: ${url}` }) },
       ],
     },
