@@ -31,9 +31,8 @@ function toolDirs(resources) {
 }
 
 function missingTools(resources) {
-  return pins(resources).bundledTools.filter(
-    (name) => !toolDirs(resources).some((dir) => existsSync(path.join(dir, name))),
-  );
+  const tools = Object.keys(pins(resources).bundledTools).filter((k) => !k.startsWith("_"));
+  return tools.filter((name) => !toolDirs(resources).some((dir) => existsSync(path.join(dir, name))));
 }
 
 function toolPath(resources) {

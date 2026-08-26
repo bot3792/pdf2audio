@@ -110,22 +110,62 @@ Tag it. `.github/workflows/release.yml` builds on a `v*` tag and publishes the D
 Releases, which is also where `electron-updater` looks — so the download page and the update feed
 are the same artefact, and there is nothing to keep in step by hand.
 
-Versions are **`v26.826.N`** — year, then `MMDD`, then which release that day. `v26.826.0` is the
-first release on 26 August 2026; `v26.826.1` is the second, same day. It reads as "how old is
-this" rather than as a promise about compatibility, which is the honest thing for an app nobody
-builds against.
+Two ways to cut one, and neither involves editing a version by hand.
+
+**From your machine:**
 
 ```bash
-# 1. set the version
-#    packages/desktop/package.json  →  "version": "26.826.0"
-
-# 2. commit it, tag it, push both
-git commit -am "Release 26.826.0" && git tag v26.826.0
-git push origin main --tags
+pnpm release          # says what it would do, changes nothing
+pnpm release --yes    # version, commit, tag, push — the push starts the build
 ```
 
-The workflow builds and uploads a **draft** release. Open it on GitHub, paste the note below, and
-press Publish — the draft step exists so a bad build can be deleted before anyone sees it.
+**From GitHub:** Actions → **Release** → *Run workflow*. Same script, run on the runner, so a
+release needs no checkout at all.
+
+Either way `scripts/release.mjs` picks the version, and it refuses to run from the wrong branch,
+with a dirty tree, or behind `origin/main` — each of which is otherwise discovered *after* the tag
+is pushed, which is the one point where undoing it means deleting a tag other people may have.
+
+Versions are **`v<YY>.<MMDD>.<n>`** — `v26.826.0` is the first release on 26 August 2026,
+`v26.826.1` the second that day. The script counts existing tags for today and takes the next
+number. It reads as "how old is this" rather than as a promise about compatibility, which is the
+honest thing for an app nobody builds against.
+
+The shape is forced by `electron-updater`, which parses both versions with `semver` and throws
+`ERR_UPDATER_INVALID_VERSION` on anything else — `isUpdateAvailable` is private, so there is no
+comparator to replace. That rules out the two obvious ideas:
+
+| | |
+| --- | --- |
+| `26.8.26.2` | not valid semver — three numeric parts, no more |
+| `26.8.26-2` | valid, but a *prerelease*: it sorts **below** `26.8.26`, so the hotfix would never be offered |
+
+`MMDD` in the minor slot survives both and still sorts: `26.826.1 < 26.827.0 < 26.1231.0 <
+27.101.0`, because the parts compare as numbers. No leading zeros anywhere — January 1st is
+`27.101.0`, not `27.0101.0`.
+
+The mac target builds a **zip as well as the DMG**. The DMG is what a person downloads; the zip is
+what Squirrel.Mac applies an update from, and without it the updater finds a release it cannot
+install. Both are published; only the DMG needs to be linked.
+
+The workflow uploads a **draft** release. Open it on GitHub, paste the note below, and press
+Publish — the draft step exists so a bad build can be deleted before anyone sees it.
+
+### The three bundled tools are pinned by assertion
+
+`scripts/pins.json` records the ffmpeg and poppler versions the bundle was built and tested with.
+Homebrew has no versioned formula for either, so they cannot be pinned by installing them — instead
+`bundle-tools.py` compares what is installed against the pin and **stops the build** if they differ.
+That is the point: these binaries go inside the DMG, so a silent upgrade reaches every user as a
+book that extracts differently, and the release is where it would first be noticed.
+
+Adopting a new version is deliberate:
+
+```bash
+brew upgrade ffmpeg poppler
+# extract and synthesize a real book with the new versions
+python3 scripts/bundle-tools.py --update-pins
+```
 
 ### The note an unsigned release needs
 

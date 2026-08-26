@@ -4,6 +4,10 @@
 # the in-app updater cannot install anything until the certificate exists.
 name: Release
 
+# Two ways in, one path out. Locally: `pnpm release` works out the version, commits, tags and
+# pushes — the tag starts this. From the GitHub UI: Actions → Release → Run workflow does the same
+# thing here, so a release needs no checkout at all. Either way the version is computed by
+# scripts/release.mjs and never typed by hand.
 on:
   push:
     tags: ["v*"]
@@ -22,12 +26,23 @@ jobs:
       HAS_CERT: ${{ secrets.APPLE_CERTIFICATE != '' && 'yes' || 'no' }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # release.mjs reads existing tags to pick the next number, and pushes when run from here
+          fetch-depth: 0
+          ref: main
 
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Work out the version and tag it
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node scripts/release.mjs --yes
 
       - run: pnpm install --frozen-lockfile
 

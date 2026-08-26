@@ -20,7 +20,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-TOOLS = json.loads((Path(__file__).parent / "pins.json").read_text())["bundledTools"]
+PINS_FILE = Path(__file__).parent / "pins.json"
+PINNED = {k: v for k, v in json.loads(PINS_FILE.read_text())["bundledTools"].items() if not k.startswith("_")}
+TOOLS = list(PINNED)
 SYSTEM_PREFIXES = ("/usr/lib/", "/System/")
 
 
@@ -99,9 +101,48 @@ def relocate(path: Path, libdir_rel: str) -> None:
     check(["codesign", "--force", "--sign", "-", "--timestamp=none", str(path)], "re-signing")
 
 
+VERSION_RE = re.compile(r"(?:ffmpeg|pdftotext|pdfinfo) version (\d+[\d.]*)")
+
+
+def installed_version(binary: Path) -> str | None:
+    flag = "-version" if binary.name == "ffmpeg" else "-v"
+    out = subprocess.run([str(binary), flag], capture_output=True, text=True)
+    m = VERSION_RE.search(out.stdout + out.stderr)
+    return m.group(1) if m else None
+
+
+# Homebrew ships one version of each of these and upgrades it under you — today's formula is ffmpeg
+# 8.1 where this bundle was built and tested against 7.1.1. That difference is invisible in a DMG
+# and shows up as a book that extracts differently, so the build stops here rather than shipping it.
+def check_versions(originals: list[Path], update: bool) -> int:
+    found = {t: installed_version(p) for t, p in zip(TOOLS, originals)}
+    if update:
+        pins = json.loads(PINS_FILE.read_text())
+        pins["bundledTools"].update({t: v for t, v in found.items() if v})
+        PINS_FILE.write_text(json.dumps(pins, indent=2) + "\n")
+        print(f"pins.json updated: {', '.join(f'{t} {v}' for t, v in found.items())}")
+        return 0
+
+    drift = {t: (PINNED[t], v) for t, v in found.items() if v != PINNED[t]}
+    if not drift:
+        return 0
+    print("Bundled tool versions do not match scripts/pins.json:", file=sys.stderr)
+    for tool, (want, got) in drift.items():
+        print(f"  {tool}: pinned {want}, installed {got or 'unknown'}", file=sys.stderr)
+    print(
+        "\nThese go inside the DMG, so a change here reaches every user. Adopt it deliberately:\n"
+        "  1. extract and synthesize a real book with the new versions\n"
+        "  2. python3 scripts/bundle-tools.py --update-pins\n"
+        "  3. commit pins.json with what you checked in the message",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="packages/desktop/resources/bin")
+    ap.add_argument("--update-pins", action="store_true", help="adopt the installed versions as the pin")
     args = ap.parse_args()
 
     out = Path(args.out).resolve()
@@ -116,6 +157,9 @@ def main() -> int:
             print(f"{tool} is not installed — brew install ffmpeg poppler", file=sys.stderr)
             return 1
         originals.append(Path(found).resolve())
+
+    if (code := check_versions(originals, args.update_pins)) != 0 or args.update_pins:
+        return code
 
     # Walked where they were installed: @loader_path only means anything before they move
     libs = closure(originals)
