@@ -37,6 +37,10 @@ pnpm app        # .app, installed over /Applications, quarantine cleared — ~15
 pnpm app:dmg    # the same plus a DMG to hand to someone
 ```
 
+`pnpm app` uses `--dir`, which skips the DMG *and* `app-update.yml` — so a locally-installed build
+never finds an update. That is deliberate (nothing to check against), and the updater stays quiet
+about it. Use `pnpm app:dmg` when you want the packaged, updatable article.
+
 `--install` exists because rebuilding proves nothing until the build is installed. It is easy to
 spend an afternoon reading the behaviour of `/Applications/pdf2audio.app` while editing the one in
 `release/`; the giveaway is `WEB_DIR` in the server's environment pointing somewhere you did not
@@ -114,6 +118,10 @@ than as a promise about compatibility, which is the honest thing for an app nobo
 git tag v26.8.26 && git push --tags
 ```
 
+The mac target builds a **zip as well as the DMG**. The DMG is what a person downloads; the zip is
+what Squirrel.Mac applies an update from, and without it the updater finds a release it cannot
+install. Both are published; only the DMG needs to be linked.
+
 Two constraints, both from `electron-updater` comparing with semver:
 
 - **No leading zeros.** `26.08.26` is not valid semver and update checks fail on it. Write `26.8.26`.
@@ -131,6 +139,29 @@ workflow signs and notarises and nobody ever sees this. Until then, expect to lo
 
 The updater does not depend on signing, but the *installation* of an update does: an unsigned
 update is quarantined the same way. So treat everything before the certificate as pre-release.
+
+### Testing an update without publishing one
+
+```bash
+# build the version you want to update *from*, and install it
+pnpm app:dmg && cp -R packages/desktop/release/mac-arm64/pdf2audio.app /Applications/
+
+# bump the version, build again, serve the new artefacts as a feed
+python3 -m http.server 8765   # in a folder holding latest-mac.yml + the new -mac.zip
+
+# point the installed copy at that feed instead of GitHub
+cat > /Applications/pdf2audio.app/Contents/Resources/app-update.yml <<'YML'
+provider: generic
+url: http://localhost:8765/
+YML
+
+# run it from the terminal, not Finder, so the updater's log is visible
+/Applications/pdf2audio.app/Contents/MacOS/pdf2audio
+```
+
+Check, offer, download and hand-off all work this way. **The install step will fail until the app is
+signed** — Squirrel.Mac validates the downloaded app's signature and an ad-hoc one does not pass.
+`tasks/desktop-updates.md` has the exact error.
 
 ## When something goes wrong
 

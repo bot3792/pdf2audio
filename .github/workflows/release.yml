@@ -26,7 +26,11 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r --filter "./packages/*" test
+
+      # Not the server suite: it needs a live Postgres on 5433, and GitHub's macOS runners have no
+      # Docker and cannot run service containers. Those tests run locally and would need a Linux
+      # job of their own — releasing on a green macOS build is not a claim that they passed.
+      - run: pnpm --filter @pdf2audio/web --filter @pdf2audio/desktop test
 
       # scripts/bundle-tools.py copies these out of Homebrew, and make-icon renders the .icns
       - run: brew install ffmpeg poppler librsvg imagemagick

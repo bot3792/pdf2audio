@@ -112,6 +112,37 @@ Two decisions from the plan resolved by building it:
   hand-bumped `"runtime": 3`, because the release that forgets to bump a counter is exactly the
   release that ships a mismatched runtime.
 
+### Tested end to end, 2026-08-26
+
+A local feed (`provider: generic` pointing at a `python3 -m http.server` over the release folder,
+with the installed app's `Resources/app-update.yml` rewritten to match) against an installed
+26.8.26 and a served 26.8.27:
+
+```
+Checking for update                                    ✅
+Found version 26.8.27                                  ✅
+"A new pdf2audio is available"  → Download it          ✅
+185 MB downloaded, handed to Squirrel.Mac              ✅
+install                                                ❌
+  Code signature at URL …/pdf2audio.app/ did not pass validation:
+  code has no resources but signature indicates they must be present
+```
+
+**Everything except the last step works, and the last step needs the Apple certificate.**
+Squirrel.Mac validates the signature of the downloaded app before swapping it in, and electron-
+builder's ad-hoc signature does not satisfy it — so this is not "unsigned apps cannot update", it
+is "only a Developer ID signature can". There is no flag that turns it off.
+
+Two things that fell out of testing it:
+
+- **The mac target needs `zip` as well as `dmg`.** The DMG is what a person downloads; the zip is
+  what Squirrel applies an update from. Without it the updater finds a release it cannot install,
+  and says nothing useful about why.
+- **A failed install now says so.** It used to be one line in a log: the user clicks twice and
+  waits for a restart that never comes. The error handler distinguishes a failed *check* (silent —
+  they did not ask) from a failed *install* (a dialog explaining that this build is not signed, and
+  a button to the downloads page, which does work).
+
 Still open: **model revisions.** `models.py --status` reports what is cached, not which revision,
 so a model that changes upstream is invisible and "update the models" can only mean "re-download
 15 GB". Pinning revisions in the manifest is the fix, and it is the next thing here.
