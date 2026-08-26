@@ -81,17 +81,26 @@ jobs:
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Notarisation, either way. The API key is preferred: it is scoped and revocable, where an
+          # app-specific password is tied to the Apple ID itself.
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_PATH }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # A secret that does not exist arrives as an empty string, not as an absent variable, and
           # electron-builder treats an empty CSC_LINK as a certificate path — resolving it to the
           # project directory and failing with "not a file". Unset rather than blank.
           if [ "$HAS_CERT" = "no" ]; then
-            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID \
+                  APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER
+            # Ad-hoc rather than unsigned: an unsigned bundle is reported to the user as *damaged*,
+            # with no way past it. See packages/desktop/README.md.
+            IDENTITY="-c.mac.identity=-"
           fi
-          pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always
+          pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always ${IDENTITY:-}
 
       - name: Say what shipped
         run: |

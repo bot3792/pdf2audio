@@ -307,6 +307,55 @@ Check, offer, download and hand-off all work this way. **The install step will f
 signed** — Squirrel.Mac validates the downloaded app's signature and an ad-hoc one does not pass.
 `tasks/desktop-updates.md` has the exact error.
 
+### Turning signing on
+
+Nothing in the code changes. The workflow already branches on whether the certificate secret
+exists — with it, electron-builder signs and notarises; without it, it ad-hoc signs and warns. What
+follows is the one-time setup.
+
+**1. Enrol.** [developer.apple.com/programs](https://developer.apple.com/programs/) — $99/year.
+*Individual* means the signer shown is your legal name and takes days; *organisation* means a
+company name, needs a D-U-N-S number, and takes weeks. Moving from individual to organisation later
+is a **new membership and new certificates**, so it is the one decision here worth making slowly.
+The product name is not part of any of this: one membership covers unlimited apps, and for
+Developer ID distribution the bundle identifier is never registered anywhere.
+
+**2. Create a Developer ID Application certificate.** Keychain Access → Certificate Assistant →
+Request a Certificate From a Certificate Authority (saved to disk), upload it at
+[Certificates](https://developer.apple.com/account/resources/certificates/list), choose **Developer
+ID Application**, download and double-click the result.
+
+**3. Export it for CI.** In Keychain Access, find *Developer ID Application: …*, expand it so both
+the certificate and its private key are selected, right-click → Export as `.p12` with a password.
+Then:
+
+```bash
+base64 -i certificate.p12 | pbcopy
+```
+
+**4. Create an App Store Connect API key** for notarisation at
+[Users and Access → Integrations](https://appstoreconnect.apple.com/access/integrations/api), role
+**Developer**. Download the `.p8` — it can only be downloaded once. This is preferred over an
+app-specific password: it is scoped, revocable, and not tied to your Apple ID login.
+
+**5. Add the repository secrets** (Settings → Secrets and variables → Actions):
+
+| secret | what goes in it |
+| --- | --- |
+| `APPLE_CERTIFICATE` | the base64 from step 3 |
+| `APPLE_CERTIFICATE_PASSWORD` | the `.p12` password |
+| `APPLE_TEAM_ID` | the 10-character team id, top right of the developer portal |
+| `APPLE_API_KEY_ID` | the key id from step 4 |
+| `APPLE_API_ISSUER` | the issuer id on the same page |
+| `APPLE_API_KEY_PATH` | contents of the `.p8` |
+
+The next tag signs, notarises, and publishes. Nothing else changes.
+
+**What this is worth being careful about:** `APPLE_CERTIFICATE` is a private key that signs software
+as you. Anyone who can write to this repository, or who compromises it, can sign anything with your
+name on it. The certificate can be revoked from the portal if that ever happens, and it is worth
+knowing that before uploading it rather than after.
+
 ### A macOS VM can only test half of this
 
 `scripts/vm-verify.sh` runs inside a fresh `tart` macOS guest and is genuinely useful — it proved

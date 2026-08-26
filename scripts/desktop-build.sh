@@ -76,7 +76,11 @@ cd "$DESKTOP"
 # unidentified-developer refusal, which Privacy & Security can override. Auto-discovery stays off
 # so a stray keychain identity cannot produce something that only runs on the machine that built it.
 export CSC_IDENTITY_AUTO_DISCOVERY=false
-if $FAST; then npx electron-builder --mac --dir >/dev/null; else npx electron-builder --mac >/dev/null; fi
+# Ad-hoc here, always: a local build has no certificate and must not pick one up. The real
+# identity is passed only by the release workflow, and only when the secret exists — the flag lives
+# there rather than in package.json so that arriving certificate is not silently ignored.
+ADHOC="-c.mac.identity=-"
+if $FAST; then npx electron-builder --mac --dir $ADHOC >/dev/null; else npx electron-builder --mac $ADHOC >/dev/null; fi
 
 APP="$DESKTOP/release/mac-arm64/pdf2audio.app"
 echo "    $APP"

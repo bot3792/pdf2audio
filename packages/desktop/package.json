@@ -43,8 +43,7 @@
         }
       ],
       "category": "public.app-category.productivity",
-      "icon": "build/icon.icns",
-      "identity": "-"
+      "icon": "build/icon.icns"
     },
     "extraResources": [
       {
