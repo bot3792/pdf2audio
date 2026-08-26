@@ -21,6 +21,11 @@ jobs:
   macos:
     # arm64. MLX is Metal, so an Intel runner cannot even smoke-test what it builds.
     runs-on: macos-15
+    # The Apple secrets live in this environment rather than on the repository, so they are exposed
+    # only to this job and can be put behind a required reviewer. A signing key is not revocable by
+    # us — Developer ID revocation goes through Apple Product Security and breaks installation of
+    # every build ever signed with it — so limiting who can reach it matters more than usual.
+    environment: release
     # `secrets` is not a context a step-level `if` can read; a job-level env is.
     env:
       HAS_CERT: ${{ secrets.APPLE_CERTIFICATE != '' && 'yes' || 'no' }}

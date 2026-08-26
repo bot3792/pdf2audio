@@ -338,7 +338,11 @@ base64 -i certificate.p12 | pbcopy
 **Developer**. Download the `.p8` — it can only be downloaded once. This is preferred over an
 app-specific password: it is scoped, revocable, and not tied to your Apple ID login.
 
-**5. Add the repository secrets** (Settings → Secrets and variables → Actions):
+**5. Add the secrets to a `release` environment** (Settings → Environments → New environment →
+`release`), not to the repository at large. The workflow declares `environment: release`, so they
+are readable only by that job, and the environment can require a reviewer before it will run —
+which is the difference between "someone with write access can sign as you" and "someone with write
+access can ask you to sign as you".
 
 | secret | what goes in it |
 | --- | --- |
@@ -351,10 +355,21 @@ app-specific password: it is scoped, revocable, and not tied to your Apple ID lo
 
 The next tag signs, notarises, and publishes. Nothing else changes.
 
-**What this is worth being careful about:** `APPLE_CERTIFICATE` is a private key that signs software
-as you. Anyone who can write to this repository, or who compromises it, can sign anything with your
-name on it. The certificate can be revoked from the portal if that ever happens, and it is worth
-knowing that before uploading it rather than after.
+**What this is worth being careful about.** `APPLE_CERTIFICATE` is a private key that signs software
+as you, and putting it in CI is the normal thing to do — GitHub documents this pattern and projects
+like [Ghostty](https://github.com/ghostty-org/ghostty/blob/main/.github/workflows/release-tag.yml)
+ship exactly this way, base64 `.p12` into a temporary keychain, then `notarytool` with an App Store
+Connect key. The macOS certificate has no hardware-token requirement; that applies to Windows EV
+certificates, which is a different problem.
+
+What is *not* normal is how bad the recovery is, and it is worth knowing before uploading rather
+than after. **A Developer ID certificate cannot be revoked from the portal.** Apple's own
+Certification Practice Statement routes it through an email to `productsecurity@apple.com`, which
+Apple then evaluates. And revocation is not surgical: already-installed apps keep running, but
+**every build ever signed with that certificate stops being installable** — the HP printer driver
+incident is the standing example. So the realistic plan for a leaked key is "email Apple, then
+break every release you have ever shipped", which is why the key sits in a protected environment
+and the notarisation credential is an API key (that one *is* revocable by you, instantly).
 
 ### A macOS VM can only test half of this
 
