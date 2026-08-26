@@ -46,10 +46,14 @@ spend an afternoon reading the behaviour of `/Applications/pdf2audio.app` while 
 `release/`; the giveaway is `WEB_DIR` in the server's environment pointing somewhere you did not
 expect. It also clears the quarantine flag, which is what right-click → Open does by hand.
 
-Bun is fetched on demand. ffmpeg and poppler are not — `bundle-tools.py` copies them out of
-Homebrew, so building the app needs `brew install ffmpeg poppler` even though running it does not.
-Delete `packages/desktop/resources/bin` or `packages/desktop/build/icon.icns` to force those slow
-steps to run again; both are generated and neither is tracked.
+Bun and the bundled CLI tools are both fetched on demand and checksummed, so **building the app
+needs no Homebrew ffmpeg or poppler** — only `librsvg` and `imagemagick`, and only when the icon
+has to be re-rendered. (Running the server *from source* is a different matter: `pnpm dev` spawns
+bare `ffmpeg` and `pdftotext` off your `PATH`, so a checkout still wants them installed. The app
+does not — it puts its own bundled copies first.)
+
+Delete `packages/desktop/resources/bin` or `packages/desktop/build/icon.icns` to force those steps
+to run again; both are generated and neither is tracked.
 
 ## Sharing a library with a checkout
 
@@ -90,8 +94,8 @@ characters.
 
 ## The three CLI tools ship inside
 
-`scripts/bundle-tools.py` copies ffmpeg, pdftotext and pdfinfo out of Homebrew at build time along
-with their entire dylib closure — 104 libraries, 85 MB — rewrites every load command to
+`scripts/bundle-tools.py` copies ffmpeg, pdftotext and pdfinfo out of Homebrew — not during a build
+any more, but when the bundle is deliberately rebuilt — along with their entire dylib closure — 104 libraries, 85 MB — rewrites every load command to
 `@loader_path`, and **re-signs each one ad-hoc**. That last step is not optional: Apple Silicon
 refuses to run a binary whose signature does not match what `install_name_tool` left behind, and it
 does so by killing it with no message, which looks exactly like a missing library.

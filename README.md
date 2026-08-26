@@ -126,7 +126,7 @@ data/previews/                    Voice preview M4As
 
 An Apple Silicon Mac (the MLX TTS engines need Metal) with:
 
-- [Homebrew](https://brew.sh), then: `brew install ffmpeg poppler espeak-ng python@3.12 node pnpm`
+- [Homebrew](https://brew.sh), then: `brew install ffmpeg poppler espeak-ng python@3.12 node pnpm` — for running from source, which spawns `ffmpeg` and `pdftotext` off your `PATH`. The packaged app carries its own copies and needs none of this.
 - Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (Postgres, and optionally Storyteller). The desktop app will require it too.
 - Optional: an AI model for translation, rewrites, cleanup, digests, Ask AI, chat, and LLM chapter detection — [Ollama](https://ollama.com) or LM Studio running locally (auto-discovered, fully offline), or a [DeepSeek](https://platform.deepseek.com/) / OpenAI / Anthropic / Gemini API key
 - Optional: a [Cartesia](https://cartesia.ai) or [ElevenLabs](https://elevenlabs.io) API key for their cloud voices
