@@ -388,7 +388,8 @@ the state.
   `runtime.cjs` compares the bundle's `uv.lock` hash against `runtime-state.json` and skips whatever
   is already current — a launch with nothing to bring forward is ~1s. `updater.cjs` checks GitHub
   Releases *after* the window is up. `crash.cjs` turns an uncaught exception into a `crash.log` line
-  and a prefilled GitHub issue.
+  and a prefilled GitHub issue. Versions are dates — `v26.8.26` — with **no leading zeros**, since
+  `26.08.26` is not valid semver and electron-updater would refuse to compare it.
 - **One port.** The server serves the built web bundle (`WEB_DIR`, with an SPA fallback) when one
   exists, so a package needs no Vite. In the repo, unbuilt, nothing changes.
 - **`scripts/bundle-tools.py`** — copies ffmpeg, pdftotext and pdfinfo out of Homebrew with their

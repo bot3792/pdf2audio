@@ -106,10 +106,22 @@ Tag it. `.github/workflows/release.yml` builds on a `v*` tag and publishes the D
 Releases, which is also where `electron-updater` looks — so the download page and the update feed
 are the same artefact, and there is nothing to keep in step by hand.
 
+Versions are the date: **`v26.8.26`** for 26 August 2026. It reads as "how old is this" rather
+than as a promise about compatibility, which is the honest thing for an app nobody builds against.
+
 ```
-pnpm version patch --workspaces-update=false   # or edit packages/desktop/package.json
-git tag v0.1.0 && git push --tags
+# packages/desktop/package.json  →  "version": "26.8.26"
+git tag v26.8.26 && git push --tags
 ```
+
+Two constraints, both from `electron-updater` comparing with semver:
+
+- **No leading zeros.** `26.08.26` is not valid semver and update checks fail on it. Write `26.8.26`.
+  Ordering still works — `26.8.26 < 26.9.1 < 26.10.1` — because the parts compare as numbers.
+- **One release per day.** The format cannot express a same-day hotfix: a `-2` suffix is a
+  *prerelease* in semver and sorts *below* the release it was meant to follow. If that day comes,
+  the escape is `YY.M.N` — month plus a counter, `26.8.0`, `26.8.1` — which keeps the "how old"
+  reading and lifts the limit.
 
 **Until there is an Apple certificate the download is quarantined**, and macOS says "pdf2audio is
 damaged and can't be opened" — which is a lie, but it is the lie Gatekeeper tells about unsigned
