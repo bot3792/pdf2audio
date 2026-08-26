@@ -95,24 +95,14 @@ pnpm monorepo: `packages/server` (Fastify + tRPC + Graphile Worker + Drizzle/Pos
 
 ## Database
 
-PostgreSQL 17.5 with pgvector, **bundled rather than Docker** — `scripts/pg.sh` downloads a 32 MB build once into `.pg/` and runs it as a child process on host port **5433**. Schema via Drizzle ORM: `profiles`, `folders`, `books`, `book_files`, `chapters`, `chapter_translations`, `assemblies`, `documents`, `notes`, `book_logs`, `book_chunks` (search index: FTS + embeddings). See AGENTS.md for column-level docs. Migrations: `pnpm db:generate` + `pnpm db:migrate`.
+PostgreSQL 17 with pgvector in Docker (`pgvector/pgvector:pg17`, host port **5433**), schema via Drizzle ORM: `profiles`, `folders`, `books`, `book_files`, `chapters`, `chapter_translations`, `assemblies`, `documents`, `notes`, `book_logs`, `book_chunks` (search index: FTS + embeddings). See AGENTS.md for column-level docs. Migrations: `pnpm db:generate` + `pnpm db:migrate`.
 
-### One-time migration off Docker (2026-08)
+### Postgres runs in Docker, deliberately
 
-Postgres used to run in Docker. It now ships with the repo, on the same port and the same
-connection string, so `.env` does not change. Existing data moves by dump and restore — use the
-bundled `pg_dump`, since Homebrew's is often an older major version and will refuse a 17.x server:
-
-```bash
-pnpm db:up                                     # downloads the binaries, creates the cluster
-.pg/dist/bin/pg_dump -Fc -f old.dump "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio"
-docker compose down                            # free port 5433
-pnpm db:up
-.pg/dist/bin/pg_restore -h 127.0.0.1 -p 5433 -U pdf2audio -d pdf2audio -j 4 old.dump
-```
-
-A 5 GB library takes about three minutes. `docker-compose.yml` and its `pgdata17` volume are kept
-untouched as a rollback: `pnpm db:down && docker compose up -d`.
+It was briefly bundled instead (`scripts/pg.sh`, removed in 2026-08) and that worked — the whole
+5 GB library migrated in three minutes, and `tasks/desktop-app.md` records what it took. Docker won
+because the desktop app is going to require it anyway, and one database path beats two: the app
+would otherwise be tested against binaries the developers never run.
 
 After the restore, index the library for search: `pnpm db:migrate && pnpm backfill:index` (FTS is available within minutes; BGE-M3 embeddings fill in as a background pass).
 
@@ -134,7 +124,7 @@ data/previews/                    Voice preview M4As
 An Apple Silicon Mac (the MLX TTS engines need Metal) with:
 
 - [Homebrew](https://brew.sh), then: `brew install ffmpeg poppler espeak-ng python@3.12 node pnpm`
-- Docker — optional now, and only for Storyteller. Postgres no longer needs it.
+- Docker — [OrbStack](https://orbstack.dev/) or Docker Desktop (Postgres, and optionally Storyteller). The desktop app will require it too.
 - Optional: an AI model for translation, rewrites, cleanup, digests, Ask AI, chat, and LLM chapter detection — [Ollama](https://ollama.com) or LM Studio running locally (auto-discovered, fully offline), or a [DeepSeek](https://platform.deepseek.com/) / OpenAI / Anthropic / Gemini API key
 - Optional: a [Cartesia](https://cartesia.ai) or [ElevenLabs](https://elevenlabs.io) API key for their cloud voices
 - Optional: a [HuggingFace](https://huggingface.co) account for Pocket TTS **voice cloning** — accept the terms at
@@ -167,9 +157,8 @@ Create the admin account at `http://localhost:8001`, then set `READALOUD_DROP_DI
 pnpm dev              # Start server + web in parallel
 pnpm dev:server       # Server only (port 3034)
 pnpm dev:web          # Web only (port 3033)
-pnpm db:up            # Start the bundled Postgres (downloads it on first run)
-pnpm db:down          # Stop it
-pnpm db:psql          # A psql shell on it
+pnpm db:up            # Start Postgres in Docker
+pnpm db:down          # Stop Postgres
 pnpm db:generate      # Generate Drizzle migration from schema changes
 pnpm db:migrate       # Apply migrations
 pnpm run setup        # Full setup (deps check, .venv + pinned Python deps, model caching, Postgres + migrations)
@@ -182,10 +171,7 @@ pnpm e2e:full         # Everything incl. slow tests (marker, TTS, exports)
 
 ## Notes
 
-- Postgres listens on **5433**, not 5432, to avoid colliding with any other Postgres on the machine. The binaries land in `.pg/dist` and the cluster in `.pg/data`; `bash scripts/pg.sh destroy` deletes the cluster and keeps the binaries.
-- The Postgres tarball is checksum-pinned per platform in `scripts/pg.sh` — it is an unsigned build from a small third-party repo, run as your own user, so a mismatch aborts rather than warns. Bumping `RELEASE` means re-recording the four hashes.
-- `.pg/data` is excluded from Time Machine at `initdb` time. A live database is a bad backup subject: gigabytes of churn every hour and an inconsistent copy at the end. **Back it up with `pg_dump`, not with a file copy.**
-- Nothing supervises the cluster. It does not come back after a reboot or a crash — `pnpm db:up`. (The old compose file had no `restart:` policy either, so this is not a regression.)
+- Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.
 - Python dependencies are a **uv project**: `pyproject.toml` + `uv.lock` at the repo root, installed with `uv sync --frozen` (setup fetches `uv` into `.uv/` if it is missing). 189 packages resolve in under two seconds and install in about thirteen. Three pins deliberately contradict what `mlx-audio` and `nanocodec-mlx` declare — transformers 5.x breaks marker, huggingface_hub 1.x is untested here, and nanocodec wants an older mlx — and those are `[tool.uv] override-dependencies` rather than the three `--no-deps` installs they used to be. `scripts/requirements.txt` no longer feeds anything.
 - Every TTS/extraction subprocess runs with `HF_HUB_OFFLINE=1`, so models never download at synthesis time. `pnpm run setup` caches only what the core path needs — **Kokoro-82M, ~350 MB**. The heavy optional bundles arrive at the doorway of the feature that needs them, with a size and a button: **Marker/Surya 5.1 GB** (full extraction and OCR), **BGE-M3 4.3 GB** (library search and chat), **Bulgarian narrators 1.2 GB**. `WITH_ALL_MODELS=1 pnpm run setup` fetches everything up front instead — setup used to do that unconditionally, which meant ~15 GB and an hour before the app could open a page.
 - `scripts/models.py --status` lists the bundles and what is cached; `--download <id>` fetches one; `--capabilities` reports whether MLX is usable, which is what greys out the two Metal-only narrators (BG-TTS V5 and KugelAudio) instead of letting them fail at synthesis. Everything else falls back to the CPU. A `.models-missing` file at the repo root (one bundle id per line) makes the app pretend those are absent — the only sane way to work on a download gate without deleting gigabytes.

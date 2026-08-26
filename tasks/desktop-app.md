@@ -57,7 +57,17 @@ pdf2audio.app                          signed, notarised, ~120 MB
 
 ## The four problems
 
-### 1. Postgres — **tested end to end 2026-08-25, it works**
+### 1. Postgres — **Docker, decided 2026-08-26**
+
+The app will require Docker. That is a fair ask — it is standard, it works the same on Linux and
+Windows, and someone who does not have it is one download away. It also means the developers run
+exactly what ships, instead of testing against binaries nobody else uses.
+
+The bundled route below was built, proven, and then removed (`scripts/pg.sh`, in git history). It
+is kept written down because it is how the Docker requirement could be dropped later, and because
+its findings cost real time.
+
+### The bundled alternative — **tested end to end 2026-08-25, it works**
 
 **PGlite is out, and measurement confirms why.** With the real server running, `pg_stat_activity`
 shows **21 connections at idle**, 14 of them graphile-worker's. PGlite is single-connection. Not a
@@ -117,8 +127,7 @@ somewhere short, or use TCP on loopback.
 or the `%` operator. Building it is proven and cheap, so build it — but if that ever becomes a
 burden, dropping it is a one-line migration rather than a feature loss.
 
-The data directory moves out of the Docker volume into Application Support, and `initdb` plus
-`drizzle-kit migrate` become things the launcher does on first run.
+That whole path is now history rather than plan; the app runs `docker compose up -d` instead.
 
 **The real library migrates cleanly.** Not a fixture — the actual 5.2 GB development database,
 578 books and 273,049 embedded chunks, dumped from Docker's PostgreSQL 17.10 and restored into the
