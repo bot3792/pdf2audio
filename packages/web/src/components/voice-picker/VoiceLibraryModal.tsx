@@ -17,6 +17,7 @@ import {
 import { trpc } from "../../trpc.ts";
 import { useBodyScrollLock } from "../../lib/use-body-scroll-lock.ts";
 import { PocketLanguageNotice } from "./PocketLanguageNotice.tsx";
+import { ModelBundleNotice } from "../ModelBundleNotice.tsx";
 import { PocketVoiceCloner } from "./PocketVoiceCloner.tsx";
 import { VoiceRow } from "./VoiceRow.tsx";
 import { Empty, Section } from "./layout.tsx";
@@ -338,6 +339,10 @@ export function VoiceLibraryModal({
                         />
                       ))}
                     </div>
+                  )}
+
+                  {language === "bg" && (
+                    <div className="mx-1 mb-3"><ModelBundleNotice id="bulgarian" verb="Narrating in Bulgarian" /></div>
                   )}
 
                   {shown.length > 0

@@ -8,6 +8,7 @@ import { ModelPicker } from "../components/ModelPicker.tsx";
 import { ChatMessage } from "../components/chat/ChatMessage.tsx";
 import { SavedAnswers } from "../components/chat/SavedAnswers.tsx";
 import { PdfPreviewModal } from "../components/PdfPreviewModal.tsx";
+import { ModelBundleNotice } from "../components/ModelBundleNotice.tsx";
 
 type FolderOption = { id: string; name: string; depth: number };
 
@@ -134,6 +135,8 @@ export function Chat() {
             <ModelPicker value={model} onChange={setModel} requireTools testId="chat-model" />
           </div>
         </div>
+
+        <div className="mb-3"><ModelBundleNotice id="search" verb="Searching and asking across the library" /></div>
 
         {notIndexed > 0 && (
           <div className="text-xs text-(--text-muted) mb-3" data-testid="chat-index-hint">

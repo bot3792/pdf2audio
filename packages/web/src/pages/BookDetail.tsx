@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router";
 import { trpc } from "../trpc.ts";
+import { ModelBundleNotice, useModelBundle } from "../components/ModelBundleNotice.tsx";
 import { ChapterTable } from "../components/ChapterTable.tsx";
 import { Breadcrumbs } from "../components/Breadcrumbs.tsx";
 import { SynthesizeModal } from "../components/SynthesizeModal.tsx";
@@ -25,6 +26,7 @@ export function BookDetail() {
   // Above the `!book` early return below: hooks after it run only once the book loads, and a
   // render that calls a different number of hooks than the last one takes the page down.
   const { data: renderer } = trpc.renderer.status.useQuery(undefined, { staleTime: Infinity });
+  const { ready: extractionReady } = useModelBundle("extraction");
   const installRenderer = trpc.renderer.install.useMutation({ onSuccess: () => void utils.renderer.status.invalidate() });
   const [searchParams, setSearchParams] = useSearchParams();
   const activeVariant = searchParams.get("variant");
@@ -810,8 +812,10 @@ export function BookDetail() {
                 <div className="flex gap-3 flex-wrap">
                   <button
                     onClick={() => extractChaptersMutation.mutate({ id: book.id })}
-                    disabled={extractChaptersMutation.isPending}
-                    title="Run the full extraction (Marker) to detect chapters — takes minutes; uses the Force OCR and LLM chapter detection settings above"
+                    disabled={extractChaptersMutation.isPending || !extractionReady}
+                    title={extractionReady
+                      ? "Run the full extraction (Marker) to detect chapters — takes minutes; uses the Force OCR and LLM chapter detection settings above"
+                      : "Full extraction needs the Marker models — download them below"}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     data-testid="extract-chapters"
                   >
@@ -831,6 +835,7 @@ export function BookDetail() {
                     Ask AI (whole book)
                   </button>
                 </div>
+                <ModelBundleNotice id="extraction" verb="Extracting chapters" />
                 {extractChaptersMutation.error && (
                   <p className="text-red-600 text-sm">{extractChaptersMutation.error.message}</p>
                 )}

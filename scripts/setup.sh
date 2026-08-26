@@ -68,20 +68,19 @@ echo "Caching Kokoro model (~330 MB)..."
 "$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('hexgrad/Kokoro-82M'); print('  Kokoro-82M: OK')"
 
 echo ""
-echo "Caching Marker extraction models (~2 GB, powers OCR extraction)..."
-"$PY" -c "from marker.models import create_model_dict; create_model_dict(); print('  marker models: OK')"
-
-echo ""
-echo "Caching Bulgarian narrator model (~1 GB)..."
-"$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('raditotev/bg-tts-v5-mlx'); print('  bg-tts-v5-mlx: OK')"
-
-echo ""
-echo "Caching Meta MMS Bulgarian model (~280 MB)..."
-"$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/mms-tts-bul'); print('  mms-tts-bul: OK')"
-
-echo ""
-echo "Caching BGE-M3 embedding model (~2.2 GB, powers library search)..."
-"$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-m3'); print('  bge-m3: OK')"
+# Everything else — Marker 5.1 GB, BGE-M3 4.3 GB, the Bulgarian narrators 1.2 GB — is fetched by
+# scripts/models.py the first time someone asks for the feature it powers. Downloading all of it
+# here meant ~15 GB and an hour before the app could open a single page.
+if [ "${WITH_ALL_MODELS:-}" = "1" ]; then
+  echo "WITH_ALL_MODELS=1 — fetching every optional bundle up front..."
+  for bundle in extraction search bulgarian; do
+    echo "  $bundle..."
+    "$PY" "$REPO_DIR/scripts/models.py" --download "$bundle"
+  done
+else
+  echo "Optional models (Marker/OCR, library search, Bulgarian narrators) download on first use."
+  "$PY" "$REPO_DIR/scripts/models.py" --status >/dev/null && echo "  model registry: OK"
+fi
 
 echo ""
 # Separate venv: pocket-tts requires numpy>=2, the main env is pinned to numpy 1.26.4.
