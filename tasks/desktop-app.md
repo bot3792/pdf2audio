@@ -357,4 +357,27 @@ caught real onboarding bugs once (`4d0adfb`).
 
 ## Status
 
-Researched 2026-08-25. Postgres tested end to end and proven; everything else still on paper.
+Researched 2026-08-25, built through 2026-08-26. Everything that can be verified without a display
+or a certificate is done.
+
+| | |
+| --- | --- |
+| Postgres — Docker **and** bundled | both proven; the real 5.2 GB library migrates in ~3 min |
+| `pg_trgm` removed | it was created once and used nowhere |
+| Bun runs the server | 7 pools, tRPC answers, compiles to one 75 MB binary |
+| Script paths from a setting | 10 sites; survives compilation |
+| Gating pattern | shipped 4x — PDF renderer, extraction, search, MLX voices |
+| **Setup: 15 GB → 350 MB** | the rest downloads at the doorway of its feature |
+| **uv + lockfile** | 189 packages in 1.8 s; found 3 hidden conflicts and 2 broken pins |
+| Docker detection | probes install and socket locations, not `$PATH` |
+| Release workflow | written, inert until there is a certificate |
+| Electron window | **not written** — last and thinnest |
+| Signing and notarising | **needs the $99 account** |
+
+The decisions that settled along the way: **Docker is a fair thing to require** of the shipped app,
+which is why the bundled Postgres is now one option rather than the plan. **Electron over Tauri**,
+not for the updater — both do that — but because Tauri renders in the system webview, which on
+Linux is WebKitGTK and varies by distro, while Electron carries the same Chromium everywhere. The
+UI does run in WebKit (14/14 under Playwright), so Tauri stays viable if the size ever matters.
+And **an Open-in-your-browser menu item** on every platform, because the app is a local server and
+a page — which makes any webview bug an annoyance rather than a blocker.
