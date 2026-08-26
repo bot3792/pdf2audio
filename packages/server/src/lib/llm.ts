@@ -7,10 +7,11 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import { env } from "../env.ts";
-import { secretsOfKind, isConfigured, keyHint, type SecretVar } from "./secrets.ts";
+import { LLM_SECRETS, isConfigured, type SecretVar, type LlmSecretProvider } from "./secrets.ts";
 import { describeError } from "./errors.ts";
 
-export type LlmProviderKind = "deepseek" | "openai" | "anthropic" | "google" | "openai-compatible";
+// The cloud providers are whatever secrets.ts says they are; this adds the one that needs no key.
+export type LlmProviderKind = LlmSecretProvider | "openai-compatible";
 
 export type LlmModelDef = {
   key: string;
@@ -35,13 +36,6 @@ export const modelKeySchema = z.string().min(1).max(64);
 
 const DEEPSEEK_URL = "https://api.deepseek.com";
 
-const CLOUD_PROVIDERS = secretsOfKind("llm") as readonly {
-  provider: LlmProviderKind;
-  label: string;
-  envVar: CloudKeyVar;
-}[];
-
-export type CloudKeyVar = SecretVar;
 
 const CLOUD_MODELS: LlmModelDef[] = [
   {
@@ -349,21 +343,20 @@ export async function llmStatus() {
     custom: statics
       .filter((m) => m.provider === "openai-compatible")
       .map((m) => ({ key: m.key, label: m.label, url: m.baseUrl ?? "", modelId: m.modelId })),
-    cloud: CLOUD_PROVIDERS.map(({ provider, label, envVar }) => {
-      return {
-        provider,
-        label,
-        envVar,
-        configured: isConfigured(envVar),
-        keyHint: keyHint(envVar),
-        models: statics.filter((m) => m.provider === provider).map((m) => m.label),
-      };
-    }),
   };
 }
 
-function requiredEnvVar(def: LlmModelDef): CloudKeyVar | undefined {
-  return CLOUD_PROVIDERS.find((p) => p.provider === def.provider)?.envVar;
+// What each cloud key unlocks, for the Settings card that offers it. secrets.ts owns whether the
+// key is set; this owns what it buys.
+export function cloudKeyNotes(): Partial<Record<SecretVar, string>> {
+  const statics = staticModels();
+  return Object.fromEntries(
+    LLM_SECRETS.map((s) => [s.envVar, statics.filter((m) => m.provider === s.provider).map((m) => m.label).join(", ")]),
+  );
+}
+
+function requiredEnvVar(def: LlmModelDef): SecretVar | undefined {
+  return LLM_SECRETS.find((p) => p.provider === def.provider)?.envVar;
 }
 
 function isAvailable(def: LlmModelDef): boolean {

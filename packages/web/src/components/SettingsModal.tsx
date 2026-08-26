@@ -7,6 +7,9 @@ import { TOOLBAR_BUTTON } from "../lib/button-classes.ts";
 
 type SecretVar = RouterInputs["secrets"]["set"]["envVar"];
 
+// Stable and unique per key, unlike a display label — "Google Gemini" would put a space in a testid
+const slugOf = (envVar: SecretVar) => envVar.replace(/_API_KEY$/, "").toLowerCase().replaceAll("_", "-");
+
 type KeyCardProps = {
   slug: string;
   label: string;
@@ -80,12 +83,14 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     utils.llmModels.list.invalidate();
   };
   const { data: secrets, error: secretsError } = trpc.secrets.list.useQuery();
-  const voiceKeys = (secrets?.keys ?? []).filter((k) => k.kind === "voice");
+  const keysOfKind = (kind: "llm" | "voice") => (secrets?.keys ?? []).filter((k) => k.kind === kind);
   const setKeyMutation = trpc.secrets.set.useMutation({
     onSuccess: (_data, { envVar }) => {
       setDrafts((d) => ({ ...d, [envVar]: "" }));
-      refreshModels();
+      // Not llmModels.status: it re-probes every local Ollama and LM Studio model, which is a
+      // dozen HTTP round trips to learn something secrets.list already answered from memory.
       utils.secrets.list.invalidate();
+      utils.llmModels.list.invalidate();
       utils.cartesiaVoices.list.invalidate();
       utils.elevenlabsVoices.list.invalidate();
     },
@@ -97,6 +102,22 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     error: setKeyMutation.variables?.envVar === envVar ? (setKeyMutation.error?.message ?? null) : null,
   });
   const startServerMutation = trpc.llmModels.startLocalServer.useMutation({ onSuccess: refreshModels });
+
+  const keyCard = (k: { envVar: SecretVar; label: string; note: string; configured: boolean; keyHint: string | null }) => (
+    <KeyCard
+      key={k.envVar}
+      slug={slugOf(k.envVar)}
+      label={k.label}
+      note={k.note}
+      configured={k.configured}
+      keyHint={k.keyHint}
+      draft={drafts[k.envVar] ?? ""}
+      onDraft={(value) => setDrafts((d) => ({ ...d, [k.envVar]: value }))}
+      onSave={() => save(k.envVar)}
+      onRemove={() => setKeyMutation.mutate({ envVar: k.envVar, value: null })}
+      {...cardState(k.envVar)}
+    />
+  );
 
   const save = (envVar: SecretVar) => {
     const value = drafts[envVar]?.trim();
@@ -191,23 +212,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
           <section>
             <h3 className="text-sm font-semibold text-(--text-primary) mb-2">Cloud providers — need an API key</h3>
-            <div className="space-y-3">
-              {(status?.cloud ?? []).map((p) => (
-                <KeyCard
-                  key={p.envVar}
-                  slug={`llm-${p.provider}`}
-                  label={p.label}
-                  note={p.models.join(", ")}
-                  configured={p.configured}
-                  keyHint={p.keyHint}
-                  draft={drafts[p.envVar] ?? ""}
-                  onDraft={(value) => setDrafts((d) => ({ ...d, [p.envVar]: value }))}
-                  onSave={() => save(p.envVar)}
-                  onRemove={() => setKeyMutation.mutate({ envVar: p.envVar, value: null })}
-                  {...cardState(p.envVar)}
-                />
-              ))}
-            </div>
+            <div className="space-y-3">{keysOfKind("llm").map(keyCard)}</div>
             {startServerMutation.error && <p className="mt-2 text-xs text-red-600">{startServerMutation.error.message}</p>}
           </section>
 
@@ -216,23 +221,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {secretsError ? (
               <p className="text-xs text-red-600">Could not read the saved keys: {secretsError.message}</p>
             ) : (
-              <div className="space-y-3">
-                {voiceKeys.map((k) => (
-                  <KeyCard
-                    key={k.envVar}
-                    slug={`voice-${k.label.toLowerCase()}`}
-                    label={k.label}
-                    note={k.hint ?? ""}
-                    configured={k.configured}
-                    keyHint={k.keyHint}
-                    draft={drafts[k.envVar] ?? ""}
-                    onDraft={(value) => setDrafts((d) => ({ ...d, [k.envVar]: value }))}
-                    onSave={() => save(k.envVar)}
-                    onRemove={() => setKeyMutation.mutate({ envVar: k.envVar, value: null })}
-                    {...cardState(k.envVar)}
-                  />
-                ))}
-              </div>
+              <div className="space-y-3">{keysOfKind("voice").map(keyCard)}</div>
             )}
           </section>
 

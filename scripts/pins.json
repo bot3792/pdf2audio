@@ -1,0 +1,9 @@
+{
+  "_comment": "Shared by scripts/setup.sh (bash), packages/desktop/src/setup.cjs (node) and scripts/bundle-tools.py. Both uv digests were transcribed into two languages before this file existed, so a bump was two edits and a stale one failed as a checksum mismatch on whichever path was used less.",
+  "uv": {
+    "version": "0.12.5",
+    "arm64": { "target": "aarch64-apple-darwin", "sha256": "5bb0e5fe008a773c3dbcb97ff79cd89e1241464fe9d2f986d52ad8f1b037bd62" },
+    "x64": { "target": "x86_64-apple-darwin", "sha256": "b3b2137477cf96c9686ebfb71524614cec780c673fd73e59bce099aef02e70e8" }
+  },
+  "bundledTools": ["ffmpeg", "pdftotext", "pdfinfo"]
+}

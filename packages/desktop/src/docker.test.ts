@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { CLI_CANDIDATES, SOCKET_CANDIDATES, dockerAdvice, findDockerCli, findDockerSocket } from "./docker.cjs";
+import { CLI_CANDIDATES, SOCKET_CANDIDATES, dockerAdvice, firstExisting } from "./docker.cjs";
 
 const dirs: string[] = [];
 afterAll(async () => {
@@ -38,13 +38,12 @@ describe("finding Docker without $PATH", () => {
     const dir = await scratch();
     const second = path.join(dir, "second");
     await writeFile(second, "");
-    expect(await findDockerCli([path.join(dir, "first"), second])).toBe(second);
+    expect(await firstExisting([path.join(dir, "first"), second])).toBe(second);
   });
 
   it("returns null when none exist rather than guessing", async () => {
     const dir = await scratch();
-    expect(await findDockerCli([path.join(dir, "nope")])).toBeNull();
-    expect(await findDockerSocket([path.join(dir, "nope.sock")])).toBeNull();
+    expect(await firstExisting([path.join(dir, "nope")])).toBeNull();
   });
 });
 

@@ -42,8 +42,6 @@ function ymdToMs(ymd: string): number {
   return Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
 }
 
-// SCRIPTS_DIR, like every other spawned script: walking up from this file finds nothing once
-// the server is a compiled binary, which is the case the whole scriptPath() change exists for.
 const HN_SCRIPT = scriptPath("hn-top10.mjs");
 
 let running = false;

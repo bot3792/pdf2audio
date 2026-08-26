@@ -18,8 +18,6 @@ export const VoiceRow = memo(function VoiceRow({ voice, action }: { voice: Voice
   const isPending = voice.id === state.pendingId;
   const hasFailed = voice.id === state.failedId;
 
-  // Two narrators are MLX, which is Metal — on anything else they cannot run at all, unlike every
-  // other engine here, which merely gets slower. Say so on the row rather than failing at synthesis.
   const { data: capabilities } = trpc.models.capabilities.useQuery(undefined, { staleTime: Infinity, enabled: voice.requiresMlx === true });
   const unavailable = voiceBlockedByMissingMlx(voice, capabilities?.mlx);
 

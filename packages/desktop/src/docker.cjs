@@ -35,18 +35,10 @@ async function firstExisting(paths) {
   return null;
 }
 
-async function findDockerCli(candidates = CLI_CANDIDATES) {
-  return firstExisting(candidates);
-}
-
-async function findDockerSocket(candidates = SOCKET_CANDIDATES) {
-  return firstExisting(candidates);
-}
-
 // A socket that exists is not a daemon that answers — Docker Desktop leaves one behind when it is
 // quit — so the CLI still has the last word on whether anything is actually running.
 async function detectDocker() {
-  const cli = await findDockerCli();
+  const cli = await firstExisting(CLI_CANDIDATES);
   if (!cli) return { kind: "missing" };
 
   const env = await dockerEnv();
@@ -62,7 +54,7 @@ async function detectDocker() {
 // Colima and Rancher Desktop never create /var/run/docker.sock, so without DOCKER_HOST every
 // `docker` call fails and the app tells a working machine that Docker is not running.
 async function dockerEnv() {
-  const socket = await findDockerSocket();
+  const socket = await firstExisting(SOCKET_CANDIDATES);
   return { ...process.env, ...(socket ? { DOCKER_HOST: `unix://${socket}` } : {}) };
 }
 
@@ -72,4 +64,4 @@ function dockerAdvice(state) {
   return "pdf2audio keeps your library in Postgres, which runs in Docker. Install Docker Desktop or OrbStack, then check again.";
 }
 
-module.exports = { CLI_CANDIDATES, SOCKET_CANDIDATES, findDockerCli, findDockerSocket, detectDocker, dockerAdvice, dockerEnv };
+module.exports = { CLI_CANDIDATES, SOCKET_CANDIDATES, firstExisting, detectDocker, dockerAdvice };

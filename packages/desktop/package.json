@@ -5,13 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "start": "electron .",
-    "pack": "electron-builder --mac --dir",
-    "dmg": "electron-builder --mac",
-    "bundle:tools": "python3 ../../scripts/bundle-tools.py",
-    "icon": "bash ../../scripts/make-icon.sh",
-    "app": "bash ../../scripts/desktop-build.sh --fast --install",
-    "app:dmg": "bash ../../scripts/desktop-build.sh"
+    "start": "electron ."
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

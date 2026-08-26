@@ -1,6 +1,4 @@
 // The window: this file starts child processes and points a BrowserWindow at a local url.
-// Docker probing lives in docker.cjs, which is required rather than duplicated — an Electron main
-// process has no build step, so a .ts module beside it would be tested and never shipped.
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
 const { execFile, execFileSync, spawn } = require("node:child_process");
 
@@ -78,12 +76,18 @@ function startServer(onDied) {
   });
 }
 
+// Named once because the Help menu opens it too: two spellings of this precedence is how the
+// menu ends up showing a folder the server is not using.
+function dataDir() {
+  return process.env.DATA_DIR || CONFIG.dataDir || path.join(HOME || "", "data");
+}
+
 function serverEnv() {
   return {
     ...process.env,
     PDF2AUDIO_HOME: HOME,
     SCRIPTS_DIR: path.join(HOME, "scripts"),
-    DATA_DIR: process.env.DATA_DIR || CONFIG.dataDir || path.join(HOME, "data"),
+    DATA_DIR: dataDir(),
     CONDA_ENV_PATH: path.join(HOME, "python/bin"),
     POCKET_ENV_PATH: path.join(HOME, "python-pocket/bin"),
     WEB_DIR: path.join(RESOURCES, "web"),
@@ -119,6 +123,69 @@ async function boot() {
   }
 }
 
+// One list, in order, sent to the window so it can draw itself — the ids used to be written out
+// again in first-run.html and agreed only by hand. A step throws to block; the runner marks the
+// step that actually failed, so a Kokoro failure no longer paints its error next to "Python" and
+// leaves "Kokoro voice" spinning forever.
+const STEPS = [
+  {
+    id: "tools",
+    label: "Audio and PDF tools",
+    async run() {
+      const missing = setup.missingTools(RESOURCES);
+      if (missing.length) throw new Error(`Missing ${missing.join(", ")} from the app bundle — this build is incomplete.`);
+      return "bundled";
+    },
+  },
+  {
+    id: "docker",
+    label: "Docker",
+    async run(ctx) {
+      ctx.docker = await docker.detectDocker();
+      if (ctx.docker.kind !== "ready") throw new Error(`${docker.dockerAdvice(ctx.docker)} Then press Check again.`);
+      return docker.dockerAdvice(ctx.docker);
+    },
+  },
+  {
+    id: "database",
+    label: "Database",
+    async run(ctx) {
+      if (!(await composeUp(ctx.docker.cli, ctx.docker.env))) {
+        throw new Error("Postgres would not start — check Docker has finished pulling, then press Check again.");
+      }
+      return "Postgres on port 5433";
+    },
+  },
+  {
+    id: "python",
+    label: "Python and PyTorch",
+    async run(ctx, detail) {
+      detail("Installing Python and PyTorch — about 2.4 GB, once");
+      setup.stageRuntime(RESOURCES, HOME);
+      ctx.python = await setup.syncPython(HOME, (line) => detail(line.trim().split("\n").at(-1)));
+    },
+  },
+  {
+    id: "voice",
+    label: "Kokoro voice",
+    async run(ctx, detail) {
+      detail("Downloading the Kokoro voice — 347 MB");
+      await setup.fetchEssentialModels(ctx.python, HOME, () => {});
+    },
+  },
+  {
+    id: "server",
+    label: "Starting pdf2audio",
+    async run(ctx) {
+      let died = null;
+      startServer((reason) => { died = reason; });
+      const ready = await waitFor(`${ctx.url}/health`, 120000, () => died);
+      if (died) throw new Error(died);
+      if (!ready) throw new Error("The server did not start — check Console.app for pdf2audio.");
+    },
+  },
+];
+
 // The "Check again" button stays on screen while a blocked step is still blocked, which includes
 // the whole of the multi-gigabyte Python step. Two of these at once means two `uv sync` runs
 // against one environment and two servers racing to kill each other.
@@ -129,44 +196,19 @@ async function runBoot() {
   CONFIG = readConfig(HOME);
   RESOURCES = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../resources");
 
-  const missing = setup.missingTools(RESOURCES);
-  if (missing.length) {
-    return send("tools", "blocked", `Missing ${missing.join(", ")} from the app bundle — this build is incomplete.`);
+  const ctx = { url: `http://localhost:${PORT}` };
+  for (const [i, step] of STEPS.entries()) {
+    send(step.id, "running");
+    try {
+      send(step.id, "done", await step.run(ctx, (text) => send(step.id, "running", text)));
+    } catch (err) {
+      send(step.id, "blocked", String(err.message || err).slice(0, 200));
+      // Saying "skipped" beats leaving them at ○, which reads as "still to come"
+      for (const later of STEPS.slice(i + 1)) send(later.id, "skipped");
+      return;
+    }
   }
-  send("tools", "done", "bundled");
-
-  const state = await docker.detectDocker();
-  if (state.kind !== "ready") return send("docker", "blocked", `${docker.dockerAdvice(state)} Then press Check again.`);
-  send("docker", "done", docker.dockerAdvice(state));
-
-  send("database", "running");
-  if (!(await composeUp(state.cli, state.env))) {
-    return send("database", "blocked", "Postgres would not start — check Docker has finished pulling, then press Check again.");
-  }
-  send("database", "done", "Postgres on port 5433");
-
-  try {
-    send("python", "running", "Installing Python and PyTorch — about 2.4 GB, once");
-    setup.stageRuntime(RESOURCES, HOME);
-    const python = await setup.syncPython(HOME, (line) => send("python", "running", line.trim().split("\n").at(-1)));
-    send("python", "done");
-
-    send("voice", "running", "Downloading the Kokoro voice — 347 MB");
-    await setup.fetchEssentialModels(python, HOME, () => {});
-    send("voice", "done");
-  } catch (err) {
-    return send("python", "blocked", String(err.message || err).slice(0, 200));
-  }
-
-  send("server", "running");
-  let died = null;
-  startServer((reason) => { died = reason; });
-  const url = `http://localhost:${PORT}`;
-  const ready = await waitFor(`${url}/trpc/folders.list`, 120000, () => died);
-  if (died) return send("server", "blocked", died.slice(0, 200));
-  if (!ready) return send("server", "blocked", "The server did not start — check Console.app for pdf2audio.");
-  send("server", "done");
-  win.loadURL(url);
+  win.loadURL(ctx.url);
 }
 
 function menu(url) {
@@ -187,7 +229,7 @@ function menu(url) {
     {
       label: "Help",
       submenu: [
-        { label: "Show data folder", click: () => shell.openPath(process.env.DATA_DIR || CONFIG.dataDir || path.join(HOME || "", "data")) },
+        { label: "Show data folder", click: () => shell.openPath(dataDir()) },
         { label: "Where things live", click: () => dialog.showMessageBox({ message: `Everything the app installed: ${HOME}\nYour library: Postgres in Docker, port 5433\nServer: ${url}` }) },
       ],
     },
@@ -215,7 +257,10 @@ app.whenReady().then(() => {
   });
   Menu.setApplicationMenu(menu(`http://localhost:${PORT}`));
   win.loadFile(path.join(__dirname, "first-run.html"));
-  win.webContents.once("did-finish-load", boot);
+  win.webContents.once("did-finish-load", () => {
+    win.webContents.send("steps", STEPS.map(({ id, label }) => ({ id, label })));
+    void boot();
+  });
   ipcMain.on("recheck", boot);
 
 });

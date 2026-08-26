@@ -1,4 +1,5 @@
 import { trpc } from "../trpc.ts";
+import { DownloadNotice } from "./DownloadNotice.tsx";
 
 // Setup no longer downloads ~11 GB of models nobody asked for. Each optional bundle arrives at the
 // one place its feature is requested, which is the same bargain PocketLanguageNotice already makes
@@ -7,7 +8,8 @@ export function useModelBundle(id: string) {
   const { data: bundles, error } = trpc.models.list.useQuery(undefined, {
     // Only while something is downloading; otherwise this costs a Python start per poll
     refetchInterval: (q) => (q.state.data?.some((b) => b.downloading) ? 2000 : false),
-    staleTime: 5_000,
+    // Nothing changes `installed` except models.download, which invalidates below
+    staleTime: Infinity,
   });
   const bundle = bundles?.find((b) => b.id === id) ?? null;
   return {
@@ -22,13 +24,14 @@ export function useModelBundle(id: string) {
 export function ModelBundleNotice({ id, verb }: { id: string; verb: string }) {
   const utils = trpc.useUtils();
   const { bundle, error } = useModelBundle(id);
+  const { data: capabilities } = trpc.models.capabilities.useQuery(undefined, { staleTime: Infinity });
   const download = trpc.models.download.useMutation({ onSuccess: () => void utils.models.list.invalidate() });
 
   // Buttons stay enabled when the probe itself is broken — but saying so beats letting the job
   // queue and die in a worker with a Python traceback nobody sees.
   if (error) {
     return (
-      <p className="rounded-md border border-(--border) bg-(--bg-subtle) px-3 py-2 text-xs text-red-600" data-testid={`model-error-${id}`}>
+      <p className="rounded-md border border-(--border) bg-(--bg-subtle) px-3 py-2 text-xs text-red-600" data-testid={`model-probe-error-${id}`}>
         Could not check which models are installed: {error.message}
       </p>
     );
@@ -36,25 +39,29 @@ export function ModelBundleNotice({ id, verb }: { id: string; verb: string }) {
   if (!bundle || bundle.installed) return null;
 
   const gb = (bundle.approxMb / 1024).toFixed(1);
+  // Offering a 1.2 GB download for models that need Metal, on a machine without it, is worse than
+  // saying nothing — the voices it would unlock are already greyed out for the same reason.
+  if (bundle.appleSiliconOnly && capabilities?.mlx === false) {
+    return (
+      <p className="rounded-md border border-(--border) bg-(--bg-subtle) px-3 py-2 text-xs text-(--text-muted)" data-testid={`model-notice-${id}`}>
+        {verb} needs the <strong>{bundle.label}</strong> models, which run only on Apple Silicon.
+      </p>
+    );
+  }
+
   return (
-    <div className="rounded-md border border-(--border) bg-(--bg-subtle) px-3 py-2 text-xs space-y-1" data-testid={`model-notice-${id}`}>
+    <DownloadNotice
+      testIdPrefix={`model-${id}`}
+      settledLabel={bundle.label}
+      buttonLabel={`Download (${gb} GB)`}
+      downloading={bundle.downloading}
+      disabled={download.isPending}
+      error={bundle.error ?? download.error?.message ?? null}
+      onDownload={() => download.mutate({ id })}
+    >
       <p className="text-(--text-secondary)">
         {verb} needs the <strong>{bundle.label}</strong> models — about <strong>{gb} GB</strong>, once. {bundle.unlocks}.
       </p>
-      {bundle.error && <p className="text-red-600" data-testid={`model-error-${id}`}>{bundle.error}</p>}
-      {download.error && <p className="text-red-600">{download.error.message}</p>}
-      <button
-        type="button"
-        onClick={() => download.mutate({ id })}
-        disabled={bundle.downloading || download.isPending}
-        className="px-2 py-1 rounded bg-blue-600 text-white disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
-        data-testid={`model-download-${id}`}
-      >
-        {bundle.downloading ? `Downloading ${bundle.label}…` : `Download (${gb} GB)`}
-      </button>
-      {bundle.downloading && (
-        <p className="text-(--text-muted)">Keep using the app — this unlocks itself when it lands, no restart.</p>
-      )}
-    </div>
+    </DownloadNotice>
   );
 }

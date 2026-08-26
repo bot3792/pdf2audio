@@ -53,12 +53,16 @@ echo ""
 # Pinned and checksummed, for the same reasons packages/desktop/src/setup.cjs spells out: piping
 # an installer into a shell runs unverified code and reports its own failures as success, because
 # `set -e` sees sh's exit status and not curl's.
-UV_VERSION="0.12.5"
 case "$(uname -m)" in
-  arm64) UV_TARGET="aarch64-apple-darwin"; UV_SHA="5bb0e5fe008a773c3dbcb97ff79cd89e1241464fe9d2f986d52ad8f1b037bd62" ;;
-  x86_64) UV_TARGET="x86_64-apple-darwin"; UV_SHA="b3b2137477cf96c9686ebfb71524614cec780c673fd73e59bce099aef02e70e8" ;;
+  arm64) UV_ARCH="arm64" ;;
+  x86_64) UV_ARCH="x64" ;;
   *) echo "No pinned uv build for $(uname -m)"; exit 1 ;;
 esac
+# scripts/pins.json is the one copy; node is already a hard requirement above
+read -r UV_VERSION UV_TARGET UV_SHA <<<"$(node -e '
+  const p = require("./scripts/pins.json");
+  console.log(p.uv.version, p.uv[process.argv[1]].target, p.uv[process.argv[1]].sha256);
+' "$UV_ARCH")"
 UV="$REPO_DIR/.uv/uv"
 if [ ! -x "$UV" ]; then
   echo "Installing uv $UV_VERSION..."
@@ -98,10 +102,7 @@ echo ""
 # here meant ~15 GB and an hour before the app could open a single page.
 if [ "${WITH_ALL_MODELS:-}" = "1" ]; then
   echo "WITH_ALL_MODELS=1 — fetching every optional bundle up front..."
-  for bundle in extraction search bulgarian; do
-    echo "  $bundle..."
-    "$PY" "$REPO_DIR/scripts/models.py" --download "$bundle"
-  done
+  "$PY" "$REPO_DIR/scripts/models.py" --download-all
 else
   echo "Optional models (Marker/OCR, library search, Bulgarian narrators) download on first use."
   "$PY" "$REPO_DIR/scripts/models.py" --status >/dev/null && echo "  model registry: OK"

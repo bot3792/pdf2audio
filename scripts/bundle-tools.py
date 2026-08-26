@@ -12,6 +12,7 @@ Same lesson as the embedded Postgres, and the same reason DYLD_LIBRARY_PATH is n
 the hardened runtime strips DYLD_*, so it would work in development and fail in the shipped app.
 """
 import argparse
+import json
 import os
 import re
 import shutil
@@ -19,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-TOOLS = ["ffmpeg", "pdftotext", "pdfinfo"]
+TOOLS = json.loads((Path(__file__).parent / "pins.json").read_text())["bundledTools"]
 SYSTEM_PREFIXES = ("/usr/lib/", "/System/")
 
 
@@ -37,8 +38,6 @@ def raw_deps(binary: Path) -> list[str]:
 # path, so a scanner that skips anything starting with "@" walks a closure of almost nothing and
 # produces a folder that is missing exactly the libraries that matter.
 def resolve_dep(dep: str, owner: Path) -> Path | None:
-    if dep.startswith(SYSTEM_PREFIXES):
-        return None
     if dep.startswith("@rpath/"):
         name = dep[len("@rpath/"):]
         for rp in rpaths(owner):
@@ -83,16 +82,17 @@ def check(args: list[str], what: str) -> None:
         raise SystemExit(f"{what} failed: {' '.join(args[:2])} {args[-1]}")
 
 
+# install_name_tool takes every -change, -id and -add_rpath in one call, and each call rewrites the
+# whole binary. One per dependency was 679 invocations over this closure; this is 107.
 def relocate(path: Path, libdir_rel: str) -> None:
+    args = []
     ident = subprocess.run(["otool", "-D", str(path)], capture_output=True, text=True).stdout.splitlines()
     if len(ident) > 1 and ident[1].startswith("/"):
-        subprocess.run(["install_name_tool", "-id", f"@rpath/{path.name}", str(path)], capture_output=True)
+        args += ["-id", f"@rpath/{path.name}"]
     for dep in deps(path):
-        subprocess.run(
-            ["install_name_tool", "-change", dep, f"@rpath/{Path(dep).name}", str(path)],
-            capture_output=True,
-        )
-    subprocess.run(["install_name_tool", "-add_rpath", libdir_rel, str(path)], capture_output=True)
+        args += ["-change", dep, f"@rpath/{Path(dep).name}"]
+    args += ["-add_rpath", libdir_rel]
+    subprocess.run(["install_name_tool", *args, str(path)], capture_output=True)
     # Apple Silicon refuses to run a binary whose signature does not match, and install_name_tool
     # invalidates it. Without this they are SIGKILLed with no message at all, which looks exactly
     # like a missing library and is not.

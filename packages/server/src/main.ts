@@ -72,8 +72,7 @@ async function main() {
   // Vite, so the same server hands out the built bundle — and only if it was built, which is why
   // this is conditional rather than a hard dependency on `pnpm build` having run.
   const webDir = env.WEB_DIR;
-  const hasWebBuild = existsSync(path.join(webDir, "index.html"));
-  if (hasWebBuild) {
+  if (existsSync(path.join(webDir, "index.html"))) {
     await fastify.register(fastifyStatic, { root: webDir, prefix: "/", decorateReply: false });
     // Client-side routes (/chat, /open, /books/:id) are not files; anything that is not an API
     // path and does not look like an asset gets the shell, and React reads the url from there.
@@ -89,6 +88,10 @@ async function main() {
     prefix: "/trpc",
     trpcOptions: { router: appRouter, createContext },
   });
+
+  // What the desktop launcher waits for. Probing a business route instead meant renaming a router
+  // would present as "the server did not start", with the real reason nowhere.
+  fastify.get("/health", async () => ({ ok: true }));
 
   registerUploadRoutes(fastify);
   registerChatRoutes(fastify);

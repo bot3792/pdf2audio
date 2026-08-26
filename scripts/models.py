@@ -97,16 +97,15 @@ BUNDLES = [
 BY_ID = {b["id"]: b for b in BUNDLES}
 
 
-# Developing a download gate otherwise means deleting several gigabytes to see it, and putting
-# them back to see the other state. The file exists alongside the env var because the e2e suite
-# drives an already-running dev server, whose environment it cannot reach. "mlx" is accepted here
-# too, so the Apple-Silicon-only narrators can be seen greyed out on a machine that has MLX.
+# Developing a download gate otherwise means deleting several gigabytes to see it, and putting them
+# back to see the other state. A file rather than an env var because the e2e suite drives an
+# already-running dev server, whose environment it cannot reach. "mlx" is accepted here too, so the
+# Apple-Silicon-only narrators can be seen greyed out on a machine that has MLX.
 def _forced_missing() -> set:
-    forced = {s for s in os.environ.get("PDF2AUDIO_MODELS_MISSING", "").split(",") if s}
     marker = Path(__file__).resolve().parent.parent / ".models-missing"
-    if marker.exists():
-        forced |= {line.strip() for line in marker.read_text().splitlines() if line.strip()}
-    return forced
+    if not marker.exists():
+        return set()
+    return {line.strip() for line in marker.read_text().splitlines() if line.strip()}
 
 
 def main() -> int:
@@ -115,6 +114,7 @@ def main() -> int:
     parser.add_argument("--capabilities", action="store_true")
     parser.add_argument("--essential", action="store_true")
     parser.add_argument("--download")
+    parser.add_argument("--download-all", action="store_true")
     args = parser.parse_args()
 
     if args.download:
@@ -125,6 +125,14 @@ def main() -> int:
         bundle["download"]()
         return 0
 
+    if args.download_all:
+        # WITH_ALL_MODELS=1 in setup.sh. Iterating BY_ID rather than a list spelled out in bash,
+        # which silently skipped any bundle added here afterwards.
+        for bundle in BUNDLES:
+            print(f"  {bundle['id']}...", file=sys.stderr)
+            bundle["download"]()
+        return 0
+
     if args.essential:
         # Kokoro is not in BUNDLES because it is not optional — without a voice there is no
         # audiobook. It is the whole of what a first run must fetch before the app is useful.
@@ -132,7 +140,7 @@ def main() -> int:
         return 0
 
     if args.capabilities:
-        if _forced_missing() & {"mlx"}:
+        if "mlx" in _forced_missing():
             print(json.dumps({"mlx": False}))
             return 0
         # Deliberately does not import torch to check MPS: that costs half a second and nothing

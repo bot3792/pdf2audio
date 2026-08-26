@@ -5,11 +5,14 @@ import { ENV_PATH } from "./helpers/env.ts";
 
 const DUMMY_KEY = "sk-e2e-dummy-1234";
 
+// Mirrors slugOf in SettingsModal
+const slug = (envVar: string) => envVar.replace(/_API_KEY$/, "").toLowerCase().replaceAll("_", "-");
+
 test("settings: a saved cloud key lands in .env and the pickers, and removal restores .env byte-identical", async ({ page, request }) => {
   const snapshot = await fs.readFile(ENV_PATH, "utf8");
-  const status = await trpcQuery(request, "llmModels.status");
-  const target = (status.cloud as { provider: string; label: string; envVar: string; configured: boolean }[]).find(
-    (p) => !p.configured,
+  const secrets = await trpcQuery(request, "secrets.list");
+  const target = (secrets.keys as { kind: string; label: string; envVar: string; configured: boolean }[]).find(
+    (k) => k.kind === "llm" && !k.configured,
   );
   if (!target) {
     test.skip(true, "every cloud provider already has a key in .env");
@@ -25,10 +28,10 @@ test("settings: a saved cloud key lands in .env and the pickers, and removal res
     await expect(page.getByTestId("settings-local-ollama")).toBeVisible();
     await expect(page.getByTestId("settings-local-lm-studio")).toBeVisible();
 
-    const card = page.getByTestId(`settings-key-llm-${target.provider}`);
+    const card = page.getByTestId(`settings-key-${slug(target.envVar)}`);
     await expect(card).toContainText("no key");
-    await card.getByTestId(`settings-key-input-llm-${target.provider}`).fill(DUMMY_KEY);
-    await card.getByTestId(`settings-key-save-llm-${target.provider}`).click();
+    await card.getByTestId(`settings-key-input-${slug(target.envVar)}`).fill(DUMMY_KEY);
+    await card.getByTestId(`settings-key-save-${slug(target.envVar)}`).click();
     await expect(card).toContainText(/key set/);
 
     expect(await fs.readFile(ENV_PATH, "utf8")).toContain(`${target.envVar}=${DUMMY_KEY}`);
@@ -39,7 +42,7 @@ test("settings: a saved cloud key lands in .env and the pickers, and removal res
 
     await page.goto("/");
     await page.getByTestId("settings-gear").click();
-    await card.getByTestId(`settings-key-remove-llm-${target.provider}`).click();
+    await card.getByTestId(`settings-key-remove-${slug(target.envVar)}`).click();
     await expect(card).toContainText("no key");
 
     expect(await fs.readFile(ENV_PATH, "utf8")).toBe(snapshot);

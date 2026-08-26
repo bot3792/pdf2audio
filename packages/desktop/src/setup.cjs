@@ -1,39 +1,39 @@
 // Everything scripts/setup.sh does, minus the terminal. Each function reports progress through a
 // callback and is safe to run again — a first run that dies halfway resumes rather than restarts.
 const { spawn } = require("node:child_process");
-const { existsSync, mkdirSync, copyFileSync, cpSync, rmSync } = require("node:fs");
+const { existsSync, mkdirSync, copyFileSync, cpSync, rmSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 
 // Pinned and checksummed rather than `curl | sh`: piping an installer into a shell gives errors
 // like "curl: (56) Failure writing output to destination" when anything goes wrong, which tells a
-// user nothing, and it runs an unverified script as them.
-const UV_VERSION = "0.12.5";
-const UV_BUILDS = {
-  arm64: { target: "aarch64-apple-darwin", sha256: "5bb0e5fe008a773c3dbcb97ff79cd89e1241464fe9d2f986d52ad8f1b037bd62" },
-  x64: { target: "x86_64-apple-darwin", sha256: "b3b2137477cf96c9686ebfb71524614cec780c673fd73e59bce099aef02e70e8" },
-};
+// user nothing, and it runs an unverified script as them. The pin is shared with scripts/setup.sh.
+// Never require()d by relative path: that resolves inside app.asar, which holds packages/desktop
+// and not the repo's scripts/. Packaged, scripts/ sits beside the app (extraResources) and is
+// copied into HOME by stageRuntime; in a checkout it is three levels up.
+let pinCache = null;
+function pins(dir) {
+  if (pinCache) return pinCache;
+  const candidates = [path.join(dir, "scripts", "pins.json"), path.resolve(__dirname, "../../../scripts/pins.json")];
+  const found = candidates.find(existsSync);
+  if (!found) throw new Error(`Could not find pins.json (looked in ${candidates.join(", ")})`);
+  pinCache = JSON.parse(readFileSync(found, "utf8"));
+  return pinCache;
+}
 
-// The three the workers shell out to. They ship inside the bundle — copied out of Homebrew at
-// build time with their whole dylib closure, rewritten to @loader_path and re-signed, by
+// The tools the workers shell out to ship inside the bundle — copied out of Homebrew at build time
+// with their whole dylib closure, rewritten to @loader_path and re-signed, by
 // scripts/bundle-tools.py. Homebrew stays in the search order behind them so a developer running
 // from source keeps working, and a GUI app's PATH (which has neither Homebrew directory) is never
 // what decides.
-const TOOLS = ["ffmpeg", "pdftotext", "pdfinfo"];
 
 function toolDirs(resources) {
   return [...(resources ? [path.join(resources, "bin")] : []), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
 }
 
-function findTool(name, resources) {
-  for (const dir of toolDirs(resources)) {
-    const p = path.join(dir, name);
-    if (existsSync(p)) return p;
-  }
-  return null;
-}
-
 function missingTools(resources) {
-  return TOOLS.filter((t) => !findTool(t, resources));
+  return pins(resources).bundledTools.filter(
+    (name) => !toolDirs(resources).some((dir) => existsSync(path.join(dir, name))),
+  );
 }
 
 function toolPath(resources) {
@@ -68,15 +68,16 @@ async function ensureUv(home, onOutput) {
   const uv = path.join(dir, "uv");
   if (existsSync(uv)) return uv;
 
-  const build = UV_BUILDS[process.arch];
+  const { uv: pinned } = pins(home);
+  const build = pinned[process.arch];
   if (!build) throw new Error(`No uv build for ${process.arch}`);
   mkdirSync(dir, { recursive: true });
 
   // Downloaded by the app rather than a browser, so it carries no quarantine flag and needs no
   // notarisation of ours — the same reason the Python environment lives out here at all.
   const tarball = path.join(dir, "uv.tar.gz");
-  const url = `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${build.target}.tar.gz`;
-  onOutput?.(`Downloading uv ${UV_VERSION}`);
+  const url = `https://github.com/astral-sh/uv/releases/download/${pinned.version}/uv-${build.target}.tar.gz`;
+  onOutput?.(`Downloading uv ${pinned.version}`);
   await sh("/usr/bin/curl", ["-fsSL", "--retry", "3", "-o", tarball, url]);
 
   const got = (await sh("/usr/bin/shasum", ["-a", "256", tarball])).trim().split(/\s+/)[0];
@@ -100,11 +101,16 @@ async function syncPython(home, onOutput) {
   return path.join(home, "python", "bin", "python");
 }
 
+// Stamped once it has succeeded. Without this every launch spends a Python start and a HuggingFace
+// revision lookup — 0.6s warm, more on a slow link — to be told the 347 MB is already there.
 async function fetchEssentialModels(python, home, onOutput) {
+  const stamp = path.join(home, ".essential-models");
+  if (existsSync(stamp)) return;
   await sh(python, [path.join(home, "scripts", "models.py"), "--essential"], {
     env: { HF_HUB_OFFLINE: "0" },
     onOutput,
   });
+  writeFileSync(stamp, new Date().toISOString());
 }
 
-module.exports = { TOOLS, findTool, missingTools, toolPath, stageRuntime, ensureUv, syncPython, fetchEssentialModels, sh };
+module.exports = { missingTools, toolPath, stageRuntime, syncPython, fetchEssentialModels };
