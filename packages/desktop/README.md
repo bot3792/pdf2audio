@@ -110,13 +110,28 @@ Tag it. `.github/workflows/release.yml` builds on a `v*` tag and publishes the D
 Releases, which is also where `electron-updater` looks — so the download page and the update feed
 are the same artefact, and there is nothing to keep in step by hand.
 
-Versions are the date: **`v26.8.26`** for 26 August 2026. It reads as "how old is this" rather
-than as a promise about compatibility, which is the honest thing for an app nobody builds against.
+Versions are **`v26.826.N`** — year, then `MMDD`, then which release that day. `v26.826.0` is the
+first release on 26 August 2026; `v26.826.1` is the second, same day. It reads as "how old is
+this" rather than as a promise about compatibility, which is the honest thing for an app nobody
+builds against.
 
 ```
-# packages/desktop/package.json  →  "version": "26.8.26"
-git tag v26.8.26 && git push --tags
+# packages/desktop/package.json  →  "version": "26.826.0"
+git tag v26.826.0 && git push --tags
 ```
+
+The shape is forced by `electron-updater`, which parses both versions with `semver` and throws
+`ERR_UPDATER_INVALID_VERSION` on anything else — `isUpdateAvailable` is private, so there is no
+comparator to replace. That rules out the two obvious ideas:
+
+| | |
+| --- | --- |
+| `26.8.26.2` | not valid semver — three numeric parts, no more |
+| `26.8.26-2` | valid, but a *prerelease*: it sorts **below** `26.8.26`, so the hotfix would never be offered |
+
+`MMDD` in the minor slot survives both problems and still sorts: `26.826.1 < 26.827.0 < 26.1231.0 <
+27.101.0`, because the parts compare as numbers. Note there are no leading zeros anywhere — January
+1st is `27.101.0`, not `27.0101.0`.
 
 The mac target builds a **zip as well as the DMG**. The DMG is what a person downloads; the zip is
 what Squirrel.Mac applies an update from, and without it the updater finds a release it cannot
@@ -139,6 +154,32 @@ workflow signs and notarises and nobody ever sees this. Until then, expect to lo
 
 The updater does not depend on signing, but the *installation* of an update does: an unsigned
 update is quarantined the same way. So treat everything before the certificate as pre-release.
+
+### How an update actually lands
+
+Nothing is pushed. Every check is a `GET` of `latest-mac.yml` — once when the window finishes
+loading, then every six hours, because an audiobook app stays open for days and once-per-launch
+would never fire for the people who never quit. Declining a version stops it asking about that
+version until the app restarts.
+
+What happens after "Download it" is four processes, only the first of which is ours:
+
+1. **electron-updater** (in our process) downloads the zip to
+   `~/Library/Caches/@pdf2audiodesktop-updater/pending/`.
+2. It then starts a **local HTTP server** and points Electron's native `autoUpdater` at it, because
+   Squirrel.Mac will only take an update from a URL it fetches itself. The log line
+   `…zip requested by Squirrel.Mac, pipe …` is that hand-off — the file is piped from the copy
+   already on disk, so the 185 MB is not downloaded twice.
+3. **Squirrel.Mac** pulls it from localhost into `~/Library/Caches/dev.pdf2audio.app.ShipIt/`,
+   unzips it there, and validates the unpacked app's code signature. *This is the step that fails
+   without an Apple certificate* — nothing before it involves signing at all.
+4. On `quitAndInstall`, Squirrel launches **ShipIt**, a 125 KB helper inside
+   `Contents/Frameworks/Squirrel.framework`. It is a separate process for the obvious reason: the
+   app cannot overwrite its own bundle while running. ShipIt waits for the app to exit, swaps the
+   `.app` on disk, and relaunches it.
+
+So the zip is unarchived by Squirrel, not by Electron and not by us, and the swap is done by a
+helper that outlives the app.
 
 ### Testing an update without publishing one
 

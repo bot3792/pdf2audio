@@ -1,7 +1,7 @@
 {
   "name": "@pdf2audio/desktop",
   "private": true,
-  "version": "26.8.26",
+  "version": "26.826.0",
   "type": "module",
   "scripts": {
     "test": "vitest run",

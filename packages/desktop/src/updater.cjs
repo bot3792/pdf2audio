@@ -4,6 +4,11 @@ const { app, dialog, shell } = require("electron");
 // app opening is worse than an update that waits for the next launch. The runtime steps
 // (runtime.cjs) then bring Python and the models forward on that next launch, which is why a
 // restart is offered rather than a silent swap.
+//
+// Nothing is pushed to us — every check is a GET of latest-mac.yml. Once per launch is not enough
+// for an app people leave open for days at a time, so it also repeats; declining a version stops
+// it asking about that version again until the app restarts.
+const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 function install({ onStatus } = {}) {
   let autoUpdater;
   try {
@@ -21,7 +26,11 @@ function install({ onStatus } = {}) {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  let downloaded = null;
+  const declined = new Set();
+
   autoUpdater.on("update-available", async (info) => {
+    if (declined.has(info.version)) return;
     onStatus?.(`Update available: ${info.version}`);
     const { response } = await dialog.showMessageBox({
       type: "info",
@@ -34,9 +43,9 @@ function install({ onStatus } = {}) {
       noLink: true,
     });
     if (response === 0) await autoUpdater.downloadUpdate();
+    else declined.add(info.version);
   });
 
-  let downloaded = null;
   autoUpdater.on("update-downloaded", async (info) => {
     downloaded = info.version;
     onStatus?.(`Update ${info.version} downloaded`);
@@ -79,7 +88,11 @@ function install({ onStatus } = {}) {
     });
   });
 
-  if (app.isPackaged) void autoUpdater.checkForUpdates().catch(() => {});
+  if (!app.isPackaged) return;
+  const check = () => void autoUpdater.checkForUpdates().catch(() => {});
+  check();
+  const timer = setInterval(check, CHECK_EVERY_MS);
+  app.on("before-quit", () => clearInterval(timer));
 }
 
 module.exports = { install };

@@ -388,8 +388,11 @@ the state.
   `runtime.cjs` compares the bundle's `uv.lock` hash against `runtime-state.json` and skips whatever
   is already current — a launch with nothing to bring forward is ~1s. `updater.cjs` checks GitHub
   Releases *after* the window is up. `crash.cjs` turns an uncaught exception into a `crash.log` line
-  and a prefilled GitHub issue. Versions are dates — `v26.8.26` — with **no leading zeros**, since
-  `26.08.26` is not valid semver and electron-updater would refuse to compare it.
+  and a prefilled GitHub issue. Versions are `v<YY>.<MMDD>.<n>` — `v26.826.0` is the first release on 26 Aug 2026, `v26.826.1` the
+  second that day. Three numeric parts with no leading zeros, because electron-updater parses both
+  sides with semver and `isUpdateAvailable` is private; a 4th part is invalid and a `-2` suffix is a
+  prerelease that sorts *below* the release it follows. Update checks run once at launch and every
+  6h after — nothing is pushed, each check is a GET of `latest-mac.yml`.
 - **One port.** The server serves the built web bundle (`WEB_DIR`, with an SPA fallback) when one
   exists, so a package needs no Vite. In the repo, unbuilt, nothing changes.
 - **`scripts/bundle-tools.py`** — copies ffmpeg, pdftotext and pdfinfo out of Homebrew with their
