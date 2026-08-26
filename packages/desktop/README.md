@@ -29,6 +29,22 @@ narrates a sentence.
 `curl: (56) Failure writing output to destination`, which tells a user nothing, and it runs an
 unverified script as them.
 
+## Building it
+
+```bash
+pnpm app        # .app, installed over /Applications, quarantine cleared — ~15 s
+pnpm app:dmg    # the same plus a DMG to hand to someone
+```
+
+`--install` exists because rebuilding proves nothing until the build is installed. It is easy to
+spend an afternoon reading the behaviour of `/Applications/pdf2audio.app` while editing the one in
+`release/`; the giveaway is `WEB_DIR` in the server's environment pointing somewhere you did not
+expect. It also clears the quarantine flag, which is what right-click → Open does by hand.
+
+Bun and the CLI-tool bundle are fetched on demand rather than being prerequisites, so a fresh
+clone can build without installing anything globally. Delete `packages/desktop/resources/bin` or
+`packages/desktop/build/icon.icns` to force those slow steps to run again.
+
 ## Sharing a library with a checkout
 
 The database records **absolute paths** to every PDF and every audio file, so the data directory is

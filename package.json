@@ -18,7 +18,9 @@
     "e2e:ui": "pnpm --filter @pdf2audio/e2e ui",
     "setup": "bash scripts/setup.sh",
     "jobs": "bash scripts/jobs.sh",
-    "jobs:clear": "source .env 2>/dev/null; psql \"$DATABASE_URL\" -c 'DELETE FROM graphile_worker._private_jobs; SELECT count(*) AS remaining FROM graphile_worker._private_jobs;'"
+    "jobs:clear": "source .env 2>/dev/null; psql \"$DATABASE_URL\" -c 'DELETE FROM graphile_worker._private_jobs; SELECT count(*) AS remaining FROM graphile_worker._private_jobs;'",
+    "app": "bash scripts/desktop-build.sh --fast --install",
+    "app:dmg": "bash scripts/desktop-build.sh"
   },
   "devDependencies": {
     "typescript": "^5.7.3"
