@@ -46,14 +46,21 @@ echo "  node: $(node --version), pnpm: $(pnpm --version)"
 echo "  postgres: bundled (scripts/pg.sh downloads PostgreSQL 17.5 + pgvector, ~32 MB)"
 
 echo ""
-echo "Creating Python environment at .venv..."
-[ -x "$VENV_DIR/bin/python" ] || "$PYTHON" -m venv "$VENV_DIR"
+UV="$REPO_DIR/.uv/uv"
+if [ ! -x "$UV" ]; then
+  echo "Installing uv..."
+  mkdir -p "$REPO_DIR/.uv"
+  curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="$REPO_DIR/.uv" sh >/dev/null
+fi
+echo "  uv: $("$UV" --version)"
+
+echo ""
+echo "Creating Python environment at .venv from uv.lock..."
+# uv.lock pins the whole graph, including three conflicts that pip only survived because the
+# packages were installed with --no-deps: mlx-audio wants transformers 5.x (breaks marker) and
+# huggingface_hub 1.x, and nanocodec-mlx wants mlx 0.29.2. pyproject states those as overrides.
+(cd "$REPO_DIR" && "$UV" sync --frozen)
 PY="$VENV_DIR/bin/python"
-"$PY" -m pip install --quiet --upgrade pip
-"$PY" -m pip install -r "$REPO_DIR/scripts/requirements.txt"
-# --no-deps: these declare constraints the pinned set deliberately violates (see requirements.txt)
-"$PY" -m pip install --no-deps mlx-lm==0.31.3 mlx-audio==0.4.5
-"$PY" -m pip install --no-deps "nanocodec-mlx @ git+https://github.com/nineninesix-ai/nanocodec-mlx.git"
 
 echo ""
 echo "Verifying Python runtimes..."
@@ -87,8 +94,7 @@ echo ""
 echo "Creating Pocket TTS environment at .venv-pocket..."
 [ -x "$POCKET_VENV_DIR/bin/python" ] || "$PYTHON" -m venv "$POCKET_VENV_DIR"
 POCKET_PY="$POCKET_VENV_DIR/bin/python"
-"$POCKET_PY" -m pip install --quiet --upgrade pip
-"$POCKET_PY" -m pip install --quiet -r "$REPO_DIR/scripts/requirements-pocket.txt"
+"$UV" pip install --python "$POCKET_PY" --quiet -r "$REPO_DIR/scripts/requirements-pocket.txt"
 
 # .env is written later in this script, so read the token straight out of it when present.
 if [ -z "${HF_TOKEN:-}" ] && [ -f "$REPO_DIR/.env" ]; then

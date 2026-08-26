@@ -84,7 +84,7 @@ Notes on the edges:
   (Giovanni, Lola, Juergen, Rafael, Estelle). It mispronounces silent letters and liaisons — the
   same French sentence runs 25% longer on the English model than the French one. Selecting the
   language is what makes it correct, not selecting a native-sounding voice.
-- Mandarin needs the `misaki[zh]` G2P chain, which `scripts/requirements.txt` pins and
+- Mandarin needs the `misaki[zh]` G2P chain, which `pyproject.toml` pins and
   `pnpm run setup` installs.
 
 ## Project structure
@@ -186,6 +186,7 @@ pnpm e2e:full         # Everything incl. slow tests (marker, TTS, exports)
 - The Postgres tarball is checksum-pinned per platform in `scripts/pg.sh` — it is an unsigned build from a small third-party repo, run as your own user, so a mismatch aborts rather than warns. Bumping `RELEASE` means re-recording the four hashes.
 - `.pg/data` is excluded from Time Machine at `initdb` time. A live database is a bad backup subject: gigabytes of churn every hour and an inconsistent copy at the end. **Back it up with `pg_dump`, not with a file copy.**
 - Nothing supervises the cluster. It does not come back after a reboot or a crash — `pnpm db:up`. (The old compose file had no `restart:` policy either, so this is not a regression.)
+- Python dependencies are a **uv project**: `pyproject.toml` + `uv.lock` at the repo root, installed with `uv sync --frozen` (setup fetches `uv` into `.uv/` if it is missing). 189 packages resolve in under two seconds and install in about thirteen. Three pins deliberately contradict what `mlx-audio` and `nanocodec-mlx` declare — transformers 5.x breaks marker, huggingface_hub 1.x is untested here, and nanocodec wants an older mlx — and those are `[tool.uv] override-dependencies` rather than the three `--no-deps` installs they used to be. `scripts/requirements.txt` no longer feeds anything.
 - Every TTS/extraction subprocess runs with `HF_HUB_OFFLINE=1`, so models never download at synthesis time. `pnpm run setup` caches only what the core path needs — **Kokoro-82M, ~350 MB**. The heavy optional bundles arrive at the doorway of the feature that needs them, with a size and a button: **Marker/Surya 5.1 GB** (full extraction and OCR), **BGE-M3 4.3 GB** (library search and chat), **Bulgarian narrators 1.2 GB**. `WITH_ALL_MODELS=1 pnpm run setup` fetches everything up front instead — setup used to do that unconditionally, which meant ~15 GB and an hour before the app could open a page.
 - `scripts/models.py --status` lists the bundles and what is cached; `--download <id>` fetches one. A `.models-missing` file at the repo root (one bundle id per line) makes the app pretend those are absent — the only sane way to work on a download gate without deleting gigabytes.
 - The first PDF/EPUB export downloads a rendering browser (~350 MB) into the Vivliostyle cache.

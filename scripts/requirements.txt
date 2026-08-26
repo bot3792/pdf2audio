@@ -1,3 +1,7 @@
+# Superseded by pyproject.toml + uv.lock at the repo root (`uv sync --frozen`, run by setup.sh).
+# Kept for one release as a record of what the pip-era environment pinned, and because the two
+# conflicts it worked around are now stated as [tool.uv] override-dependencies rather than as
+# three --no-deps installs. Nothing reads this file.
 # Known-good pin set (Python 3.12, Apple Silicon). Deliberately violates mlx-audio's declared
 # constraints (transformers 5.x breaks marker-pdf; huggingface_hub 1.x untested here), so
 # setup.sh installs mlx-lm, mlx-audio, and nanocodec-mlx with --no-deps on top of this set.

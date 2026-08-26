@@ -107,7 +107,7 @@ Chapters can be individually queued (creates Graphile job) or suspended (no job,
 
 | Tool | Purpose | Called from |
 |------|---------|------------|
-| **Marker** (`marker_single` CLI, `pip install marker-pdf`, pinned in `scripts/requirements.txt`) | PDF → structured JSON | `lib/marker.ts` |
+| **Marker** (`marker_single` CLI, `pip install marker-pdf`, pinned in `pyproject.toml` / `uv.lock`) | PDF → structured JSON | `lib/marker.ts` |
 | **Kokoro TTS** (`pip install kokoro`) | Text → speech via MPS GPU | `scripts/synthesize.py`, called by `lib/kokoro.ts` |
 | **KugelAudio** (`kugelaudio/kugelaudio-0-open` via `pip install mlx-audio`, local 4-bit MLX quant at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit`) | Multilingual TTS narrator (24 EU languages incl. Bulgarian) | `scripts/synthesize_kugel_tts.py`, called by `lib/tts.ts` |
 | **macOS `say`** (system binary; ALL installed system voices exposed as `say:<name-slug>` — discovered via `say -v '?'` in `lib/say-voices.ts`, listed by tRPC `sayVoices.list`, shown as a dynamic picker group; install more in System Settings → Accessibility → Spoken Content) | Free offline TTS in any installed system voice (~25x realtime, supports speed via `-r`) | `scripts/synthesize_say_tts.py`, called by `lib/tts.ts` |

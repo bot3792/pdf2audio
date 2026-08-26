@@ -18,3 +18,4 @@ e2e/test-results/
 e2e/playwright-report/
 .pg/
 .models-missing
+.uv/
