@@ -1,13 +1,17 @@
-# Builds and publishes the macOS app on a version tag. Not enabled until there is an Apple
-# Developer account: without a certificate the DMG still builds, but every download opens to
-# "cannot be opened because the developer cannot be verified", which is the wall this exists to
-# remove. Until then, `workflow_dispatch` runs everything except the signing step.
+# Builds and publishes the macOS app on a version tag: v26.826.0 is the first release on 26 August
+# 2026, v26.826.1 the second that day. Without an Apple certificate the DMG is still built and
+# published — people can download and run it, they just have to get past Gatekeeper by hand, and
+# the in-app updater cannot install anything until the certificate exists.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+
+# electron-builder --publish creates the release and uploads to it
+permissions:
+  contents: write
 
 jobs:
   macos:
@@ -35,24 +39,28 @@ jobs:
       # scripts/bundle-tools.py copies these out of Homebrew, and make-icon renders the .icns
       - run: brew install ffmpeg poppler librsvg imagemagick
 
-      # The same script used locally. Building the pieces separately here is how CI ends up
-      # shipping an Electron shell with no server in it and nobody noticing until a user downloads.
-      - run: scripts/desktop-build.sh --fast
-        if: env.HAS_CERT == 'no'
+      # Compiles the server, builds the web bundle, bundles the CLI tools, renders the icon — and
+      # stops before packaging so the step below can do it once, with signing if we have it.
+      # Building the pieces separately here is how CI ends up shipping an Electron shell with no
+      # server in it and nobody noticing until someone downloads it.
+      - run: scripts/desktop-build.sh --no-package
 
-      - name: Package, sign and notarise
-        if: env.HAS_CERT == 'yes'
+      - name: Package and publish
         env:
+          # Without this electron-builder picks up any identity in the keychain; on a runner there
+          # is none, but being explicit is what makes an unsigned build deliberate rather than luck.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.HAS_CERT == 'yes' && 'true' || 'false' }}
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          scripts/desktop-build.sh --no-package
-          pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always
+        run: pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always
 
-      - name: Warn when unsigned
-        if: env.HAS_CERT == 'no'
-        run: echo "::warning::No Apple certificate configured — built but not published. See tasks/desktop-app.md."
+      - name: Say what shipped
+        run: |
+          ls -lh packages/desktop/release/*.dmg packages/desktop/release/*.zip
+          if [ "$HAS_CERT" = "no" ]; then
+            echo "::warning::Unsigned build. The download works but Gatekeeper blocks it until the user allows it by hand, and the in-app updater cannot install it. See packages/desktop/README.md."
+          fi

@@ -76,7 +76,8 @@
       {
         "provider": "github",
         "owner": "subev",
-        "repo": "pdf2audio"
+        "repo": "pdf2audio",
+        "releaseType": "draft"
       }
     ]
   },

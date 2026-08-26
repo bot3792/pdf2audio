@@ -115,10 +115,41 @@ first release on 26 August 2026; `v26.826.1` is the second, same day. It reads a
 this" rather than as a promise about compatibility, which is the honest thing for an app nobody
 builds against.
 
+```bash
+# 1. set the version
+#    packages/desktop/package.json  →  "version": "26.826.0"
+
+# 2. commit it, tag it, push both
+git commit -am "Release 26.826.0" && git tag v26.826.0
+git push origin main --tags
 ```
-# packages/desktop/package.json  →  "version": "26.826.0"
-git tag v26.826.0 && git push --tags
-```
+
+The workflow builds and uploads a **draft** release. Open it on GitHub, paste the note below, and
+press Publish — the draft step exists so a bad build can be deleted before anyone sees it.
+
+### The note an unsigned release needs
+
+Without an Apple certificate macOS refuses the download, and the message it shows —
+*"pdf2audio is damaged and can't be opened"* — is a lie that costs you most of your downloads
+unless the release says otherwise. Paste this:
+
+> **First time opening it:** macOS will say the app is damaged or from an unidentified developer.
+> It is neither — this build just is not signed with an Apple certificate yet.
+>
+> 1. Drag **pdf2audio** to your Applications folder.
+> 2. Open **System Settings → Privacy & Security**, scroll to the bottom, and click **Open Anyway**
+>    next to the message about pdf2audio.
+> 3. Confirm **Open**.
+>
+> On older macOS you can instead right-click the app → **Open** → **Open**.
+>
+> You also need **Docker Desktop** or **OrbStack** installed and running — the app explains this on
+> first launch and links to both. The first start downloads about 2.4 GB and takes a while; later
+> ones take seconds.
+
+Until the certificate exists the in-app updater can find and download a new version but **cannot
+install it**, so each release means downloading the DMG again. That is the whole argument for the
+$99 account, in one sentence.
 
 The shape is forced by `electron-updater`, which parses both versions with `semver` and throws
 `ERR_UPDATER_INVALID_VERSION` on anything else — `isUpdateAvailable` is private, so there is no
