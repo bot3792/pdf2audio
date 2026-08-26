@@ -72,11 +72,16 @@ function main() {
   }
 
   const pkg = JSON.parse(readFileSync(PKG, "utf8"));
+  const alreadyRight = pkg.version === version;
   pkg.version = version;
   writeFileSync(PKG, `${JSON.stringify(pkg, null, 2)}\n`);
 
-  git("add", PKG);
-  git("commit", "-m", `Release ${version}`);
+  // The version can already be what we want — a release cut on the same day as the last edit, or a
+  // retry after a push that failed. Committing nothing is an error to git, not to us.
+  if (!alreadyRight) {
+    git("add", PKG);
+    git("commit", "-m", `Release ${version}`);
+  }
   git("tag", `v${version}`);
   git("push", "origin", "main", `v${version}`);
 
