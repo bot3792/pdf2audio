@@ -6,8 +6,8 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
-import { env, envFilePath } from "../env.ts";
-import { updateEnvFile } from "./env-file.ts";
+import { env } from "../env.ts";
+import { secretsOfKind, isConfigured, keyHint, type SecretVar } from "./secrets.ts";
 import { describeError } from "./errors.ts";
 
 export type LlmProviderKind = "deepseek" | "openai" | "anthropic" | "google" | "openai-compatible";
@@ -35,15 +35,13 @@ export const modelKeySchema = z.string().min(1).max(64);
 
 const DEEPSEEK_URL = "https://api.deepseek.com";
 
-const CLOUD_PROVIDERS = [
-  { provider: "deepseek", label: "DeepSeek", envVar: "DEEPSEEK_API_KEY" },
-  { provider: "openai", label: "OpenAI", envVar: "OPENAI_API_KEY" },
-  { provider: "anthropic", label: "Anthropic", envVar: "ANTHROPIC_API_KEY" },
-  { provider: "google", label: "Google Gemini", envVar: "GOOGLE_GENERATIVE_AI_API_KEY" },
-] as const satisfies readonly { provider: LlmProviderKind; label: string; envVar: keyof typeof env }[];
+const CLOUD_PROVIDERS = secretsOfKind("llm") as readonly {
+  provider: LlmProviderKind;
+  label: string;
+  envVar: CloudKeyVar;
+}[];
 
-export const CLOUD_KEY_VARS = CLOUD_PROVIDERS.map((p) => p.envVar) as [CloudKeyVar, ...CloudKeyVar[]];
-export type CloudKeyVar = (typeof CLOUD_PROVIDERS)[number]["envVar"];
+export type CloudKeyVar = SecretVar;
 
 const CLOUD_MODELS: LlmModelDef[] = [
   {
@@ -352,24 +350,16 @@ export async function llmStatus() {
       .filter((m) => m.provider === "openai-compatible")
       .map((m) => ({ key: m.key, label: m.label, url: m.baseUrl ?? "", modelId: m.modelId })),
     cloud: CLOUD_PROVIDERS.map(({ provider, label, envVar }) => {
-      const key = env[envVar];
       return {
         provider,
         label,
         envVar,
-        configured: Boolean(key),
-        keyHint: key ? `…${key.slice(-4)}` : null,
+        configured: isConfigured(envVar),
+        keyHint: keyHint(envVar),
         models: statics.filter((m) => m.provider === provider).map((m) => m.label),
       };
     }),
   };
-}
-
-export function setCloudKey(envVar: CloudKeyVar, value: string | null): void {
-  const cleaned = value?.trim() || null;
-  if (cleaned && /[\r\n]/.test(cleaned)) throw new Error("API key must be a single line");
-  updateEnvFile(envFilePath, envVar, cleaned);
-  env[envVar] = cleaned ?? undefined;
 }
 
 function requiredEnvVar(def: LlmModelDef): CloudKeyVar | undefined {
@@ -378,7 +368,7 @@ function requiredEnvVar(def: LlmModelDef): CloudKeyVar | undefined {
 
 function isAvailable(def: LlmModelDef): boolean {
   const envVar = requiredEnvVar(def);
-  return envVar === undefined || Boolean(env[envVar]);
+  return envVar === undefined || isConfigured(envVar);
 }
 
 export async function availableModels(): Promise<LlmModelDef[]> {

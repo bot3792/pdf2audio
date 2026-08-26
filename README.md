@@ -187,11 +187,24 @@ from `uv.lock`, fetches the Kokoro voice, and starts the server — which serves
 is one port and no Vite. About 2.8 GB, once; later launches take seconds. **Docker is the one thing
 it cannot install for you**, and the first-run screen says so rather than failing.
 
-Running the app **and** `pnpm dev` against the same Docker Postgres needs one more thing: the
-database stores absolute paths to audio and PDFs, so both must use the same `DATA_DIR`. Write
-`~/Library/Application Support/pdf2audio/config.json` with
-`{"dataDir": "<repo>/packages/server/data"}` and they agree; otherwise the app lists your books and
-cannot play them.
+API keys go in **⚙️ → Settings** — AI providers under *Cloud providers*, Cartesia and ElevenLabs
+under *Cloud voices*. They are written to a `.env` file, named at the bottom of that panel, which
+the app keeps beside everything else it installed. There is nothing to edit by hand and no
+checkout required.
+
+Running the app **and** `pnpm dev` against the same Docker Postgres needs one more thing:
+`~/Library/Application Support/pdf2audio/config.json`.
+
+```json
+{
+  "dataDir": "<repo>/packages/server/data",
+  "envFile": "<repo>/.env"
+}
+```
+
+The database stores absolute paths to audio and PDFs, so both halves must use the same `DATA_DIR`
+or the app lists your books and cannot play them. `envFile` is the same idea for secrets: without
+it the app has its own `.env`, and a key you added under `pnpm dev` is invisible to the app.
 
 It is **not signed yet**, so macOS refuses it until you right-click → Open. `scripts/vm-verify.sh`
 runs the whole thing inside a fresh macOS VM, checking first that the VM has no Homebrew, no Python

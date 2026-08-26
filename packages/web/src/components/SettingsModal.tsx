@@ -5,7 +5,63 @@ import { useBodyScrollLock } from "../lib/use-body-scroll-lock.ts";
 import { formatTokens } from "../lib/ai-presets.ts";
 import { TOOLBAR_BUTTON } from "../lib/button-classes.ts";
 
-type CloudKeyVar = RouterInputs["llmModels"]["setKey"]["envVar"];
+type SecretVar = RouterInputs["secrets"]["set"]["envVar"];
+
+type KeyCardProps = {
+  slug: string;
+  label: string;
+  note: string;
+  configured: boolean;
+  keyHint: string | null;
+  draft: string;
+  onDraft: (value: string) => void;
+  onSave: () => void;
+  onRemove: () => void;
+  busy: boolean;
+};
+
+function KeyCard({ slug, label, note, configured, keyHint, draft, onDraft, onSave, onRemove, busy }: KeyCardProps) {
+  return (
+    <div className="rounded-md border border-(--border) p-3" data-testid={`settings-cloud-${slug}`}>
+      <div className="flex items-center gap-2 text-sm">
+        <Dot on={configured} />
+        <span className="font-medium text-(--text-primary)">{label}</span>
+        <span className="text-xs text-(--text-faint)">{note}</span>
+        <span className={`ml-auto text-xs ${configured ? "text-green-600" : "text-(--text-muted)"}`}>
+          {configured ? `key set (${keyHint})` : "no key"}
+        </span>
+      </div>
+      <div className="mt-2 flex items-center gap-2">
+        <input
+          type="password"
+          value={draft}
+          onChange={(e) => onDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onSave()}
+          placeholder={configured ? "Paste a new key to replace it" : "Paste API key"}
+          className="flex-1 text-xs rounded-md border border-(--border-input) bg-(--bg-input) px-2 py-1.5 text-(--text-primary) focus:outline-none focus:border-blue-500"
+          data-testid={`settings-key-input-${slug}`}
+        />
+        <button
+          onClick={onSave}
+          disabled={!draft.trim() || busy}
+          className="text-xs px-2.5 py-1.5 rounded-md bg-blue-600 text-white font-medium disabled:opacity-50"
+          data-testid={`settings-key-save-${slug}`}
+        >
+          Save
+        </button>
+        <button
+          onClick={onRemove}
+          disabled={!configured || busy}
+          title={configured ? "Remove the key from .env" : "No key to remove"}
+          className={TOOLBAR_BUTTON}
+          data-testid={`settings-key-remove-${slug}`}
+        >
+          Remove
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function Dot({ on }: { on: boolean }) {
   return <span className={`inline-block w-2 h-2 rounded-full ${on ? "bg-green-500" : "bg-(--text-faint)"}`} />;
@@ -21,10 +77,18 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     utils.llmModels.status.invalidate();
     utils.llmModels.list.invalidate();
   };
-  const setKeyMutation = trpc.llmModels.setKey.useMutation({ onSuccess: refreshModels });
+  const { data: secrets } = trpc.secrets.list.useQuery();
+  const setKeyMutation = trpc.secrets.set.useMutation({
+    onSuccess: () => {
+      refreshModels();
+      utils.secrets.list.invalidate();
+      utils.cartesiaVoices.list.invalidate();
+      utils.elevenlabsVoices.list.invalidate();
+    },
+  });
   const startServerMutation = trpc.llmModels.startLocalServer.useMutation({ onSuccess: refreshModels });
 
-  const save = (envVar: CloudKeyVar) => {
+  const save = (envVar: SecretVar) => {
     const value = drafts[envVar]?.trim();
     if (!value) return;
     setKeyMutation.mutate({ envVar, value });
@@ -36,7 +100,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-(--bg-card) rounded-xl shadow-2xl w-[640px] max-w-[94vw] max-h-[88vh] flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-(--border)">
-          <h2 className="text-lg font-semibold text-(--text-primary)">AI models</h2>
+          <h2 className="text-lg font-semibold text-(--text-primary)">Settings</h2>
           <button onClick={onClose} className="text-(--text-muted) hover:text-(--text-primary) text-xl leading-none px-1" title="Close">
             ×
           </button>
@@ -120,50 +184,47 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             <h3 className="text-sm font-semibold text-(--text-primary) mb-2">Cloud providers — need an API key</h3>
             <div className="space-y-3">
               {(status?.cloud ?? []).map((p) => (
-                <div key={p.envVar} className="rounded-md border border-(--border) p-3" data-testid={`settings-cloud-${p.provider}`}>
-                  <div className="flex items-center gap-2 text-sm">
-                    <Dot on={p.configured} />
-                    <span className="font-medium text-(--text-primary)">{p.label}</span>
-                    <span className="text-xs text-(--text-faint)">{p.models.join(", ")}</span>
-                    <span className={`ml-auto text-xs ${p.configured ? "text-green-600" : "text-(--text-muted)"}`}>
-                      {p.configured ? `key set (${p.keyHint})` : "no key"}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      type="password"
-                      value={drafts[p.envVar] ?? ""}
-                      onChange={(e) => setDrafts((d) => ({ ...d, [p.envVar]: e.target.value }))}
-                      onKeyDown={(e) => e.key === "Enter" && save(p.envVar)}
-                      placeholder={p.configured ? "Paste a new key to replace it" : "Paste API key"}
-                      className="flex-1 text-xs rounded-md border border-(--border-input) bg-(--bg-input) px-2 py-1.5 text-(--text-primary) focus:outline-none focus:border-blue-500"
-                      data-testid={`settings-key-input-${p.provider}`}
-                    />
-                    <button
-                      onClick={() => save(p.envVar)}
-                      disabled={!drafts[p.envVar]?.trim() || setKeyMutation.isPending}
-                      className="text-xs px-2.5 py-1.5 rounded-md bg-blue-600 text-white font-medium disabled:opacity-50"
-                      data-testid={`settings-key-save-${p.provider}`}
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => setKeyMutation.mutate({ envVar: p.envVar, value: null })}
-                      disabled={!p.configured || setKeyMutation.isPending}
-                      title={p.configured ? "Remove the key from .env" : "No key to remove"}
-                      className={TOOLBAR_BUTTON}
-                      data-testid={`settings-key-remove-${p.provider}`}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
+                <KeyCard
+                  key={p.envVar}
+                  slug={p.provider}
+                  label={p.label}
+                  note={p.models.join(", ")}
+                  configured={p.configured}
+                  keyHint={p.keyHint}
+                  draft={drafts[p.envVar] ?? ""}
+                  onDraft={(value) => setDrafts((d) => ({ ...d, [p.envVar]: value }))}
+                  onSave={() => save(p.envVar)}
+                  onRemove={() => setKeyMutation.mutate({ envVar: p.envVar, value: null })}
+                  busy={setKeyMutation.isPending}
+                />
               ))}
             </div>
             {setKeyMutation.error && <p className="mt-2 text-xs text-red-600">{setKeyMutation.error.message}</p>}
             {startServerMutation.error && <p className="mt-2 text-xs text-red-600">{startServerMutation.error.message}</p>}
+          </section>
+
+          <section>
+            <h3 className="text-sm font-semibold text-(--text-primary) mb-2">Cloud voices — need an API key</h3>
+            <div className="space-y-3">
+              {(secrets?.keys ?? []).filter((k) => k.kind === "voice").map((k) => (
+                <KeyCard
+                  key={k.envVar}
+                  slug={k.label.toLowerCase()}
+                  label={k.label}
+                  note={k.hint ?? ""}
+                  configured={k.configured}
+                  keyHint={k.keyHint}
+                  draft={drafts[k.envVar] ?? ""}
+                  onDraft={(value) => setDrafts((d) => ({ ...d, [k.envVar]: value }))}
+                  onSave={() => save(k.envVar)}
+                  onRemove={() => setKeyMutation.mutate({ envVar: k.envVar, value: null })}
+                  busy={setKeyMutation.isPending}
+                />
+              ))}
+            </div>
             <p className="mt-3 text-xs text-(--text-faint)">
-              Keys are written to the .env file on this machine, take effect immediately, and are never sent back to the browser.
+              Keys take effect immediately and are never sent back to the browser. They are written to{" "}
+              <code className="text-(--text-muted)">{secrets?.path}</code>
             </p>
           </section>
         </div>

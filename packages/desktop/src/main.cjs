@@ -14,10 +14,10 @@ function defaultHome() {
   return process.env.PDF2AUDIO_HOME || path.join(app.getPath("appData"), "pdf2audio");
 }
 
-// The database records absolute paths to every PDF and every audio file, so the data directory is
-// not a preference — it is half of a pair, and pointing the app at a different one than wrote the
-// files gives a library that lists books it cannot play. A developer sharing one database with a
-// checkout needs to say where those files already are.
+// dataDir, databaseUrl, envFile: the three things a developer running both the app and a checkout
+// needs to point at one copy instead of two. The data directory is not a preference — the database
+// records absolute paths to every PDF and audio file, so pointing the app at a different directory
+// than wrote them gives a library that lists books it cannot play.
 function readConfig(home) {
   try {
     return JSON.parse(require("node:fs").readFileSync(path.join(home, "config.json"), "utf8"));
@@ -95,6 +95,7 @@ function serverEnv() {
     POCKET_ENV_PATH: path.join(HOME, "python-pocket/bin"),
     WEB_DIR: path.join(RESOURCES, "web"),
     DATABASE_URL: process.env.DATABASE_URL || CONFIG.databaseUrl || DEFAULT_DATABASE_URL,
+    PDF2AUDIO_ENV_FILE: process.env.PDF2AUDIO_ENV_FILE || CONFIG.envFile || path.join(HOME, ".env"),
     PORT: String(PORT),
     // A GUI app's PATH omits Homebrew, and the workers spawn ffmpeg, pdftotext and pdfinfo
     PATH: setup.toolPath(RESOURCES),

@@ -43,7 +43,7 @@ export class ElevenLabsAbortedError extends Error {
 }
 
 function apiKey(): string {
-  if (!env.ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY is not set — add it to .env");
+  if (!env.ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY is not set — add a key under Settings → Cloud voices");
   return env.ELEVENLABS_API_KEY;
 }
 

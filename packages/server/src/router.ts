@@ -15,6 +15,7 @@ import { pocketVoicesRouter } from "./routes/pocket-voices.ts";
 import { llmModelsRouter } from "./routes/llm-models.ts";
 import { rendererRouter } from "./routes/renderer.ts";
 import { modelsRouter } from "./routes/models.ts";
+import { secretsRouter } from "./routes/secrets.ts";
 
 export const appRouter = router({
   books: booksRouter,
@@ -32,6 +33,7 @@ export const appRouter = router({
   llmModels: llmModelsRouter,
   renderer: rendererRouter,
   models: modelsRouter,
+  secrets: secretsRouter,
 });
 
 export type AppRouter = typeof appRouter;

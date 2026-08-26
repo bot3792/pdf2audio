@@ -30,7 +30,7 @@ export class CartesiaAbortedError extends Error {
 }
 
 function apiKey(): string {
-  if (!env.CARTESIA_API_KEY) throw new Error("CARTESIA_API_KEY is not set — add it to .env");
+  if (!env.CARTESIA_API_KEY) throw new Error("CARTESIA_API_KEY is not set — add a key under Settings → Cloud voices");
   return env.CARTESIA_API_KEY;
 }
 

@@ -58,9 +58,29 @@ route resolves the stored path relative to `DATA_DIR`, and a path that escapes i
 { "dataDir": "/Users/you/repos/pdf2audio/packages/server/data" }
 ```
 
-`databaseUrl` is accepted there too. A real install needs neither — the default is
-`<home>/data` beside everything else the app fetched. This exists so a developer running both the
-app and `pnpm dev` against one Docker Postgres has one library rather than two halves of one.
+`databaseUrl` and `envFile` are accepted there too. A real install needs none of them — the
+defaults are `<home>/data` and `<home>/.env` beside everything else the app fetched. They exist so
+a developer running both the app and `pnpm dev` against one Docker Postgres has one library rather
+than two halves of one:
+
+```json
+{
+  "dataDir": "/Users/you/repos/pdf2audio/packages/server/data",
+  "envFile": "/Users/you/repos/pdf2audio/.env"
+}
+```
+
+`envFile` is the answer to "why does Cartesia show up under `pnpm dev` and not in the app". API
+keys are read from one `.env` file, and the app's is not the checkout's — pointing it at the
+checkout means one set of keys instead of two.
+
+## Where the API keys go
+
+Nobody who installs the app has a checkout, a terminal, or a file to edit, so every key is settable
+from **⚙️ → Settings**: AI providers under *Cloud providers*, Cartesia and ElevenLabs under *Cloud
+voices*. They are written to the `.env` file named at the bottom of that panel, take effect without
+a restart, and are never sent back to the browser — only whether one is set, and its last four
+characters.
 
 ## The three CLI tools ship inside
 

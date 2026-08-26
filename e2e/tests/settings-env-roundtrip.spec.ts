@@ -48,7 +48,7 @@ test("settings: a saved cloud key lands in .env and the pickers, and removal res
     await expect(page.getByTestId("chat-model").locator(`optgroup[label="${target.label}"]`)).toHaveCount(0);
   } finally {
     // Failure-path safety net: clear the key from the server's memory and restore the file
-    await trpcMutation(request, "llmModels.setKey", { envVar: target.envVar, value: null }).catch(() => {});
+    await trpcMutation(request, "secrets.set", { envVar: target.envVar, value: null }).catch(() => {});
     if ((await fs.readFile(ENV_PATH, "utf8")) !== snapshot) await fs.writeFile(ENV_PATH, snapshot);
   }
 });

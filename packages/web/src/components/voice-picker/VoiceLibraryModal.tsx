@@ -373,8 +373,9 @@ export function VoiceLibraryModal({
                           ) : (
                             <>
                               No {languageLabel(language)} voices installed.
-                              {cartesiaVoices.length === 0 && " Cartesia's cloud catalogue covers most languages — set CARTESIA_API_KEY in .env to list it here."}
-                              {elevenlabsVoices.length === 0 && " ElevenLabs' free tier gives an API key and 10,000 characters a month — set ELEVENLABS_API_KEY in .env."}
+                              {cartesiaVoices.length === 0 && " Cartesia's cloud catalogue covers most languages."}
+                              {elevenlabsVoices.length === 0 && " ElevenLabs' free tier gives an API key and 10,000 characters a month."}
+                              {(cartesiaVoices.length === 0 || elevenlabsVoices.length === 0) && " Add a key under Settings → Cloud voices."}
                             </>
                           )}
                         </Empty>

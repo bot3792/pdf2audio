@@ -6,7 +6,9 @@ import { z } from "zod";
 // once the server is a bundle or a single executable — there, the launcher passes the root in.
 const repoRoot = process.env.PDF2AUDIO_HOME
   ?? (import.meta.dirname ? path.resolve(import.meta.dirname, "../../..") : path.resolve(process.cwd(), "../.."));
-export const envFilePath = path.join(repoRoot, ".env");
+// Where the API keys live. Separate from PDF2AUDIO_HOME so a developer can point the installed
+// app at the checkout's .env and stop keeping two copies of the same keys in sync.
+export const envFilePath = process.env.PDF2AUDIO_ENV_FILE ?? path.join(repoRoot, ".env");
 dotenv.config({ path: envFilePath });
 
 const envSchema = z.object({
