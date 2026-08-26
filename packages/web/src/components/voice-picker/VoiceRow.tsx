@@ -1,6 +1,7 @@
 import { memo } from "react";
 
-import type { Voice } from "../../lib/voices.ts";
+import { voiceBlockedByMissingMlx, type Voice } from "../../lib/voices.ts";
+import { trpc } from "../../trpc.ts";
 import { useVoicePicker } from "./context.tsx";
 
 function describe(voice: Voice): string {
@@ -17,7 +18,14 @@ export const VoiceRow = memo(function VoiceRow({ voice, action }: { voice: Voice
   const isPending = voice.id === state.pendingId;
   const hasFailed = voice.id === state.failedId;
 
-  const status = isPending
+  // Two narrators are MLX, which is Metal — on anything else they cannot run at all, unlike every
+  // other engine here, which merely gets slower. Say so on the row rather than failing at synthesis.
+  const { data: capabilities } = trpc.models.capabilities.useQuery(undefined, { staleTime: Infinity, enabled: voice.requiresMlx === true });
+  const unavailable = voiceBlockedByMissingMlx(voice, capabilities?.mlx);
+
+  const status = unavailable
+    ? "Needs Apple Silicon — this narrator runs on Metal"
+    : isPending
     ? "Generating preview — first time for this voice"
     : hasFailed
       ? "Preview failed — click to retry"
@@ -31,6 +39,7 @@ export const VoiceRow = memo(function VoiceRow({ voice, action }: { voice: Voice
         type="button"
         onClick={() => actions.play(voice.id)}
         aria-busy={isPending}
+        disabled={unavailable}
         className={`shrink-0 h-8 w-8 rounded-full flex items-center justify-center border border-(--border) transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none ${
           isPending ? "cursor-progress" : "hover:border-blue-400 hover:bg-(--bg-selected)"
         }`}
@@ -58,7 +67,9 @@ export const VoiceRow = memo(function VoiceRow({ voice, action }: { voice: Voice
         type="button"
         onClick={() => actions.select(voice.id)}
         aria-pressed={isSelected}
-        className="flex-1 min-w-0 text-left focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none rounded"
+        disabled={unavailable}
+        title={unavailable ? "This narrator needs Apple's MLX, which only runs on Apple Silicon" : undefined}
+        className="flex-1 min-w-0 text-left focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none rounded disabled:opacity-50 disabled:cursor-not-allowed"
         data-testid={`voice-option-${voice.id}`}
       >
         <div className="text-sm text-(--text-primary) truncate">{voice.label}</div>

@@ -64,6 +64,29 @@ async function readStatus(): Promise<PythonBundle[]> {
   return bundles;
 }
 
+// Whether MLX works cannot change while the process runs, so this is asked once and kept.
+let capabilities: Promise<{ mlx: boolean }> | null = null;
+let capabilitiesWereForced = false;
+
+export function readCapabilities(): Promise<{ mlx: boolean }> {
+  // Caching forever is right — MLX does not appear mid-process — but the dev marker has to be able
+  // to turn it off and back on, so a change either way throws the cached answer away.
+  const forced = existsSync(FORCED_MISSING_FILE);
+  if (forced !== capabilitiesWereForced) capabilities = null;
+  capabilitiesWereForced = forced;
+  capabilities ??= new Promise((resolve) => {
+    run(["--capabilities"], (code, out) => {
+      if (code !== 0) return resolve({ mlx: false });
+      try {
+        resolve(JSON.parse(out) as { mlx: boolean });
+      } catch {
+        resolve({ mlx: false });
+      }
+    });
+  });
+  return capabilities;
+}
+
 export async function listModelBundles(): Promise<ModelBundle[]> {
   const bundles = await readStatus();
   return bundles.map((b) => ({

@@ -9,6 +9,8 @@ export type Voice = {
   language?: string;
   /** Which engine provides it — the secondary grouping in the picker. */
   engine?: VoiceEngine;
+  /** Set when the voice cannot run without Apple's MLX, so a non-Metal machine can say why. */
+  requiresMlx?: boolean;
 };
 
 export const MULTILINGUAL = "multi";
@@ -190,9 +192,9 @@ export const kokoroVoiceGroups: VoiceGroup[] = [
 ];
 
 export const narratorVoices: Voice[] = [
-  { id: "bg-mlx:narrator", label: "BG-TTS V5 (Radi Totev MLX port)", gender: null, grade: "MLX", supportsSpeed: false, note: "Apple Silicon narrator" },
+  { id: "bg-mlx:narrator", label: "BG-TTS V5 (Radi Totev MLX port)", gender: null, grade: "MLX", supportsSpeed: false, note: "Apple Silicon narrator", requiresMlx: true },
   { id: "bg-mms:bul", label: "MMS Bulgarian (Meta)", gender: null, grade: "VITS", supportsSpeed: false, note: "Meta MMS" },
-  { id: "kugel:default", label: "KugelAudio (7B, 24 EU languages)", gender: null, grade: "MLX", supportsSpeed: false, note: "Multilingual narrator" },
+  { id: "kugel:default", label: "KugelAudio (7B, 24 EU languages)", gender: null, grade: "MLX", supportsSpeed: false, note: "Multilingual narrator", requiresMlx: true },
 ];
 
 const voiceGroups: VoiceGroup[] = [
@@ -324,6 +326,13 @@ export function pocketCustomVoiceToEntry(voice: { id: string; name: string; seco
     language: "en",
     engine: "pocket",
   };
+}
+
+// Every other engine degrades to the CPU off Apple Silicon; the two MLX narrators cannot run at
+// all. Undefined capabilities means the probe has not answered — assume it works rather than grey
+// out two voices on every page load and then ungrey them.
+export function voiceBlockedByMissingMlx(voice: Voice, mlxAvailable: boolean | undefined): boolean {
+  return voice.requiresMlx === true && mlxAvailable === false;
 }
 
 // Runtime-discovered voices have no static entry, so the engine prefix is the fallback authority —

@@ -85,9 +85,22 @@ BUNDLES = [
 BY_ID = {b["id"]: b for b in BUNDLES}
 
 
+# Developing a download gate otherwise means deleting several gigabytes to see it, and putting
+# them back to see the other state. The file exists alongside the env var because the e2e suite
+# drives an already-running dev server, whose environment it cannot reach. "mlx" is accepted here
+# too, so the Apple-Silicon-only narrators can be seen greyed out on a machine that has MLX.
+def _forced_missing() -> set:
+    forced = {s for s in os.environ.get("PDF2AUDIO_MODELS_MISSING", "").split(",") if s}
+    marker = Path(__file__).resolve().parent.parent / ".models-missing"
+    if marker.exists():
+        forced |= {line.strip() for line in marker.read_text().splitlines() if line.strip()}
+    return forced
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--status", action="store_true")
+    parser.add_argument("--capabilities", action="store_true")
     parser.add_argument("--download")
     args = parser.parse_args()
 
@@ -99,14 +112,22 @@ def main() -> int:
         bundle["download"]()
         return 0
 
+    if args.capabilities:
+        if _forced_missing() & {"mlx"}:
+            print(json.dumps({"mlx": False}))
+            return 0
+        # Deliberately does not import torch to check MPS: that costs half a second and nothing
+        # is gated on it — the two MLX narrators are the only engines that cannot fall back.
+        try:
+            import mlx.core  # noqa: F401
+            mlx = True
+        except Exception:
+            mlx = False
+        print(json.dumps({"mlx": mlx}))
+        return 0
+
     if args.status:
-        # Developing a download gate otherwise means deleting several gigabytes to see it, and
-        # putting them back to see the other state. The file exists because the e2e suite drives an
-        # already-running dev server, whose environment it cannot reach.
-        forced_missing = {s for s in os.environ.get("PDF2AUDIO_MODELS_MISSING", "").split(",") if s}
-        marker_file = Path(__file__).resolve().parent.parent / ".models-missing"
-        if marker_file.exists():
-            forced_missing |= {line.strip() for line in marker_file.read_text().splitlines() if line.strip()}
+        forced_missing = _forced_missing()
         out = []
         for b in BUNDLES:
             try:
