@@ -1,0 +1,50 @@
+# Builds and publishes the macOS app on a version tag. Not enabled until there is an Apple
+# Developer account: without a certificate the DMG still builds, but every download opens to
+# "cannot be opened because the developer cannot be verified", which is the wall this exists to
+# remove. Until then, run it with `workflow_dispatch` to check the build itself.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  macos:
+    # arm64. MLX is Metal, so an Intel runner cannot even smoke-test what it builds.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r --filter "./packages/*" test
+      - run: pnpm build
+
+      - name: Build the server as one executable
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          "$HOME/.bun/bin/bun" build --compile --target=bun-darwin-arm64 \
+            packages/server/src/main.ts --outfile dist/pdf2audio-server
+
+      # Nothing below runs usefully without these four secrets. Signing and notarising are what
+      # make the download openable; skipping them produces a DMG that only we can run.
+      - name: Package, sign and notarise
+        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        env:
+          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always
+
+      - name: Warn when unsigned
+        if: ${{ secrets.APPLE_CERTIFICATE == '' }}
+        run: echo "::warning::No Apple certificate configured — skipping the DMG. See tasks/desktop-app.md."
