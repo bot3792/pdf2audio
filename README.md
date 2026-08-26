@@ -169,6 +169,27 @@ pnpm e2e:smoke        # Playwright e2e, fast tier (needs the dev server running;
 pnpm e2e:full         # Everything incl. slow tests (marker, TTS, exports)
 ```
 
+## Desktop app
+
+`packages/desktop` builds a macOS app that installs its own runtime — no checkout, no terminal:
+
+```bash
+pnpm --filter @pdf2audio/desktop run bundle:tools   # ffmpeg, pdftotext, pdfinfo + their libraries
+pnpm --filter @pdf2audio/desktop run icon           # packages/desktop/icon.png -> .icns
+pnpm build && bun build --compile --target=bun-darwin-arm64 \
+  packages/server/src/main.ts --outfile packages/desktop/resources/pdf2audio-server
+pnpm --filter @pdf2audio/desktop run dmg
+```
+
+On first launch it checks Docker, brings up Postgres, downloads `uv`, builds the Python environment
+from `uv.lock`, fetches the Kokoro voice, and starts the server — which serves the UI too, so there
+is one port and no Vite. About 2.8 GB, once; later launches take seconds. **Docker is the one thing
+it cannot install for you**, and the first-run screen says so rather than failing.
+
+It is **not signed yet**, so macOS refuses it until you right-click → Open. `scripts/vm-verify.sh`
+runs the whole thing inside a fresh macOS VM, checking first that the VM has no Homebrew, no Python
+and no cached models — this machine has all three and hides bugs because of it.
+
 ## Notes
 
 - Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.

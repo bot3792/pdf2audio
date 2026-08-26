@@ -368,6 +368,28 @@ Vite dev server on port 3033 proxies `/trpc`, `/pdf`, `/upload`, `/download`, `/
 - `POST /chat` — Library-chat streaming endpoint (`chat-routes.ts`). Raw Fastify route because tRPC can't stream; AI SDK UI-message stream over `reply.hijack()` + `pipeUIMessageStreamToResponse`. Profile via `x-profile-id`. Scope accepts `folderId` (subtree) or `bookId` (single-book chat).
 - `POST /chat/ask` — Streaming Ask AI (`chat-routes.ts` + `lib/ask-ai.ts`): whole scope (book raw text or selected chapters) stuffed in context, no tools; same 1M token guard and auto-save-note behavior as the retired sync mutations (`books.aiPromptRaw` / `chapters.aiPrompt`); emits a `data-note` part with the saved noteId. Consumed by `ChapterAiModal` via `useChat` (one "Ask AI" button, scope switcher inside the modal).
 
+## Desktop app (`packages/desktop`)
+
+Electron, and deliberately thin — the app is a local server and a page, so the shell starts child
+processes and opens a window. Everything with logic in it is plain Node with tests, because a
+display is not available in CI. `tasks/desktop-app.md` has the reasoning, `packages/desktop/README.md`
+the state.
+
+- **`src/docker.ts` / `src/launch.ts`** — tested. Docker is found by probing install and socket
+  locations for Docker Desktop, OrbStack, Colima and Rancher, **never by `$PATH`**: a Finder-launched
+  app gets `/usr/bin:/bin:/usr/sbin:/sbin`, so `which docker` reports nothing on a machine running it.
+- **`src/main.cjs` / `src/setup.cjs`** — the window and the first run. Stages `scripts/`,
+  `pyproject.toml` and `uv.lock` out of the bundle into `~/Library/Application Support/pdf2audio`,
+  fetches a checksummed `uv`, builds the Python environment from the lockfile, fetches Kokoro,
+  brings up Postgres in Docker, starts the compiled server. ~1.4 GB, then the window loads it.
+- **One port.** The server serves the built web bundle (`WEB_DIR`, with an SPA fallback) when one
+  exists, so a package needs no Vite. In the repo, unbuilt, nothing changes.
+- **`scripts/bundle-tools.py`** — copies ffmpeg, pdftotext and pdfinfo out of Homebrew with their
+  dylib closure, rewrites load commands to `@loader_path`, and **re-signs ad-hoc**, without which
+  Apple Silicon kills them silently. `scripts/make-icon.sh` builds the `.icns`.
+- **`scripts/vm-verify.sh`** — run inside a fresh macOS VM (tart), asserts the absences first.
+- Updating the runtime, not just the shell, is planned in `tasks/desktop-updates.md` and not built.
+
 ## Storyteller Companion (read-along on iPhone)
 
 `storyteller/docker-compose.yml` runs a self-hosted [Storyteller](https://storyteller-platform.dev/) server on port 8001 (secret key + admin credentials + library data in `storyteller/`, all gitignored). Its `/data/import` watch folder auto-imports synced EPUBs within seconds; `READALOUD_DROP_DIR` in `.env` points pdf2audio's epub-sync exports there (behind the "Copy to Storyteller import folder" checkbox, default off). The free Storyteller Reader iOS app connects to the server over the phone-hotspot tether (`http://172.20.10.2:8001` when the Mac tethers via USB), downloads books, and plays them offline with read-along highlighting. Storyteller iOS builds ≤2.11.3 crash on readalouds whose last spine item has a media overlay; that's fixed upstream (our MR !616), so the exporter no longer appends the trailing colophon page it once used as a workaround — if downloads start crashing, update the app.
