@@ -1,7 +1,7 @@
 // Everything scripts/setup.sh does, minus the terminal. Each function reports progress through a
 // callback and is safe to run again — a first run that dies halfway resumes rather than restarts.
 const { spawn } = require("node:child_process");
-const { existsSync, mkdirSync, copyFileSync, cpSync, rmSync, readFileSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, copyFileSync, cpSync, rmSync, readFileSync } = require("node:fs");
 const path = require("node:path");
 
 // Pinned and checksummed rather than `curl | sh`: piping an installer into a shell gives errors
@@ -91,6 +91,10 @@ async function ensureUv(home, onOutput) {
   return uv;
 }
 
+function pythonBin(home) {
+  return path.join(home, "python", "bin", "python");
+}
+
 async function syncPython(home, onOutput) {
   const uv = await ensureUv(home, onOutput);
   await sh(uv, ["sync", "--frozen", "--project", home], {
@@ -98,19 +102,14 @@ async function syncPython(home, onOutput) {
     env: { UV_PROJECT_ENVIRONMENT: path.join(home, "python") },
     onOutput,
   });
-  return path.join(home, "python", "bin", "python");
+  return pythonBin(home);
 }
 
-// Stamped once it has succeeded. Without this every launch spends a Python start and a HuggingFace
-// revision lookup — 0.6s warm, more on a slow link — to be told the 347 MB is already there.
 async function fetchEssentialModels(python, home, onOutput) {
-  const stamp = path.join(home, ".essential-models");
-  if (existsSync(stamp)) return;
   await sh(python, [path.join(home, "scripts", "models.py"), "--essential"], {
     env: { HF_HUB_OFFLINE: "0" },
     onOutput,
   });
-  writeFileSync(stamp, new Date().toISOString());
 }
 
-module.exports = { missingTools, toolPath, stageRuntime, syncPython, fetchEssentialModels };
+module.exports = { missingTools, toolPath, stageRuntime, pythonBin, syncPython, fetchEssentialModels };

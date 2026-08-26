@@ -100,11 +100,40 @@ while rewriting to the link gives a folder where every file exists and none can 
 
 Verified with `PATH=/usr/bin:/bin` — no Homebrew — reading a real PDF.
 
+## Releasing
+
+Tag it. `.github/workflows/release.yml` builds on a `v*` tag and publishes the DMG to GitHub
+Releases, which is also where `electron-updater` looks — so the download page and the update feed
+are the same artefact, and there is nothing to keep in step by hand.
+
+```
+pnpm version patch --workspaces-update=false   # or edit packages/desktop/package.json
+git tag v0.1.0 && git push --tags
+```
+
+**Until there is an Apple certificate the download is quarantined**, and macOS says "pdf2audio is
+damaged and can't be opened" — which is a lie, but it is the lie Gatekeeper tells about unsigned
+apps that came from a browser. The release notes have to say: right-click the app → Open → Open.
+That instruction is the entire reason the $99 Developer account is worth buying; with it the
+workflow signs and notarises and nobody ever sees this. Until then, expect to lose people here.
+
+The updater does not depend on signing, but the *installation* of an update does: an unsigned
+update is quarantined the same way. So treat everything before the certificate as pre-release.
+
+## When something goes wrong
+
+`src/crash.cjs` catches what would otherwise be Electron's own dialog — a stack trace and an OK
+button, which tells someone who did not write the app nothing and tells us nothing either. Instead
+it appends to `crash.log` beside the rest of the app's data and offers **Report this**, which opens
+a GitHub issue with the version, the OS, and the last of the stack already filled in; the person
+only has to say what they were doing. A blocked setup step is recorded the same way, so "it did not
+start" arrives with the reason attached.
+
 ## What is not here yet
 
-Signing and notarising — the DMG builds, and Gatekeeper refuses it until right-click → Open. The
-runtime updater in `tasks/desktop-updates.md`, which is what keeps the Python environment and the
-models in step with a new release. And two features that still assume a checkout: PDF/EPUB export
+Signing and notarising — the DMG builds, and Gatekeeper refuses it until right-click → Open. Model
+revisions in the runtime manifest (see `tasks/desktop-updates.md`), so a model that changes upstream
+is not invisible. And two features that still assume a checkout: PDF/EPUB export
 shells out to the Vivliostyle CLI through `node_modules`, and the Hacker News feed spawns a `.mjs`
 script with `process.execPath` — both resolve to nothing inside a compiled binary, so they work in
 development and fail in the app.

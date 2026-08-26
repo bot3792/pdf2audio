@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { CLI_CANDIDATES, SOCKET_CANDIDATES, dockerAdvice, firstExisting } from "./docker.cjs";
+import { CLI_CANDIDATES, SOCKET_CANDIDATES, dockerAdvice, dockerHelp, firstExisting } from "./docker.cjs";
 
 const dirs: string[] = [];
 afterAll(async () => {
@@ -47,12 +47,28 @@ describe("finding Docker without $PATH", () => {
   });
 });
 
-describe("dockerAdvice", () => {
+// Docker is the one prerequisite the app cannot install, and the people hitting this screen are
+// not developers — so the two states have to be told apart in words, and "get it" needs a link.
+describe("what someone without Docker is told", () => {
   it("tells someone with Docker stopped to start it, not to install it", () => {
-    expect(dockerAdvice({ kind: "installed-not-running", cli: "/usr/local/bin/docker" })).toMatch(/start it/i);
+    const help = dockerHelp({ kind: "installed-not-running", cli: "/usr/local/bin/docker" });
+    expect(help.title).toMatch(/not running/i);
+    expect(help.body).toMatch(/Applications folder/i);
+    expect(help.links).toHaveLength(0);
   });
 
-  it("tells someone without Docker where to get it", () => {
-    expect(dockerAdvice({ kind: "missing" })).toMatch(/OrbStack/);
+  it("gives someone without Docker somewhere to download it", () => {
+    const help = dockerHelp({ kind: "missing" });
+    expect(help.links.map((l: { url: string }) => l.url)).toEqual([
+      "https://www.docker.com/products/docker-desktop/",
+      "https://orbstack.dev/download",
+    ]);
+    // No jargon in the sentence that has to land with someone who has never heard of Docker
+    expect(help.body).not.toMatch(/container|daemon|CLI|socket/i);
+  });
+
+  it("says nothing extra once Docker is answering", () => {
+    expect(dockerHelp({ kind: "ready", cli: "/usr/local/bin/docker", version: "28.6.0" })).toBeNull();
+    expect(dockerAdvice({ kind: "ready", cli: "/usr/local/bin/docker", version: "28.6.0" })).toBe("Docker 28.6.0");
   });
 });

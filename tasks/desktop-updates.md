@@ -90,4 +90,28 @@ The first-run screen already renders exactly this list of steps with progress, b
 
 ## Status
 
-Written 2026-08-26, nothing built. `electron-updater` is not yet a dependency.
+**Built 2026-08-26.** Two halves, deliberately separate:
+
+- `src/updater.cjs` — `electron-updater` against GitHub Releases, checked *after* the window is up
+  rather than during boot, `autoDownload = false`. A version check has no business delaying a
+  launch, and a background download that then demands a restart is the behaviour everyone
+  complains about. Installs on quit; offers a restart when the download lands.
+- `src/runtime.cjs` — what the app updater cannot reach. `runtime-state.json` in Application
+  Support records the `uv.lock` hash that is actually installed and whether the essential models
+  are cached; the boot steps compare, skip what is current, and write state only after a step
+  succeeds. Verified all three ways: no state (first run, full install), matching state (launch in
+  **1 s**, both steps report "up to date"), and a faked stale hash (re-syncs, then records the real
+  one).
+
+Two decisions from the plan resolved by building it:
+
+- **Migrations are not in the manifest.** The server applies its own at boot, which gets the
+  ordering right for free — it cannot start against a database it is newer than. Tracking them in
+  two places would have been the third copy of a fact.
+- **The manifest is derived, not declared.** A hash of the shipped `uv.lock` rather than a
+  hand-bumped `"runtime": 3`, because the release that forgets to bump a counter is exactly the
+  release that ships a mismatched runtime.
+
+Still open: **model revisions.** `models.py --status` reports what is cached, not which revision,
+so a model that changes upstream is invisible and "update the models" can only mean "re-download
+15 GB". Pinning revisions in the manifest is the fix, and it is the next thing here.

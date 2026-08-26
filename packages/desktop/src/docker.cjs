@@ -58,10 +58,33 @@ async function dockerEnv() {
   return { ...process.env, ...(socket ? { DOCKER_HOST: `unix://${socket}` } : {}) };
 }
 
+// Two facts most people downloading an audiobook app do not have: what Docker is, and that it has
+// to be *running*, not merely installed. A one-line "install Docker" left both unsaid.
+const DOCKER_HELP = {
+  missing: {
+    detail: "Not installed",
+    title: "pdf2audio needs Docker",
+    body: "Your library lives in a database, and Docker is the free program that runs it. It is a normal app: download it, drag it to Applications, open it once, and leave it running in the menu bar.",
+    links: [
+      { label: "Get Docker Desktop (recommended)", url: "https://www.docker.com/products/docker-desktop/" },
+      { label: "Or OrbStack — lighter, Mac only", url: "https://orbstack.dev/download" },
+    ],
+  },
+  "installed-not-running": {
+    detail: "Installed, but not running",
+    title: "Docker is installed — it just is not running",
+    body: "Open Docker from your Applications folder and wait for its menu-bar icon to stop animating, then press Check again. Turning on \"Start Docker Desktop when you sign in\" in its settings means you will not see this screen again.",
+    links: [],
+  },
+};
+
 function dockerAdvice(state) {
   if (state.kind === "ready") return `Docker ${state.version}`;
-  if (state.kind === "installed-not-running") return "Docker is installed but not running — start it, then check again.";
-  return "pdf2audio keeps your library in Postgres, which runs in Docker. Install Docker Desktop or OrbStack, then check again.";
+  return DOCKER_HELP[state.kind].detail;
 }
 
-module.exports = { CLI_CANDIDATES, SOCKET_CANDIDATES, firstExisting, detectDocker, dockerAdvice };
+function dockerHelp(state) {
+  return state.kind === "ready" ? null : DOCKER_HELP[state.kind];
+}
+
+module.exports = { CLI_CANDIDATES, SOCKET_CANDIDATES, firstExisting, detectDocker, dockerAdvice, dockerHelp };

@@ -383,7 +383,12 @@ the state.
   `pyproject.toml` and `uv.lock` out of the bundle into `~/Library/Application Support/pdf2audio`,
   fetches a checksummed `uv`, builds the Python environment from the lockfile, fetches Kokoro,
   brings up Postgres in Docker, applies the migrations, starts the compiled server. ~2.4 GB
-  downloaded once, then the window loads it.
+  downloaded once, then the window loads it. Steps are a list in `main.cjs` sent to `first-run.html`
+  so the window draws itself; the runner blocks the step that failed and marks the rest skipped.
+  `runtime.cjs` compares the bundle's `uv.lock` hash against `runtime-state.json` and skips whatever
+  is already current — a launch with nothing to bring forward is ~1s. `updater.cjs` checks GitHub
+  Releases *after* the window is up. `crash.cjs` turns an uncaught exception into a `crash.log` line
+  and a prefilled GitHub issue.
 - **One port.** The server serves the built web bundle (`WEB_DIR`, with an SPA fallback) when one
   exists, so a package needs no Vite. In the repo, unbuilt, nothing changes.
 - **`scripts/bundle-tools.py`** — copies ffmpeg, pdftotext and pdfinfo out of Homebrew with their

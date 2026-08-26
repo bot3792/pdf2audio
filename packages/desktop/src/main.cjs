@@ -5,6 +5,9 @@ const { execFile, execFileSync, spawn } = require("node:child_process");
 const path = require("node:path");
 const setup = require("./setup.cjs");
 const docker = require("./docker.cjs");
+const crash = require("./crash.cjs");
+const runtime = require("./runtime.cjs");
+const updater = require("./updater.cjs");
 
 const PORT = Number(process.env.PDF2AUDIO_PORT || 3034);
 
@@ -142,7 +145,10 @@ const STEPS = [
     label: "Docker",
     async run(ctx) {
       ctx.docker = await docker.detectDocker();
-      if (ctx.docker.kind !== "ready") throw new Error(`${docker.dockerAdvice(ctx.docker)} Then press Check again.`);
+      if (ctx.docker.kind !== "ready") {
+        win?.webContents.send("help", docker.dockerHelp(ctx.docker));
+        throw new Error(docker.dockerAdvice(ctx.docker));
+      }
       return docker.dockerAdvice(ctx.docker);
     },
   },
@@ -160,17 +166,23 @@ const STEPS = [
     id: "python",
     label: "Python and PyTorch",
     async run(ctx, detail) {
-      detail("Installing Python and PyTorch — about 2.4 GB, once");
       setup.stageRuntime(RESOURCES, HOME);
-      ctx.python = await setup.syncPython(HOME, (line) => detail(line.trim().split("\n").at(-1)));
+      ctx.pending = runtime.pending(RESOURCES, HOME);
+      ctx.python = setup.pythonBin(HOME);
+      if (!ctx.pending.python) return "up to date";
+      detail(ctx.pending.fresh ? "Installing Python and PyTorch — about 2.4 GB, once" : "Updating Python packages for this release");
+      await setup.syncPython(HOME, (line) => detail(line.trim().split("\n").at(-1)));
+      runtime.writeState(HOME, { pythonLock: ctx.pending.want.pythonLock });
     },
   },
   {
     id: "voice",
     label: "Kokoro voice",
     async run(ctx, detail) {
+      if (!ctx.pending.models) return "up to date";
       detail("Downloading the Kokoro voice — 347 MB");
       await setup.fetchEssentialModels(ctx.python, HOME, () => {});
+      runtime.writeState(HOME, { essentialModels: true });
     },
   },
   {
@@ -189,8 +201,12 @@ const STEPS = [
 // The "Check again" button stays on screen while a blocked step is still blocked, which includes
 // the whole of the multi-gigabyte Python step. Two of these at once means two `uv sync` runs
 // against one environment and two servers racing to kill each other.
+let lastFailure = null;
+
 async function runBoot() {
   const send = (id, state, detail) => win?.webContents.send("step", { id, state, detail });
+  lastFailure = null;
+  win?.webContents.send("help", null);
 
   HOME = defaultHome();
   CONFIG = readConfig(HOME);
@@ -202,13 +218,17 @@ async function runBoot() {
     try {
       send(step.id, "done", await step.run(ctx, (text) => send(step.id, "running", text)));
     } catch (err) {
+      lastFailure = crash.record(err, HOME, `setup step: ${step.id}`);
       send(step.id, "blocked", String(err.message || err).slice(0, 200));
+      win?.webContents.send("failed", { step: step.label });
       // Saying "skipped" beats leaving them at ○, which reads as "still to come"
       for (const later of STEPS.slice(i + 1)) send(later.id, "skipped");
       return;
     }
   }
   win.loadURL(ctx.url);
+  // Only once the app is actually usable — a version check has no business delaying a launch
+  updater.install({ onStatus: (text) => console.log(`[updater] ${text}`) });
 }
 
 function menu(url) {
@@ -231,11 +251,16 @@ function menu(url) {
       submenu: [
         { label: "Show data folder", click: () => shell.openPath(dataDir()) },
         { label: "Where things live", click: () => dialog.showMessageBox({ message: `Everything the app installed: ${HOME}\nYour library: Postgres in Docker, port 5433\nServer: ${url}` }) },
+        { type: "separator" },
+        { label: "Report a problem", click: () => shell.openExternal(`${crash.REPO}/issues/new`) },
+        { label: "Open the crash log", click: () => shell.openPath(crash.logPath(HOME || "")) },
       ],
     },
     { role: "windowMenu" },
   ]);
 }
+
+crash.install(() => HOME || defaultHome());
 
 app.whenReady().then(() => {
   win = new BrowserWindow({
@@ -262,6 +287,10 @@ app.whenReady().then(() => {
     void boot();
   });
   ipcMain.on("recheck", boot);
+  ipcMain.on("open", (_e, url) => void shell.openExternal(url));
+  ipcMain.on("report", () => {
+    if (lastFailure) crash.show(lastFailure);
+  });
 
 });
 

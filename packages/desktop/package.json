@@ -65,6 +65,16 @@
     ],
     "dmg": {
       "icon": "build/icon.icns"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "subev",
+        "repo": "pdf2audio"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

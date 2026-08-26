@@ -210,6 +210,12 @@ The database stores absolute paths to audio and PDFs, so both halves must use th
 or the app lists your books and cannot play them. `envFile` is the same idea for secrets: without
 it the app has its own `.env`, and a key you added under `pnpm dev` is invisible to the app.
 
+If Docker is missing the first-run screen explains what it is and links to Docker Desktop and
+OrbStack, rather than naming a prerequisite and stopping. A crash writes `crash.log` beside the
+app's data and offers to open a prefilled GitHub issue. Updates come from GitHub Releases via
+`electron-updater`, and the launch after one brings the Python environment forward to match —
+see `tasks/desktop-updates.md`.
+
 It is **not signed yet**, so macOS refuses it until you right-click → Open. `scripts/vm-verify.sh`
 runs the whole thing inside a fresh macOS VM, checking first that the VM has no Homebrew, no Python
 and no cached models — this machine has all three and hides bugs because of it.
