@@ -1,7 +1,7 @@
 // The window. Everything with logic in it is in docker.ts / launch.ts, tested without a display —
 // this file starts child processes and points a BrowserWindow at a local url.
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
-const { execFile, spawn } = require("node:child_process");
+const { execFile, execFileSync, spawn } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const path = require("node:path");
 const setup = require("./setup.cjs");
@@ -47,7 +47,25 @@ function composeUp(cli) {
   });
 }
 
+// A graceful quit kills the child, but a force quit or a crash cannot — the server keeps running
+// and keeps serving, so the next launch finds the port taken and the one after that talks to a
+// server from two versions ago. Adopting the orphan is not worth the complexity; ending it is.
+function killOrphanedServers() {
+  const bundled = path.join(RESOURCES, "pdf2audio-server");
+  try {
+    const out = execFileSync("/usr/bin/pgrep", ["-f", bundled], { encoding: "utf8" });
+    for (const pid of out.split("\n").map((n) => Number(n.trim())).filter(Boolean)) {
+      if (pid !== process.pid) {
+        try { process.kill(pid, "SIGTERM"); } catch {}
+      }
+    }
+  } catch {
+    // pgrep exits non-zero when nothing matches, which is the common case
+  }
+}
+
 function startServer() {
+  killOrphanedServers();
   const bundled = path.join(RESOURCES, "pdf2audio-server");
   server = spawn(bundled, [], { env: serverEnv(), stdio: ["ignore", "pipe", "pipe"] });
   server.stdout?.on("data", (b) => process.stdout.write(String(b)));
