@@ -70,8 +70,11 @@ $PACKAGE || { echo "    resources staged; packaging left to the caller"; exit 0;
 
 echo "==> packaging"
 cd "$DESKTOP"
-# Unsigned on purpose until there is a certificate; without this electron-builder picks up any
-# identity in the keychain and produces something that only signs on this machine.
+# No Developer ID yet, but "unsigned" and "ad-hoc signed" are very different to macOS: an app with
+# only the linker's partial signature is reported as *damaged*, with Move to Bin as the only button
+# and no way back. A complete ad-hoc signature (mac.identity "-") downgrades that to the ordinary
+# unidentified-developer refusal, which Privacy & Security can override. Auto-discovery stays off
+# so a stray keychain identity cannot produce something that only runs on the machine that built it.
 export CSC_IDENTITY_AUTO_DISCOVERY=false
 if $FAST; then npx electron-builder --mac --dir >/dev/null; else npx electron-builder --mac >/dev/null; fi
 

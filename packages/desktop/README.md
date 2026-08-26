@@ -179,6 +179,26 @@ gh release create tools-2 pdf2audio-tools-arm64.tar.gz --latest=false
 # then put the new url + sha256 in pins.json
 ```
 
+### Ad-hoc signing, and why "damaged" is not the same as "unsigned"
+
+There is no Developer ID yet, but leaving the app *unsigned* is not the neutral choice it sounds
+like. electron-builder without an identity leaves only the linker's partial signature, and macOS
+assesses that as
+
+```
+code has no resources but signature indicates they must be present
+```
+
+which it presents to the user as **"pdf2audio is damaged and can't be opened. You should move it to
+the Bin"** — with Move to Bin as the only button, and no entry in Privacy & Security to override.
+The first release shipped exactly that, and the only way past it was a Terminal command.
+
+`mac.identity: "-"` makes electron-builder sign the bundle and every nested framework and helper
+ad-hoc, properly. The signature then verifies (`codesign --verify --deep --strict` passes) and
+Gatekeeper's verdict drops to a plain `rejected` — the ordinary "unidentified developer" refusal,
+which **Open Anyway** in Privacy & Security can override. Same absence of a certificate, a
+recoverable wall instead of a dead end.
+
 ### The note an unsigned release needs
 
 Without an Apple certificate macOS refuses the download, and the message it shows —
