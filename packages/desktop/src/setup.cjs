@@ -13,30 +13,36 @@ const UV_BUILDS = {
   x64: { target: "x86_64-apple-darwin", sha256: "b3b2137477cf96c9686ebfb71524614cec780c673fd73e59bce099aef02e70e8" },
 };
 
-// The three the workers shell out to. Homebrew is where they are on a developer machine; a GUI
-// app's PATH has neither Homebrew directory, so look rather than trust $PATH.
-const TOOL_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+// The three the workers shell out to. They ship inside the bundle — copied out of Homebrew at
+// build time with their whole dylib closure, rewritten to @loader_path and re-signed, by
+// scripts/bundle-tools.py. Homebrew stays in the search order behind them so a developer running
+// from source keeps working, and a GUI app's PATH (which has neither Homebrew directory) is never
+// what decides.
 const TOOLS = ["ffmpeg", "pdftotext", "pdfinfo"];
 
-function findTool(name) {
-  for (const dir of TOOL_DIRS) {
+function toolDirs(resources) {
+  return [...(resources ? [path.join(resources, "bin")] : []), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+}
+
+function findTool(name, resources) {
+  for (const dir of toolDirs(resources)) {
     const p = path.join(dir, name);
     if (existsSync(p)) return p;
   }
   return null;
 }
 
-function missingTools() {
-  return TOOLS.filter((t) => !findTool(t));
+function missingTools(resources) {
+  return TOOLS.filter((t) => !findTool(t, resources));
 }
 
-function toolPath() {
-  return TOOL_DIRS.join(":");
+function toolPath(resources) {
+  return toolDirs(resources).join(":");
 }
 
 function sh(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { ...opts, env: { ...process.env, PATH: toolPath(), ...(opts.env || {}) } });
+    const child = spawn(cmd, args, { ...opts, env: { ...process.env, PATH: toolPath(opts.resources), ...(opts.env || {}) } });
     let tail = "";
     const keep = (b) => { tail = (tail + String(b)).slice(-4000); opts.onOutput?.(String(b)); };
     child.stdout?.on("data", keep);

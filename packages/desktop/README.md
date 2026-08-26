@@ -29,12 +29,21 @@ narrates a sentence.
 `curl: (56) Failure writing output to destination`, which tells a user nothing, and it runs an
 unverified script as them.
 
-## What is still borrowed from the machine
+## The three CLI tools ship inside
 
-**ffmpeg, pdftotext and pdfinfo.** Detected the same way Docker is — by looking in the places they
-actually live, since a Finder-launched app's `PATH` has neither Homebrew directory — and reported
-as a blocked step with the `brew install` line. Bundling them is the last thing between this and a
-build a stranger can use; static builds fetched at first run would match everything else here.
+`scripts/bundle-tools.py` copies ffmpeg, pdftotext and pdfinfo out of Homebrew at build time along
+with their entire dylib closure — 104 libraries, 85 MB — rewrites every load command to
+`@loader_path`, and **re-signs each one ad-hoc**. That last step is not optional: Apple Silicon
+refuses to run a binary whose signature does not match what `install_name_tool` left behind, and it
+does so by killing it with no message, which looks exactly like a missing library.
+
+Two other traps it walks around. Homebrew references most libraries as `@rpath/foo.dylib`, so a
+scanner that skips anything beginning with `@` finds almost no dependencies and produces a folder
+missing precisely what matters. And libraries must be copied under the name the *load command*
+uses: `libpoppler.149.dylib` is a symlink to `libpoppler.149.0.0.dylib`, and copying the target
+while rewriting to the link gives a folder where every file exists and none can be found.
+
+Verified with `PATH=/usr/bin:/bin` — no Homebrew — reading a real PDF.
 
 ## What is not here yet
 ## What is not here yet

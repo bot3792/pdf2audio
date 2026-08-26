@@ -66,7 +66,7 @@ function serverEnv() {
     DATABASE_URL,
     PORT: String(PORT),
     // A GUI app's PATH omits Homebrew, and the workers spawn ffmpeg, pdftotext and pdfinfo
-    PATH: setup.toolPath(),
+    PATH: setup.toolPath(RESOURCES),
   };
 }
 
@@ -86,11 +86,11 @@ async function boot() {
   HOME = defaultHome();
   RESOURCES = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../resources");
 
-  const missing = setup.missingTools();
+  const missing = setup.missingTools(RESOURCES);
   if (missing.length) {
-    return send("tools", "blocked", `Needs ${missing.join(", ")} — install with: brew install ffmpeg poppler`);
+    return send("tools", "blocked", `Missing ${missing.join(", ")} from the app bundle — this build is incomplete.`);
   }
-  send("tools", "done");
+  send("tools", "done", "bundled");
 
   const cli = dockerCli();
   if (!cli) return send("docker", "blocked", "Install Docker Desktop or OrbStack, then press Check again.");
