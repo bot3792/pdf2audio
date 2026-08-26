@@ -128,6 +128,32 @@ install                                                ❌
   code has no resources but signature indicates they must be present
 ```
 
+### Confirmed against the live feed, 2026-08-26
+
+Repeated against the published v26.826.0 with an older build installed, so the whole path ran on
+real GitHub rather than a localhost feed. Check, find, offer, download, hand-off: all fine. Install
+still refused — but with a **different error**, and the difference is the whole story:
+
+| build | what Squirrel says | what it means |
+| --- | --- | --- |
+| unsigned (linker-only) | `code has no resources but signature indicates they must be present` | the app is **broken** |
+| ad-hoc signed | `code failed to satisfy specified code requirement(s)` | the app is **valid**, wrong identity |
+
+The second is one step from working, and the reason is exact: an ad-hoc signature's designated
+requirement *is its cdhash*, a hash of the code —
+
+```
+$ codesign -d -r- /Applications/pdf2audio.app
+# designated => cdhash H"75d8c207a5d5703ef15da968fa0a68ae3bfa2d5c"
+```
+
+— so no future build can ever satisfy a previous build's requirement, because no two builds hash
+the same. A Developer ID signature's requirement is *"signed by team X"* instead, which every
+future build satisfies. **That, not notarisation, is why signing fixes updates.**
+
+Verifiable without releasing anything: `codesign --verify -R="$(codesign -d -r- old.app | sed
+'s/# designated => //')" new.app` returns exactly the string Squirrel reports.
+
 **Everything except the last step works, and the last step needs the Apple certificate.**
 Squirrel.Mac validates the signature of the downloaded app before swapping it in, and electron-
 builder's ad-hoc signature does not satisfy it — so this is not "unsigned apps cannot update", it
