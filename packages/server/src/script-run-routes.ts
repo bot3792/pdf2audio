@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { z } from "zod";
 import { env } from "./env.ts";
+import { scriptPath } from "./lib/paths.ts";
 
 const ymdSchema = z.string().regex(/^\d{4}-?\d{2}-?\d{2}$/);
 const paramsSchema = z.object({
@@ -42,7 +42,9 @@ function ymdToMs(ymd: string): number {
   return Date.UTC(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
 }
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+// SCRIPTS_DIR, like every other spawned script: walking up from this file finds nothing once
+// the server is a compiled binary, which is the case the whole scriptPath() change exists for.
+const HN_SCRIPT = scriptPath("hn-top10.mjs");
 
 let running = false;
 
@@ -77,7 +79,7 @@ export function registerScriptRunRoutes(fastify: FastifyInstance) {
     running = true;
 
     const args = [
-      path.join(repoRoot, "scripts", "hn-top10.mjs"),
+      HN_SCRIPT,
       "--api", `http://localhost:${env.PORT}`,
       ...selectionArgs(params),
       ...(params.exclude ? ["--exclude", params.exclude] : []),
@@ -85,7 +87,7 @@ export function registerScriptRunRoutes(fastify: FastifyInstance) {
       ...(params.folder ? ["--folder", params.folder] : []),
       ...(params.profile ? ["--profile", params.profile] : []),
     ];
-    const child = spawn(process.execPath, args, { cwd: repoRoot, env: process.env });
+    const child = spawn(process.execPath, args, { cwd: path.dirname(HN_SCRIPT), env: process.env });
 
     let closed = false;
     const forward = (chunk: Buffer) => {
@@ -124,11 +126,11 @@ export function registerScriptRunRoutes(fastify: FastifyInstance) {
     if (spanError) return reply.code(400).send({ error: spanError });
 
     const args = [
-      path.join(repoRoot, "scripts", "hn-top10.mjs"),
+      HN_SCRIPT,
       "--list", "--json",
       ...selectionArgs(parsed.data),
     ];
-    const child = spawn(process.execPath, args, { cwd: repoRoot, env: process.env });
+    const child = spawn(process.execPath, args, { cwd: path.dirname(HN_SCRIPT), env: process.env });
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk: Buffer) => { out += chunk.toString(); });

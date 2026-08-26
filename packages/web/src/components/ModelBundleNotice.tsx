@@ -4,7 +4,7 @@ import { trpc } from "../trpc.ts";
 // one place its feature is requested, which is the same bargain PocketLanguageNotice already makes
 // for voices — see that component for the shape this follows.
 export function useModelBundle(id: string) {
-  const { data: bundles } = trpc.models.list.useQuery(undefined, {
+  const { data: bundles, error } = trpc.models.list.useQuery(undefined, {
     // Only while something is downloading; otherwise this costs a Python start per poll
     refetchInterval: (q) => (q.state.data?.some((b) => b.downloading) ? 2000 : false),
     staleTime: 5_000,
@@ -12,6 +12,7 @@ export function useModelBundle(id: string) {
   const bundle = bundles?.find((b) => b.id === id) ?? null;
   return {
     bundle,
+    error,
     // Unknown means the status call has not answered yet; blocking on that would flicker every
     // gated button on every page load, so treat it as ready until told otherwise.
     ready: bundle?.installed !== false,
@@ -20,9 +21,18 @@ export function useModelBundle(id: string) {
 
 export function ModelBundleNotice({ id, verb }: { id: string; verb: string }) {
   const utils = trpc.useUtils();
-  const { bundle } = useModelBundle(id);
+  const { bundle, error } = useModelBundle(id);
   const download = trpc.models.download.useMutation({ onSuccess: () => void utils.models.list.invalidate() });
 
+  // Buttons stay enabled when the probe itself is broken — but saying so beats letting the job
+  // queue and die in a worker with a Python traceback nobody sees.
+  if (error) {
+    return (
+      <p className="rounded-md border border-(--border) bg-(--bg-subtle) px-3 py-2 text-xs text-red-600" data-testid={`model-error-${id}`}>
+        Could not check which models are installed: {error.message}
+      </p>
+    );
+  }
   if (!bundle || bundle.installed) return null;
 
   const gb = (bundle.approxMb / 1024).toFixed(1);
@@ -32,6 +42,7 @@ export function ModelBundleNotice({ id, verb }: { id: string; verb: string }) {
         {verb} needs the <strong>{bundle.label}</strong> models — about <strong>{gb} GB</strong>, once. {bundle.unlocks}.
       </p>
       {bundle.error && <p className="text-red-600" data-testid={`model-error-${id}`}>{bundle.error}</p>}
+      {download.error && <p className="text-red-600">{download.error.message}</p>}
       <button
         type="button"
         onClick={() => download.mutate({ id })}

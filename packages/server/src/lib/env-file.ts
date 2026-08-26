@@ -25,7 +25,12 @@ export function applyEnvEdit(content: string, key: string, value: string | null)
   return out.join("\n");
 }
 
+// This file holds API keys, and in the packaged app this call is what creates it — so 0600 rather
+// than whatever the umask says, and written-then-renamed so a crash mid-write cannot leave a
+// truncated file with DATABASE_URL missing.
 export function updateEnvFile(filePath: string, key: string, value: string | null): void {
   const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
-  fs.writeFileSync(filePath, applyEnvEdit(content, key, value));
+  const temp = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, applyEnvEdit(content, key, value), { mode: 0o600 });
+  fs.renameSync(temp, filePath);
 }

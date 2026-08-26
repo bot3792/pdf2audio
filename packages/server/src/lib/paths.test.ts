@@ -3,8 +3,10 @@ import { access } from "node:fs/promises";
 
 import { scriptPath } from "./paths.ts";
 
-// These eight names used to be spelled inside a path.resolve at each call site, where a typo
-// showed up as a synthesis job failing minutes later. They are strings now, so check them here.
+// These names used to be spelled inside a path.resolve at each call site, where a typo showed up
+// as a synthesis job failing minutes later. They are strings now, so check them here. Every script
+// the server spawns belongs in this list — hn-top10.mjs was missed by the original conversion and
+// kept walking up from import.meta.url, which resolves to nothing in a compiled binary.
 const SPAWNED = [
   "synthesize.py",
   "synthesize_bg_tts_mlx.py",
@@ -14,6 +16,8 @@ const SPAWNED = [
   "synthesize_pocket_tts.py",
   "embed_bge_m3.py",
   "page_geometry.py",
+  "models.py",
+  "hn-top10.mjs",
 ];
 
 describe("scriptPath", () => {

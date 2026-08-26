@@ -50,11 +50,24 @@ else
 fi
 
 echo ""
+# Pinned and checksummed, for the same reasons packages/desktop/src/setup.cjs spells out: piping
+# an installer into a shell runs unverified code and reports its own failures as success, because
+# `set -e` sees sh's exit status and not curl's.
+UV_VERSION="0.12.5"
+case "$(uname -m)" in
+  arm64) UV_TARGET="aarch64-apple-darwin"; UV_SHA="5bb0e5fe008a773c3dbcb97ff79cd89e1241464fe9d2f986d52ad8f1b037bd62" ;;
+  x86_64) UV_TARGET="x86_64-apple-darwin"; UV_SHA="b3b2137477cf96c9686ebfb71524614cec780c673fd73e59bce099aef02e70e8" ;;
+  *) echo "No pinned uv build for $(uname -m)"; exit 1 ;;
+esac
 UV="$REPO_DIR/.uv/uv"
 if [ ! -x "$UV" ]; then
-  echo "Installing uv..."
+  echo "Installing uv $UV_VERSION..."
   mkdir -p "$REPO_DIR/.uv"
-  curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="$REPO_DIR/.uv" sh >/dev/null
+  curl -fsSL --retry 3 -o "$REPO_DIR/.uv/uv.tar.gz" \
+    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_TARGET}.tar.gz"
+  echo "$UV_SHA  $REPO_DIR/.uv/uv.tar.gz" | shasum -a 256 -c - >/dev/null
+  tar -xzf "$REPO_DIR/.uv/uv.tar.gz" --strip-components=1 -C "$REPO_DIR/.uv"
+  rm -f "$REPO_DIR/.uv/uv.tar.gz"
 fi
 echo "  uv: $("$UV" --version)"
 
@@ -73,10 +86,11 @@ echo "Verifying Python runtimes..."
 "$PY" -c "from transformers import AutoTokenizer, VitsModel; print('  mms runtime: OK')"
 "$PY" -c "import mlx.core; print('  mlx: OK')"
 
-# Every TTS/extraction subprocess runs with HF_HUB_OFFLINE=1, so all models must be cached now.
+# What a first run must have lives in scripts/models.py, which the desktop app calls too — spelling
+# it out again here is how the two paths drift.
 echo ""
-echo "Caching Kokoro model (~330 MB)..."
-"$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('hexgrad/Kokoro-82M'); print('  Kokoro-82M: OK')"
+echo "Caching the models a first run needs (~350 MB)..."
+"$PY" "$REPO_DIR/scripts/models.py" --essential
 
 echo ""
 # Everything else — Marker 5.1 GB, BGE-M3 4.3 GB, the Bulgarian narrators 1.2 GB — is fetched by

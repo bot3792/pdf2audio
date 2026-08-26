@@ -18,11 +18,12 @@ type KeyCardProps = {
   onSave: () => void;
   onRemove: () => void;
   busy: boolean;
+  error: string | null;
 };
 
-function KeyCard({ slug, label, note, configured, keyHint, draft, onDraft, onSave, onRemove, busy }: KeyCardProps) {
+function KeyCard({ slug, label, note, configured, keyHint, draft, onDraft, onSave, onRemove, busy, error }: KeyCardProps) {
   return (
-    <div className="rounded-md border border-(--border) p-3" data-testid={`settings-cloud-${slug}`}>
+    <div className="rounded-md border border-(--border) p-3" data-testid={`settings-key-${slug}`}>
       <div className="flex items-center gap-2 text-sm">
         <Dot on={configured} />
         <span className="font-medium text-(--text-primary)">{label}</span>
@@ -52,13 +53,14 @@ function KeyCard({ slug, label, note, configured, keyHint, draft, onDraft, onSav
         <button
           onClick={onRemove}
           disabled={!configured || busy}
-          title={configured ? "Remove the key from .env" : "No key to remove"}
+          title={configured ? "Remove the saved key" : "No key to remove"}
           className={TOOLBAR_BUTTON}
           data-testid={`settings-key-remove-${slug}`}
         >
           Remove
         </button>
       </div>
+      {error && <p className="mt-2 text-xs text-red-600" data-testid={`settings-key-error-${slug}`}>{error}</p>}
     </div>
   );
 }
@@ -77,14 +79,22 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     utils.llmModels.status.invalidate();
     utils.llmModels.list.invalidate();
   };
-  const { data: secrets } = trpc.secrets.list.useQuery();
+  const { data: secrets, error: secretsError } = trpc.secrets.list.useQuery();
+  const voiceKeys = (secrets?.keys ?? []).filter((k) => k.kind === "voice");
   const setKeyMutation = trpc.secrets.set.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, { envVar }) => {
+      setDrafts((d) => ({ ...d, [envVar]: "" }));
       refreshModels();
       utils.secrets.list.invalidate();
       utils.cartesiaVoices.list.invalidate();
       utils.elevenlabsVoices.list.invalidate();
     },
+  });
+  // Every card drives one mutation, so both the spinner and the error belong to the card that
+  // started it — otherwise saving a DeepSeek key greys out Cartesia and reports its failure there.
+  const cardState = (envVar: SecretVar) => ({
+    busy: setKeyMutation.isPending && setKeyMutation.variables?.envVar === envVar,
+    error: setKeyMutation.variables?.envVar === envVar ? (setKeyMutation.error?.message ?? null) : null,
   });
   const startServerMutation = trpc.llmModels.startLocalServer.useMutation({ onSuccess: refreshModels });
 
@@ -92,7 +102,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     const value = drafts[envVar]?.trim();
     if (!value) return;
     setKeyMutation.mutate({ envVar, value });
-    setDrafts((d) => ({ ...d, [envVar]: "" }));
   };
 
   return (
@@ -186,7 +195,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               {(status?.cloud ?? []).map((p) => (
                 <KeyCard
                   key={p.envVar}
-                  slug={p.provider}
+                  slug={`llm-${p.provider}`}
                   label={p.label}
                   note={p.models.join(", ")}
                   configured={p.configured}
@@ -195,38 +204,42 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   onDraft={(value) => setDrafts((d) => ({ ...d, [p.envVar]: value }))}
                   onSave={() => save(p.envVar)}
                   onRemove={() => setKeyMutation.mutate({ envVar: p.envVar, value: null })}
-                  busy={setKeyMutation.isPending}
+                  {...cardState(p.envVar)}
                 />
               ))}
             </div>
-            {setKeyMutation.error && <p className="mt-2 text-xs text-red-600">{setKeyMutation.error.message}</p>}
             {startServerMutation.error && <p className="mt-2 text-xs text-red-600">{startServerMutation.error.message}</p>}
           </section>
 
           <section>
             <h3 className="text-sm font-semibold text-(--text-primary) mb-2">Cloud voices — need an API key</h3>
-            <div className="space-y-3">
-              {(secrets?.keys ?? []).filter((k) => k.kind === "voice").map((k) => (
-                <KeyCard
-                  key={k.envVar}
-                  slug={k.label.toLowerCase()}
-                  label={k.label}
-                  note={k.hint ?? ""}
-                  configured={k.configured}
-                  keyHint={k.keyHint}
-                  draft={drafts[k.envVar] ?? ""}
-                  onDraft={(value) => setDrafts((d) => ({ ...d, [k.envVar]: value }))}
-                  onSave={() => save(k.envVar)}
-                  onRemove={() => setKeyMutation.mutate({ envVar: k.envVar, value: null })}
-                  busy={setKeyMutation.isPending}
-                />
-              ))}
-            </div>
-            <p className="mt-3 text-xs text-(--text-faint)">
-              Keys take effect immediately and are never sent back to the browser. They are written to{" "}
-              <code className="text-(--text-muted)">{secrets?.path}</code>
-            </p>
+            {secretsError ? (
+              <p className="text-xs text-red-600">Could not read the saved keys: {secretsError.message}</p>
+            ) : (
+              <div className="space-y-3">
+                {voiceKeys.map((k) => (
+                  <KeyCard
+                    key={k.envVar}
+                    slug={`voice-${k.label.toLowerCase()}`}
+                    label={k.label}
+                    note={k.hint ?? ""}
+                    configured={k.configured}
+                    keyHint={k.keyHint}
+                    draft={drafts[k.envVar] ?? ""}
+                    onDraft={(value) => setDrafts((d) => ({ ...d, [k.envVar]: value }))}
+                    onSave={() => save(k.envVar)}
+                    onRemove={() => setKeyMutation.mutate({ envVar: k.envVar, value: null })}
+                    {...cardState(k.envVar)}
+                  />
+                ))}
+              </div>
+            )}
           </section>
+
+          <p className="text-xs text-(--text-faint)">
+            Keys take effect immediately and are never sent back to the browser.
+            {secrets?.path && <> They are written to <code className="text-(--text-muted)">{secrets.path}</code></>}
+          </p>
         </div>
       </div>
     </div>

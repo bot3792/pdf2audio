@@ -1,10 +1,12 @@
-// The window. Everything with logic in it is in docker.ts / launch.ts, tested without a display —
-// this file starts child processes and points a BrowserWindow at a local url.
+// The window: this file starts child processes and points a BrowserWindow at a local url.
+// Docker probing lives in docker.cjs, which is required rather than duplicated — an Electron main
+// process has no build step, so a .ts module beside it would be tested and never shipped.
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
 const { execFile, execFileSync, spawn } = require("node:child_process");
-const { existsSync } = require("node:fs");
+
 const path = require("node:path");
 const setup = require("./setup.cjs");
+const docker = require("./docker.cjs");
 
 const PORT = Number(process.env.PDF2AUDIO_PORT || 3034);
 
@@ -31,31 +33,12 @@ let RESOURCES = null;
 let CONFIG = {};
 const DEFAULT_DATABASE_URL = "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
 
-const CLI_CANDIDATES = [
-  "/usr/local/bin/docker",
-  "/opt/homebrew/bin/docker",
-  "/Applications/Docker.app/Contents/Resources/bin/docker",
-  "/Applications/OrbStack.app/Contents/MacOS/xbin/docker",
-  "/usr/bin/docker",
-];
-
 let win = null;
 let server = null;
 
-function dockerCli() {
-  return CLI_CANDIDATES.find(existsSync) || null;
-}
-
-function dockerReady(cli) {
+function composeUp(cli, env) {
   return new Promise((resolve) => {
-    execFile(cli, ["version", "--format", "{{.Server.Version}}"], { timeout: 10000 }, (err, stdout) =>
-      resolve(err ? null : stdout.trim() || null));
-  });
-}
-
-function composeUp(cli) {
-  return new Promise((resolve) => {
-    execFile(cli, ["compose", "-f", path.join(HOME, "docker-compose.yml"), "up", "-d"], { timeout: 120000 }, (err) =>
+    execFile(cli, ["compose", "-f", path.join(HOME, "docker-compose.yml"), "up", "-d"], { timeout: 120000, env }, (err) =>
       resolve(!err));
   });
 }
@@ -77,12 +60,22 @@ function killOrphanedServers() {
   }
 }
 
-function startServer() {
+function startServer(onDied) {
   killOrphanedServers();
   const bundled = path.join(RESOURCES, "pdf2audio-server");
   server = spawn(bundled, [], { env: serverEnv(), stdio: ["ignore", "pipe", "pipe"] });
-  server.stdout?.on("data", (b) => process.stdout.write(String(b)));
-  server.stderr?.on("data", (b) => process.stderr.write(String(b)));
+  let tail = "";
+  const keep = (b) => { tail = (tail + String(b)).slice(-2000); process.stdout.write(String(b)); };
+  server.stdout?.on("data", keep);
+  server.stderr?.on("data", keep);
+  // Without these the common failures are invisible: a port already taken exits immediately and
+  // the probe then succeeds against the *other* server, and a missing binary makes an unhandled
+  // 'error' kill the main process with no window and no message.
+  server.on("error", (err) => onDied(err.message));
+  server.on("exit", (code, signal) => {
+    if (server?.killed || signal === "SIGTERM") return;
+    onDied(tail.trim().split("\n").at(-1) || `the server exited with code ${code}`);
+  });
 }
 
 function serverEnv() {
@@ -94,6 +87,7 @@ function serverEnv() {
     CONDA_ENV_PATH: path.join(HOME, "python/bin"),
     POCKET_ENV_PATH: path.join(HOME, "python-pocket/bin"),
     WEB_DIR: path.join(RESOURCES, "web"),
+    MIGRATIONS_DIR: path.join(RESOURCES, "drizzle"),
     DATABASE_URL: process.env.DATABASE_URL || CONFIG.databaseUrl || DEFAULT_DATABASE_URL,
     PDF2AUDIO_ENV_FILE: process.env.PDF2AUDIO_ENV_FILE || CONFIG.envFile || path.join(HOME, ".env"),
     PORT: String(PORT),
@@ -102,9 +96,10 @@ function serverEnv() {
   };
 }
 
-async function waitFor(url, timeoutMs) {
+async function waitFor(url, timeoutMs, abandoned = () => false) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (abandoned()) return false;
     const ok = await fetch(url, { signal: AbortSignal.timeout(2000) }).then((r) => r.ok).catch(() => false);
     if (ok) return true;
     await new Promise((r) => setTimeout(r, 700));
@@ -112,7 +107,22 @@ async function waitFor(url, timeoutMs) {
   return false;
 }
 
+let booting = false;
+
 async function boot() {
+  if (booting) return;
+  booting = true;
+  try {
+    await runBoot();
+  } finally {
+    booting = false;
+  }
+}
+
+// The "Check again" button stays on screen while a blocked step is still blocked, which includes
+// the whole of the multi-gigabyte Python step. Two of these at once means two `uv sync` runs
+// against one environment and two servers racing to kill each other.
+async function runBoot() {
   const send = (id, state, detail) => win?.webContents.send("step", { id, state, detail });
 
   HOME = defaultHome();
@@ -125,14 +135,15 @@ async function boot() {
   }
   send("tools", "done", "bundled");
 
-  const cli = dockerCli();
-  if (!cli) return send("docker", "blocked", "Install Docker Desktop or OrbStack, then press Check again.");
-  const version = await dockerReady(cli);
-  if (!version) return send("docker", "blocked", "Docker is installed but not running — start it, then press Check again.");
-  send("docker", "done", `Docker ${version}`);
+  const state = await docker.detectDocker();
+  if (state.kind !== "ready") return send("docker", "blocked", `${docker.dockerAdvice(state)} Then press Check again.`);
+  send("docker", "done", docker.dockerAdvice(state));
 
   send("database", "running");
-  send("database", (await composeUp(cli)) ? "done" : "blocked", "Postgres on port 5433");
+  if (!(await composeUp(state.cli, state.env))) {
+    return send("database", "blocked", "Postgres would not start — check Docker has finished pulling, then press Check again.");
+  }
+  send("database", "done", "Postgres on port 5433");
 
   try {
     send("python", "running", "Installing Python and PyTorch — about 2.4 GB, once");
@@ -148,11 +159,12 @@ async function boot() {
   }
 
   send("server", "running");
-  startServer();
+  let died = null;
+  startServer((reason) => { died = reason; });
   const url = `http://localhost:${PORT}`;
-  if (!(await waitFor(`${url}/trpc/folders.list`, 120000))) {
-    return send("server", "blocked", "The server did not start — check Console.app for pdf2audio.");
-  }
+  const ready = await waitFor(`${url}/trpc/folders.list`, 120000, () => died);
+  if (died) return send("server", "blocked", died.slice(0, 200));
+  if (!ready) return send("server", "blocked", "The server did not start — check Console.app for pdf2audio.");
   send("server", "done");
   win.loadURL(url);
 }
@@ -187,6 +199,19 @@ app.whenReady().then(() => {
   win = new BrowserWindow({
     width: 1280, height: 860, title: "pdf2audio",
     webPreferences: { preload: path.join(__dirname, "preload.cjs") },
+  });
+  // The UI links out to Hacker News, publisher pages and whatever a digest cites. Electron's
+  // default would open those in a chrome-less window that inherits this preload — an arbitrary
+  // site with no address bar and `window.setup.recheck` on it. Send them to the real browser.
+  win.webContents.setWindowOpenHandler(({ url: target }) => {
+    void shell.openExternal(target);
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, target) => {
+    if (!target.startsWith(`http://localhost:${PORT}`) && !target.startsWith("file://")) {
+      event.preventDefault();
+      void shell.openExternal(target);
+    }
   });
   Menu.setApplicationMenu(menu(`http://localhost:${PORT}`));
   win.loadFile(path.join(__dirname, "first-run.html"));

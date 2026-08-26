@@ -1,7 +1,7 @@
 # Builds and publishes the macOS app on a version tag. Not enabled until there is an Apple
 # Developer account: without a certificate the DMG still builds, but every download opens to
 # "cannot be opened because the developer cannot be verified", which is the wall this exists to
-# remove. Until then, run it with `workflow_dispatch` to check the build itself.
+# remove. Until then, `workflow_dispatch` runs everything except the signing step.
 name: Release
 
 on:
@@ -13,6 +13,9 @@ jobs:
   macos:
     # arm64. MLX is Metal, so an Intel runner cannot even smoke-test what it builds.
     runs-on: macos-15
+    # `secrets` is not a context a step-level `if` can read; a job-level env is.
+    env:
+      HAS_CERT: ${{ secrets.APPLE_CERTIFICATE != '' && 'yes' || 'no' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -24,18 +27,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r --filter "./packages/*" test
-      - run: pnpm build
 
-      - name: Build the server as one executable
-        run: |
-          curl -fsSL https://bun.sh/install | bash
-          "$HOME/.bun/bin/bun" build --compile --target=bun-darwin-arm64 \
-            packages/server/src/main.ts --outfile dist/pdf2audio-server
+      # scripts/bundle-tools.py copies these out of Homebrew, and make-icon renders the .icns
+      - run: brew install ffmpeg poppler librsvg imagemagick
 
-      # Nothing below runs usefully without these four secrets. Signing and notarising are what
-      # make the download openable; skipping them produces a DMG that only we can run.
+      # The same script used locally. Building the pieces separately here is how CI ends up
+      # shipping an Electron shell with no server in it and nobody noticing until a user downloads.
+      - run: scripts/desktop-build.sh --fast
+        if: env.HAS_CERT == 'no'
+
       - name: Package, sign and notarise
-        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        if: env.HAS_CERT == 'yes'
         env:
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -43,8 +45,10 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always
+        run: |
+          scripts/desktop-build.sh --no-package
+          pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always
 
       - name: Warn when unsigned
-        if: ${{ secrets.APPLE_CERTIFICATE == '' }}
-        run: echo "::warning::No Apple certificate configured — skipping the DMG. See tasks/desktop-app.md."
+        if: env.HAS_CERT == 'no'
+        run: echo "::warning::No Apple certificate configured — built but not published. See tasks/desktop-app.md."

@@ -78,6 +78,11 @@ def closure(roots: list[Path]) -> dict[str, Path]:
     return found
 
 
+def check(args: list[str], what: str) -> None:
+    if subprocess.run(args, capture_output=True).returncode != 0:
+        raise SystemExit(f"{what} failed: {' '.join(args[:2])} {args[-1]}")
+
+
 def relocate(path: Path, libdir_rel: str) -> None:
     ident = subprocess.run(["otool", "-D", str(path)], capture_output=True, text=True).stdout.splitlines()
     if len(ident) > 1 and ident[1].startswith("/"):
@@ -91,7 +96,7 @@ def relocate(path: Path, libdir_rel: str) -> None:
     # Apple Silicon refuses to run a binary whose signature does not match, and install_name_tool
     # invalidates it. Without this they are SIGKILLed with no message at all, which looks exactly
     # like a missing library and is not.
-    subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(path)], capture_output=True)
+    check(["codesign", "--force", "--sign", "-", "--timestamp=none", str(path)], "re-signing")
 
 
 def main() -> int:
@@ -114,6 +119,11 @@ def main() -> int:
 
     # Walked where they were installed: @loader_path only means anything before they move
     libs = closure(originals)
+    # Without otool (no Xcode command line tools) every dependency scan comes back empty and this
+    # happily produces three unrelocated binaries that work on this machine and nowhere else.
+    if not libs:
+        print("Resolved no libraries — is `xcode-select --install` done?", file=sys.stderr)
+        return 1
 
     roots = []
     for original, tool in zip(originals, TOOLS):

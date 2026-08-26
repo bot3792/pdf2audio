@@ -14,6 +14,8 @@ OUT="${2:-packages/desktop/build/icon.icns}"
 PLATE="#fffdf9"   # the paper the mark is drawn against in icon-solid.svg
 [ -f "$SRC" ] || { echo "no icon at $SRC"; exit 1; }
 command -v rsvg-convert >/dev/null || { echo "needs rsvg-convert (brew install librsvg)"; exit 1; }
+# ImageMagick 6 calls this `convert`, so checking for the name we actually invoke
+command -v magick >/dev/null || { echo "needs ImageMagick 7 (brew install imagemagick)"; exit 1; }
 
 SET=$(mktemp -d)/icon.iconset
 mkdir -p "$SET" "$(dirname "$OUT")"

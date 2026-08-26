@@ -15,9 +15,13 @@ const envSchema = z.object({
   DATABASE_URL: z.string(),
   DATA_DIR: z.string().default("./data"),
   PORT: z.coerce.number().default(3034),
+  // Localhost by default: the desktop app opens a window on the same machine, and a library that
+  // answers the whole coffee-shop network is not a default anyone chose.
+  HOST: z.string().default("127.0.0.1"),
   CONDA_ENV_PATH: z.string().default(path.join(repoRoot, ".venv", "bin")),
   SCRIPTS_DIR: z.string().default(path.join(repoRoot, "scripts")),
   WEB_DIR: z.string().default(path.join(repoRoot, "packages", "web", "dist")),
+  MIGRATIONS_DIR: z.string().default(path.join(repoRoot, "packages", "server", "drizzle")),
   POCKET_ENV_PATH: z.string().default(path.join(repoRoot, ".venv-pocket", "bin")),
   DEEPSEEK_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),

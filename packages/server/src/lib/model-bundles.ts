@@ -42,25 +42,36 @@ function run(args: string[], onExit: (code: number | null, stderr: string) => vo
   });
   let stdout = "";
   let stderr = "";
+  // A failed spawn emits "error" and then "close" with an empty stderr, so without this the
+  // useful message ("spawn …/python ENOENT") is overwritten by a generic "exit ?".
+  let settled = false;
+  const finish = (code: number | null, out: string) => {
+    if (settled) return;
+    settled = true;
+    onExit(code, out);
+  };
   proc.stdout.on("data", (b) => { stdout += String(b); });
   proc.stderr.on("data", (b) => { stderr = (stderr + String(b)).slice(-4000); });
-  proc.on("close", (code) => onExit(code, code === 0 ? stdout : stderr));
-  proc.on("error", (err) => onExit(null, err.message));
+  proc.on("close", (code) => finish(code, code === 0 ? stdout : stderr));
+  proc.on("error", (err) => finish(null, err.message));
 }
 
 async function readStatus(): Promise<PythonBundle[]> {
   if (cache && Date.now() - cache.at < CACHE_MS && !existsSync(FORCED_MISSING_FILE)) return cache.bundles;
-  const bundles = await new Promise<PythonBundle[]>((resolve) => {
+  // Rejecting rather than answering "[]" — an empty list is indistinguishable from "everything is
+  // installed" by the time it reaches the gate, which turns a broken Python env into silently
+  // enabled buttons on exactly the machine the gating exists for.
+  const bundles = await new Promise<PythonBundle[]>((resolve, reject) => {
     run(["--status"], (code, out) => {
-      if (code !== 0) return resolve([]);
+      if (code !== 0) return reject(new Error(`Could not read model status: ${out.trim().split("\n").at(-1) || `exit ${code ?? "?"}`}`));
       try {
         resolve(JSON.parse(out) as PythonBundle[]);
       } catch {
-        resolve([]);
+        reject(new Error("Could not read model status: models.py did not return JSON"));
       }
     });
   });
-  if (bundles.length > 0) cache = { at: Date.now(), bundles };
+  cache = { at: Date.now(), bundles };
   return bundles;
 }
 
@@ -74,15 +85,20 @@ export function readCapabilities(): Promise<{ mlx: boolean }> {
   const forced = existsSync(FORCED_MISSING_FILE);
   if (forced !== capabilitiesWereForced) capabilities = null;
   capabilitiesWereForced = forced;
-  capabilities ??= new Promise((resolve) => {
+  capabilities ??= new Promise<{ mlx: boolean }>((resolve, reject) => {
     run(["--capabilities"], (code, out) => {
-      if (code !== 0) return resolve({ mlx: false });
+      if (code !== 0) return reject(new Error(out.trim().split("\n").at(-1) || `exit ${code ?? "?"}`));
       try {
         resolve(JSON.parse(out) as { mlx: boolean });
       } catch {
-        resolve({ mlx: false });
+        reject(new Error("models.py did not return JSON"));
       }
     });
+  // "MLX is absent" is permanent; "we could not ask" is not, and caching the second one hides
+  // every Metal voice until the process restarts, long after the user has fixed their env.
+  }).catch((err) => {
+    capabilities = null;
+    throw err;
   });
   return capabilities;
 }
@@ -94,10 +110,6 @@ export async function listModelBundles(): Promise<ModelBundle[]> {
     downloading: inFlight.has(b.id),
     error: failures.get(b.id) ?? null,
   }));
-}
-
-export async function bundleInstalled(id: string): Promise<boolean> {
-  return (await readStatus()).some((b) => b.id === id && b.installed);
 }
 
 export function startBundleDownload(id: string): { started: boolean } {

@@ -53,6 +53,10 @@
         "to": "scripts"
       },
       {
+        "from": "../server/drizzle",
+        "to": "drizzle"
+      },
+      {
         "from": "../../pyproject.toml",
         "to": "pyproject.toml"
       },

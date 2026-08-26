@@ -14,6 +14,7 @@ import { registerUploadRoutes } from "./upload-routes.ts";
 import { registerChatRoutes } from "./chat-routes.ts";
 import { registerTranslationStreamRoutes } from "./translation-stream-routes.ts";
 import { registerApiRoutes } from "./api-routes.ts";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { registerScriptRunRoutes } from "./script-run-routes.ts";
 import { ensureDataDirs, outputDir, previewsDir } from "./lib/paths.ts";
 import { db } from "./db.ts";
@@ -38,13 +39,28 @@ async function sweepStalePreviews() {
   );
 }
 
+function isLocalOrigin(origin: string): boolean {
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
   await ensureDataDirs();
   await sweepStalePreviews();
 
   const fastify = Fastify(createFastifyOptions());
 
-  await fastify.register(cors, { origin: true });
+  // Reflecting any origin let any web page the user happened to have open drive this server from
+  // their browser — deleting books, spending credits, and since `secrets.set`, rewriting API keys
+  // on disk. Nothing legitimate needs it: the UI is same-origin in the app and proxied by Vite in
+  // development, and non-browser callers (the external /api scripts) send no Origin at all.
+  await fastify.register(cors, {
+    origin: (origin, cb) => cb(null, origin === undefined || isLocalOrigin(origin)),
+  });
   await fastify.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } });
 
   await fastify.register(fastifyStatic, {
@@ -276,9 +292,14 @@ async function main() {
     return reply.sendFile(`${previewKey}.m4a`, previewsDir);
   });
 
+  // A packaged app has no drizzle-kit and nobody to run `pnpm db:migrate`, so an install on a
+  // machine that has never seen this project comes up against an empty database. Applying here is
+  // idempotent — drizzle skips anything already recorded in __drizzle_migrations.
+  await migrate(db, { migrationsFolder: env.MIGRATIONS_DIR });
+
   await startWorker();
 
-  await fastify.listen({ port: PORT, host: "0.0.0.0" });
+  await fastify.listen({ port: PORT, host: env.HOST });
   console.log(`Server running on http://localhost:${PORT}`);
 
   const shutdown = async () => {

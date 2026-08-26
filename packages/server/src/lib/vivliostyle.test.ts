@@ -29,10 +29,21 @@ describe("rendererInstalled", () => {
     expect(await rendererInstalled(dir)).toBe(false);
   });
 
-  it("is true once a build is in there", async () => {
+  // The one that matters: @puppeteer/browsers makes the version directory first and unpacks into
+  // it, so a cancelled download leaves this exact shape. Counting entries called it installed,
+  // which hid the Install button for good and made every export fail.
+  it("is false when a version directory exists but the browser was never unpacked", async () => {
     const dir = path.join(await scratch(), "chrome");
     await mkdir(path.join(dir, "mac_arm-150.0.7871.115"), { recursive: true });
     await writeFile(path.join(dir, "mac_arm-150.0.7871.115", "marker"), "");
+    expect(await rendererInstalled(dir)).toBe(false);
+  });
+
+  it("is true once the browser executable is in there", async () => {
+    const dir = path.join(await scratch(), "chrome");
+    const macos = path.join(dir, "mac_arm-150.0.7871.115", "chrome-mac-arm64", "Google Chrome for Testing.app", "Contents", "MacOS");
+    await mkdir(macos, { recursive: true });
+    await writeFile(path.join(macos, "Google Chrome for Testing"), "");
     expect(await rendererInstalled(dir)).toBe(true);
   });
 });

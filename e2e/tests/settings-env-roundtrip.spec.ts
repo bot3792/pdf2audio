@@ -25,10 +25,10 @@ test("settings: a saved cloud key lands in .env and the pickers, and removal res
     await expect(page.getByTestId("settings-local-ollama")).toBeVisible();
     await expect(page.getByTestId("settings-local-lm-studio")).toBeVisible();
 
-    const card = page.getByTestId(`settings-cloud-${target.provider}`);
+    const card = page.getByTestId(`settings-key-llm-${target.provider}`);
     await expect(card).toContainText("no key");
-    await card.getByTestId(`settings-key-input-${target.provider}`).fill(DUMMY_KEY);
-    await card.getByTestId(`settings-key-save-${target.provider}`).click();
+    await card.getByTestId(`settings-key-input-llm-${target.provider}`).fill(DUMMY_KEY);
+    await card.getByTestId(`settings-key-save-llm-${target.provider}`).click();
     await expect(card).toContainText(/key set/);
 
     expect(await fs.readFile(ENV_PATH, "utf8")).toContain(`${target.envVar}=${DUMMY_KEY}`);
@@ -39,7 +39,7 @@ test("settings: a saved cloud key lands in .env and the pickers, and removal res
 
     await page.goto("/");
     await page.getByTestId("settings-gear").click();
-    await card.getByTestId(`settings-key-remove-${target.provider}`).click();
+    await card.getByTestId(`settings-key-remove-llm-${target.provider}`).click();
     await expect(card).toContainText("no key");
 
     expect(await fs.readFile(ENV_PATH, "utf8")).toBe(snapshot);

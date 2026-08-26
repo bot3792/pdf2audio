@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
@@ -19,8 +19,16 @@ function resolveCliBin(): string {
 // is what lets the UI say "345 MB first" instead of appearing to hang for the length of a download.
 const BROWSER_CACHE = path.join(homedir(), "Library", "Caches", "vivliostyle", "browsers", "chrome");
 
+// Any entry is not a finished download: @puppeteer/browsers creates the version directory before
+// it unpacks, so a cancelled 345 MB fetch leaves a folder that reads as installed forever — and
+// with it a permanently hidden Install button and an Export PDF that always fails.
 export async function rendererInstalled(dir = BROWSER_CACHE): Promise<boolean> {
-  return readdir(dir).then((entries) => entries.length > 0).catch(() => false);
+  const versions = await readdir(dir).catch(() => []);
+  for (const version of versions) {
+    const app = path.join(dir, version, "chrome-mac-arm64", "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing");
+    if (await stat(app).then((s) => s.isFile(), () => false)) return true;
+  }
+  return false;
 }
 
 // Rendering one paragraph is the only way to make the CLI fetch its browser: there is no install

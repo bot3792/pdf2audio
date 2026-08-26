@@ -104,7 +104,10 @@ It was briefly bundled instead (`scripts/pg.sh`, removed in 2026-08) and that wo
 because the desktop app is going to require it anyway, and one database path beats two: the app
 would otherwise be tested against binaries the developers never run.
 
-After the restore, index the library for search: `pnpm db:migrate && pnpm backfill:index` (FTS is available within minutes; BGE-M3 embeddings fill in as a background pass).
+The server applies pending migrations at boot, so a fresh database needs nothing by hand — the app
+depends on that, having no `drizzle-kit` in the bundle. To index an existing library for search,
+run `pnpm backfill:index` (FTS is available within minutes; BGE-M3 embeddings fill in as a
+background pass).
 
 ## File storage
 
@@ -139,7 +142,7 @@ pnpm run setup    # checks deps, builds .venv (pinned Python deps), caches model
 pnpm dev          # server on :3034, web on :3033
 ```
 
-`pnpm run setup` is idempotent — rerun it after failures. (Note: it must be `pnpm run setup`; bare `pnpm setup` triggers pnpm's unrelated builtin.) It creates `.env` with working defaults and skips the ~17 GB KugelAudio narrator download unless you answer yes (or run `pnpm run setup --kugel`). Python packages install into a repo-local `.venv` from `scripts/requirements.txt` (pinned to a known-good set; point `CONDA_ENV_PATH` in `.env` at another env's `bin` dir if you manage your own). For the AI features you need at least one model. **Offline-first (recommended):** install [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com) and download a chat model — a current ~27-30B reasoning model (e.g. Qwen3.8 27B, ~16 GB) is a strong offline pick on 32 GB+ Macs; use an 8B-class model on smaller machines. Running servers and their models are auto-discovered, zero config. **Cloud:** add an API key for DeepSeek / OpenAI / Anthropic / Gemini. The ⚙️ button on the home page opens the AI models panel: it shows which local servers were detected (with each model's usable context size), can start a stopped server, and manages cloud keys (written to `.env`, applied without a restart). Custom OpenAI-compatible servers (`mlx_lm.server`, llama.cpp) can be added via `LOCAL_LLM_URL` + `LOCAL_LLM_MODEL`. Every available model appears in the in-app model pickers.
+`pnpm run setup` is idempotent — rerun it after failures. (Note: it must be `pnpm run setup`; bare `pnpm setup` triggers pnpm's unrelated builtin.) It creates `.env` with working defaults and skips the ~17 GB KugelAudio narrator download unless you answer yes (or run `pnpm run setup --kugel`). Python packages install into a repo-local `.venv` from `pyproject.toml` + `uv.lock` (`uv sync --frozen`, with the whole graph pinned; point `CONDA_ENV_PATH` in `.env` at another env's `bin` dir if you manage your own). For the AI features you need at least one model. **Offline-first (recommended):** install [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com) and download a chat model — a current ~27-30B reasoning model (e.g. Qwen3.8 27B, ~16 GB) is a strong offline pick on 32 GB+ Macs; use an 8B-class model on smaller machines. Running servers and their models are auto-discovered, zero config. **Cloud:** add an API key for DeepSeek / OpenAI / Anthropic / Gemini. The ⚙️ button on the home page opens Settings: it shows which local servers were detected (with each model's usable context size), can start a stopped server, and holds every API key — AI providers and the Cartesia/ElevenLabs cloud voices alike (written to `.env`, applied without a restart). Custom OpenAI-compatible servers (`mlx_lm.server`, llama.cpp) can be added via `LOCAL_LLM_URL` + `LOCAL_LLM_MODEL`. Every available model appears in the in-app model pickers.
 
 ### Optional: Storyteller companion (read-along on a phone)
 
@@ -184,7 +187,8 @@ behaviour of whatever is in `/Applications` while editing the build in `release/
 
 On first launch it checks Docker, brings up Postgres, downloads `uv`, builds the Python environment
 from `uv.lock`, fetches the Kokoro voice, and starts the server — which serves the UI too, so there
-is one port and no Vite. About 2.8 GB, once; later launches take seconds. **Docker is the one thing
+is one port and no Vite. About 2.4 GB downloaded once — 1.4 GB of Python and PyTorch, the 347 MB
+Kokoro voice, and the 644 MB Postgres image; later launches take seconds. **Docker is the one thing
 it cannot install for you**, and the first-run screen says so rather than failing.
 
 API keys go in **⚙️ → Settings** — AI providers under *Cloud providers*, Cartesia and ElevenLabs

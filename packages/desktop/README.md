@@ -22,7 +22,8 @@ bundle into `~/Library/Application Support/pdf2audio`, downloads a pinned and ch
 builds the Python environment from the lockfile, fetches Kokoro, starts Postgres in Docker and
 then the server — which also serves the UI, so there is one port and no Vite.
 
-Measured from an empty directory: **1.4 GB installed, then HTTP 200.** The environment it builds
+Measured from an empty directory: **1.4 GB of Python and PyTorch, plus the 347 MB Kokoro voice and
+the 644 MB Postgres image, then HTTP 200.** The environment it builds
 narrates a sentence.
 
 `uv` is fetched as a verified tarball rather than `curl | sh`. The pipe version failed once with
@@ -41,9 +42,10 @@ spend an afternoon reading the behaviour of `/Applications/pdf2audio.app` while 
 `release/`; the giveaway is `WEB_DIR` in the server's environment pointing somewhere you did not
 expect. It also clears the quarantine flag, which is what right-click → Open does by hand.
 
-Bun and the CLI-tool bundle are fetched on demand rather than being prerequisites, so a fresh
-clone can build without installing anything globally. Delete `packages/desktop/resources/bin` or
-`packages/desktop/build/icon.icns` to force those slow steps to run again.
+Bun is fetched on demand. ffmpeg and poppler are not — `bundle-tools.py` copies them out of
+Homebrew, so building the app needs `brew install ffmpeg poppler` even though running it does not.
+Delete `packages/desktop/resources/bin` or `packages/desktop/build/icon.icns` to force those slow
+steps to run again; both are generated and neither is tracked.
 
 ## Sharing a library with a checkout
 
@@ -99,8 +101,10 @@ while rewriting to the link gives a folder where every file exists and none can 
 Verified with `PATH=/usr/bin:/bin` — no Homebrew — reading a real PDF.
 
 ## What is not here yet
-## What is not here yet
 
-Signing and notarising — the DMG builds, and Gatekeeper refuses it until right-click → Open.
-Bundling the three CLI tools. And the runtime updater in `tasks/desktop-updates.md`, which is what
-keeps the Python environment and the models in step with a new release.
+Signing and notarising — the DMG builds, and Gatekeeper refuses it until right-click → Open. The
+runtime updater in `tasks/desktop-updates.md`, which is what keeps the Python environment and the
+models in step with a new release. And two features that still assume a checkout: PDF/EPUB export
+shells out to the Vivliostyle CLI through `node_modules`, and the Hacker News feed spawns a `.mjs`
+script with `process.execPath` — both resolve to nothing inside a compiled binary, so they work in
+development and fail in the app.

@@ -21,10 +21,22 @@ from pathlib import Path
 def _hf_cached(repo_id: str, allow_patterns=None) -> bool:
     from huggingface_hub import snapshot_download
     try:
-        snapshot_download(repo_id, local_files_only=True, allow_patterns=allow_patterns)
-        return True
+        path = snapshot_download(repo_id, local_files_only=True, allow_patterns=allow_patterns)
     except Exception:
         return False
+    # snapshot_download returns as soon as the snapshot folder exists, which happens seconds into
+    # a multi-gigabyte fetch — hub's own source says it "can't check if all the files are actually
+    # there". A cancelled download would otherwise report installed, hide the download button, and
+    # fail at synthesis instead, because every worker runs HF_HUB_OFFLINE=1.
+    return not _has_partial_blobs(Path(path))
+
+
+def _has_partial_blobs(snapshot: Path) -> bool:
+    blobs = snapshot.parent.parent / "blobs"
+    if any(blobs.glob("*.incomplete")):
+        return True
+    # A symlink into blobs/ that dangles is the other shape a half-finished fetch leaves behind
+    return any(not f.exists() for f in snapshot.rglob("*") if f.is_symlink())
 
 
 def _hf_fetch(repo_id: str, allow_patterns=None) -> None:
