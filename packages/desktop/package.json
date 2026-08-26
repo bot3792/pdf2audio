@@ -2,6 +2,8 @@
   "name": "@pdf2audio/desktop",
   "private": true,
   "version": "26.826.0",
+  "description": "Turns PDFs and EPUBs into audiobooks you can read along with, on your own machine.",
+  "author": "subev",
   "type": "module",
   "scripts": {
     "test": "vitest run",

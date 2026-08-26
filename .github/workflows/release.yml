@@ -73,7 +73,14 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always
+        run: |
+          # A secret that does not exist arrives as an empty string, not as an absent variable, and
+          # electron-builder treats an empty CSC_LINK as a certificate path — resolving it to the
+          # project directory and failing with "not a file". Unset rather than blank.
+          if [ "$HAS_CERT" = "no" ]; then
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
+          pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always
 
       - name: Say what shipped
         run: |
