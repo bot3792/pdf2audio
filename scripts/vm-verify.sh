@@ -16,7 +16,9 @@ check() { if eval "$2" >/dev/null 2>&1; then echo "  PASS  $1"; pass=$((pass+1))
 
 echo "=== the machine, before anything ==="
 echo "  macOS $(sw_vers -productVersion) on $(uname -m)"
-check "no Homebrew (a host has one and hides missing bundled tools)" '! test -d /opt/homebrew/bin'
+# cirruslabs' base image ships Homebrew, so this is a note rather than a failure — what actually
+# matters is that the three tools are absent, which is what makes the bundle the only source.
+test -d /opt/homebrew/bin && echo "  NOTE  this image has Homebrew; the tool checks below are what matter"
 check "no ffmpeg on PATH" '! command -v ffmpeg'
 check "no pdftotext on PATH" '! command -v pdftotext'
 check "no Python 3.12 on PATH" '! command -v python3.12'
@@ -27,9 +29,13 @@ fi
 
 echo
 echo "=== install ==="
-MOUNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk '/Volumes/{print $3}')
-[ -n "$MOUNT" ] || { echo "  could not mount $DMG"; exit 1; }
-cp -R "$MOUNT"/*.app /Applications/ && echo "  copied to /Applications"
+# An explicit mountpoint, because the volume name carries the version and a space —
+# /Volumes/pdf2audio 0.0.1-arm64 — and parsing hdiutil's columns silently truncates it.
+MOUNT=/tmp/p2a-dmg
+rm -rf "$MOUNT" && mkdir -p "$MOUNT"
+hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" "$DMG" >/dev/null || { echo "  could not mount $DMG"; exit 1; }
+rm -rf /Applications/pdf2audio.app
+cp -R "$MOUNT"/pdf2audio.app /Applications/ && echo "  copied to /Applications"
 hdiutil detach "$MOUNT" -quiet
 APP=$(ls -d /Applications/pdf2audio.app 2>/dev/null)
 check "app is in /Applications" 'test -d "$APP"'
@@ -49,7 +55,7 @@ echo
 echo "=== first run ==="
 echo "  launching; this downloads ~2.8 GB and takes a while"
 open -a "$APP"
-for i in $(seq 1 60); do
+for i in $(seq 1 30); do
   sleep 10
   code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 http://localhost:3034/ || true)
   [ "$code" = "200" ] && break
