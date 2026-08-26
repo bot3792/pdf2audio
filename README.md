@@ -174,12 +174,13 @@ pnpm e2e:full         # Everything incl. slow tests (marker, TTS, exports)
 `packages/desktop` builds a macOS app that installs its own runtime — no checkout, no terminal:
 
 ```bash
-pnpm --filter @pdf2audio/desktop run bundle:tools   # ffmpeg, pdftotext, pdfinfo + their libraries
-pnpm --filter @pdf2audio/desktop run icon           # packages/desktop/icon.png -> .icns
-pnpm build && bun build --compile --target=bun-darwin-arm64 \
-  packages/server/src/main.ts --outfile packages/desktop/resources/pdf2audio-server
-pnpm --filter @pdf2audio/desktop run dmg
+pnpm app        # build and install over /Applications, quarantine cleared (~15 s)
+pnpm app:dmg    # the same, plus a DMG to hand to someone
 ```
+
+It fetches Bun and bundles ffmpeg/pdftotext/pdfinfo on first run, so a fresh clone needs nothing
+installed globally. `--install` matters more than it sounds: without it you end up reading the
+behaviour of whatever is in `/Applications` while editing the build in `release/`.
 
 On first launch it checks Docker, brings up Postgres, downloads `uv`, builds the Python environment
 from `uv.lock`, fetches the Kokoro voice, and starts the server — which serves the UI too, so there
