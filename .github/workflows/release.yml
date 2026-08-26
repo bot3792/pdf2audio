@@ -62,6 +62,17 @@ jobs:
       # server in it and nobody noticing until someone downloads it.
       - run: scripts/desktop-build.sh --no-package
 
+      # electron-builder publishes once per target, and dmg and zip both check "does the release
+      # exist" before creating one — so they race, both create a draft, and the artefacts land
+      # split across two releases with the same tag. Creating it first means both find it.
+      - name: Open the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v$(node -p "require('./packages/desktop/package.json').version")"
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --draft --title "$TAG" --notes "Build in progress…" --latest=false
+
       - name: Package and publish
         env:
           # Without this electron-builder picks up any identity in the keychain; on a runner there
