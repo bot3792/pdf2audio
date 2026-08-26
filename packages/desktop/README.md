@@ -307,6 +307,24 @@ Check, offer, download and hand-off all work this way. **The install step will f
 signed** — Squirrel.Mac validates the downloaded app's signature and an ad-hoc one does not pass.
 `tasks/desktop-updates.md` has the exact error.
 
+### A macOS VM can only test half of this
+
+`scripts/vm-verify.sh` runs inside a fresh `tart` macOS guest and is genuinely useful — it proved
+the bundled ffmpeg and poppler run with no Homebrew on the machine, that the DMG opens somewhere it
+was not built, and that the Docker panels say something a non-developer can act on.
+
+It stops at Docker, permanently. Docker runs a Linux VM, which inside a guest needs nested
+virtualization, and Apple offers that to **Linux guests only**:
+
+```
+$ tart run --nested p2a-test
+macOS virtual machines do not support nested virtualization
+```
+
+Docker Desktop and OrbStack both install in there and then sit at "Starting" forever. So the
+database, the Python environment, the models, the server and synthesis cannot be tested in a VM at
+all — that half needs a second physical Mac.
+
 ## When something goes wrong
 
 `src/crash.cjs` catches what would otherwise be Electron's own dialog — a stack trace and an OK

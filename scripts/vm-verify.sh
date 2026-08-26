@@ -2,6 +2,9 @@
 # Runs inside a fresh macOS VM to answer one question: does the DMG work on a machine that has
 # never seen this project? Copy it in alongside the DMG and run it.
 #
+# It answers that question only up to Docker — see the note further down. A macOS guest cannot run
+# Docker at all, so the database and everything after it needs a second physical Mac.
+#
 #   ./vm-verify.sh pdf2audio-0.0.1-arm64.dmg
 #
 # Everything it checks is something that has already been got wrong once on the host, where a
@@ -53,21 +56,27 @@ done
 
 echo
 echo "=== first run ==="
-echo "  launching; this downloads ~2.8 GB and takes a while"
+# This is where a macOS VM stops being able to help, and it is worth being blunt about why.
+# pdf2audio keeps its library in Postgres, Postgres runs in Docker, and Docker runs a Linux VM.
+# Apple's Virtualization framework offers nested virtualization to *Linux* guests on M3 and later
+# only — `tart run --nested` on a macOS guest answers "macOS virtual machines do not support
+# nested virtualization" and refuses. So Docker Desktop and OrbStack both install fine in here and
+# then sit at "Starting" forever, and everything downstream of the database is unreachable.
+#
+# What this VM genuinely proves is everything before that line, which is most of what breaks:
+# that the DMG opens on a machine that never built it, that the bundled ffmpeg and poppler run
+# with no Homebrew, and that the first-run screen says something useful when Docker is missing.
+#
+# The rest — Python, the models, the server, synthesis — needs a real second Mac.
 open -a "$APP"
-for i in $(seq 1 30); do
-  sleep 10
-  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 http://localhost:3034/ || true)
-  [ "$code" = "200" ] && break
-  printf "\r  waiting… %ds  (last HTTP %s)" $((i * 10)) "${code:-none}"
-done
+echo "  launched. In the VM you should now see:"
+echo "    Audio and PDF tools   bundled"
+echo "    Docker                Not installed  (with a panel offering Docker Desktop / OrbStack)"
 echo
-check "the app serves its UI" 'test "$(curl -s -o /dev/null -w %{http_code} --max-time 5 http://localhost:3034/)" = 200'
-check "the API answers" 'curl -sf --max-time 5 http://localhost:3034/trpc/folders.list'
-check "Python was installed by the app" 'test -x "$HOME/Library/Application Support/pdf2audio/python/bin/python"'
-check "the Kokoro voice was fetched" 'test -d "$HOME/.cache/huggingface/hub/models--hexgrad--Kokoro-82M"'
-check "it can narrate" 'printf "A test." > /tmp/t.txt && "$HOME/Library/Application Support/pdf2audio/python/bin/python" "$HOME/Library/Application Support/pdf2audio/scripts/synthesize.py" --input /tmp/t.txt --output /tmp/t.wav --voice af_heart && test -s /tmp/t.wav'
+echo "  Installing Docker in here will move it to \"Installed, but not running\" and stop."
+echo "  That is the ceiling of a macOS guest, not a bug in the app."
 
 echo
 echo "=== $pass passed, $fail failed ==="
+echo "(Everything up to Docker. The full first run needs hardware, not a VM.)"
 exit $((fail > 0))
