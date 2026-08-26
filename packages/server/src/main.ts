@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import { existsSync } from "node:fs";
 import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import { appRouter } from "./router.ts";
 import { createContext } from "./trpc.ts";
@@ -50,6 +51,23 @@ async function main() {
     root: outputDir,
     prefix: "/files/",
   });
+
+  // In development Vite serves the UI on its own port and proxies here. A packaged app has no
+  // Vite, so the same server hands out the built bundle — and only if it was built, which is why
+  // this is conditional rather than a hard dependency on `pnpm build` having run.
+  const webDir = env.WEB_DIR;
+  const hasWebBuild = existsSync(path.join(webDir, "index.html"));
+  if (hasWebBuild) {
+    await fastify.register(fastifyStatic, { root: webDir, prefix: "/", decorateReply: false });
+    // Client-side routes (/chat, /open, /books/:id) are not files; anything that is not an API
+    // path and does not look like an asset gets the shell, and React reads the url from there.
+    fastify.setNotFoundHandler((request, reply) => {
+      if (request.method !== "GET" || path.extname(request.url.split("?")[0])) {
+        return reply.code(404).send({ error: "Not Found" });
+      }
+      return reply.type("text/html").sendFile("index.html", webDir);
+    });
+  }
 
   await fastify.register(fastifyTRPCPlugin, {
     prefix: "/trpc",

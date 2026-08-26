@@ -15,6 +15,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3034),
   CONDA_ENV_PATH: z.string().default(path.join(repoRoot, ".venv", "bin")),
   SCRIPTS_DIR: z.string().default(path.join(repoRoot, "scripts")),
+  WEB_DIR: z.string().default(path.join(repoRoot, "packages", "web", "dist")),
   POCKET_ENV_PATH: z.string().default(path.join(repoRoot, ".venv-pocket", "bin")),
   DEEPSEEK_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),

@@ -4,11 +4,45 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "electron .",
+    "pack": "electron-builder --mac --dir",
+    "dmg": "electron-builder --mac"
   },
   "devDependencies": {
-    "vitest": "^4.1.2",
+    "@types/node": "^22.0.0",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.7.3",
-    "@types/node": "^22.0.0"
+    "vitest": "^4.1.2"
+  },
+  "main": "src/main.cjs",
+  "build": {
+    "appId": "dev.pdf2audio.app",
+    "productName": "pdf2audio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "extraResources": [
+      {
+        "from": "resources",
+        "to": "."
+      }
+    ]
   }
 }
