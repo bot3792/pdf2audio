@@ -101,6 +101,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--capabilities", action="store_true")
+    parser.add_argument("--essential", action="store_true")
     parser.add_argument("--download")
     args = parser.parse_args()
 
@@ -110,6 +111,12 @@ def main() -> int:
             print(f"Unknown bundle: {args.download}", file=sys.stderr)
             return 2
         bundle["download"]()
+        return 0
+
+    if args.essential:
+        # Kokoro is not in BUNDLES because it is not optional — without a voice there is no
+        # audiobook. It is the whole of what a first run must fetch before the app is useful.
+        _hf_fetch("hexgrad/Kokoro-82M")
         return 0
 
     if args.capabilities:

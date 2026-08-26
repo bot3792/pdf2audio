@@ -15,13 +15,30 @@ are in `tasks/desktop-app.md`; this package is the part that exists.
   for you; everything after it is marked blocked too, so a row of hopeful "pending" steps does not
   imply progress that will never come.
 
+## The first run
+
+No checkout, no terminal. The app stages `scripts/`, `pyproject.toml` and `uv.lock` out of its own
+bundle into `~/Library/Application Support/pdf2audio`, downloads a pinned and checksummed `uv`,
+builds the Python environment from the lockfile, fetches Kokoro, starts Postgres in Docker and
+then the server — which also serves the UI, so there is one port and no Vite.
+
+Measured from an empty directory: **1.4 GB installed, then HTTP 200.** The environment it builds
+narrates a sentence.
+
+`uv` is fetched as a verified tarball rather than `curl | sh`. The pipe version failed once with
+`curl: (56) Failure writing output to destination`, which tells a user nothing, and it runs an
+unverified script as them.
+
+## What is still borrowed from the machine
+
+**ffmpeg, pdftotext and pdfinfo.** Detected the same way Docker is — by looking in the places they
+actually live, since a Finder-launched app's `PATH` has neither Homebrew directory — and reported
+as a blocked step with the `brew install` line. Bundling them is the last thing between this and a
+build a stranger can use; static builds fetched at first run would match everything else here.
+
+## What is not here yet
 ## What is not here yet
 
-The Electron main process and the first-run window. Deliberately last, and deliberately thin: the
-app is a local web server and a page, so the wrapper starts child processes and opens a window.
-Everything with logic in it lives above, where it can be tested without a display.
-
-`main.ts` will need roughly: `preflight()` on launch, render the steps, `startDatabase()`,
-`uv sync`, `startServer()`, `waitForServer()`, then point a `BrowserWindow` at the url. Plus an
-**Open in your browser** menu item — the app serves on localhost, so any browser works, and that is
-the escape hatch if a platform's webview renders badly.
+Signing and notarising — the DMG builds, and Gatekeeper refuses it until right-click → Open.
+Bundling the three CLI tools. And the runtime updater in `tasks/desktop-updates.md`, which is what
+keeps the Python environment and the models in step with a new release.

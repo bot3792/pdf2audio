@@ -4,28 +4,18 @@ const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron")
 const { execFile, spawn } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const path = require("node:path");
+const setup = require("./setup.cjs");
 
 const PORT = Number(process.env.PDF2AUDIO_PORT || 3034);
 
-// The Python environment, the scripts and the models are not bundled yet, so a packaged build has
-// to be told where a working checkout is. Remembered once; a preview-build compromise, and the
-// step it replaces later is "download Python", not "ask the user a question".
-const CONFIG = () => path.join(app.getPath("userData"), "home.json");
-
-function readHome() {
-  if (process.env.PDF2AUDIO_HOME) return process.env.PDF2AUDIO_HOME;
-  try {
-    return JSON.parse(require("node:fs").readFileSync(CONFIG(), "utf8")).home;
-  } catch {
-    return app.isPackaged ? null : path.resolve(__dirname, "../../..");
-  }
-}
-
-function writeHome(dir) {
-  require("node:fs").writeFileSync(CONFIG(), JSON.stringify({ home: dir }));
+// Everything the app installs for itself: the Python environment, the scripts it runs, the
+// lockfile it resolves against. Never inside the bundle, which an update replaces wholesale.
+function defaultHome() {
+  return process.env.PDF2AUDIO_HOME || path.join(app.getPath("appData"), "pdf2audio");
 }
 
 let HOME = null;
+let RESOURCES = null;
 const DATABASE_URL = process.env.DATABASE_URL || "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
 
 const CLI_CANDIDATES = [
@@ -58,7 +48,7 @@ function composeUp(cli) {
 }
 
 function startServer() {
-  const bundled = path.join(process.resourcesPath || "", "pdf2audio-server");
+  const bundled = path.join(RESOURCES, "pdf2audio-server");
   server = spawn(bundled, [], { env: serverEnv(), stdio: ["ignore", "pipe", "pipe"] });
   server.stdout?.on("data", (b) => process.stdout.write(String(b)));
   server.stderr?.on("data", (b) => process.stderr.write(String(b)));
@@ -69,14 +59,14 @@ function serverEnv() {
     ...process.env,
     PDF2AUDIO_HOME: HOME,
     SCRIPTS_DIR: path.join(HOME, "scripts"),
-    DATA_DIR: path.join(HOME, "packages/server/data"),
-    CONDA_ENV_PATH: path.join(HOME, ".venv/bin"),
-    POCKET_ENV_PATH: path.join(HOME, ".venv-pocket/bin"),
-    WEB_DIR: path.join(process.resourcesPath || "", "web"),
+    DATA_DIR: path.join(HOME, "data"),
+    CONDA_ENV_PATH: path.join(HOME, "python/bin"),
+    POCKET_ENV_PATH: path.join(HOME, "python-pocket/bin"),
+    WEB_DIR: path.join(RESOURCES, "web"),
     DATABASE_URL,
     PORT: String(PORT),
-    // A GUI app's PATH omits Homebrew, and the workers spawn ffmpeg, pdftotext and espeak-ng
-    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || "/usr/bin:/bin"}`,
+    // A GUI app's PATH omits Homebrew, and the workers spawn ffmpeg, pdftotext and pdfinfo
+    PATH: setup.toolPath(),
   };
 }
 
@@ -93,11 +83,14 @@ async function waitFor(url, timeoutMs) {
 async function boot() {
   const send = (id, state, detail) => win?.webContents.send("step", { id, state, detail });
 
-  HOME = readHome();
-  if (!HOME || !existsSync(path.join(HOME, "scripts"))) {
-    return send("home", "blocked", "Point this build at a pdf2audio checkout — it borrows its Python environment.");
+  HOME = defaultHome();
+  RESOURCES = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../resources");
+
+  const missing = setup.missingTools();
+  if (missing.length) {
+    return send("tools", "blocked", `Needs ${missing.join(", ")} — install with: brew install ffmpeg poppler`);
   }
-  send("home", "done", HOME);
+  send("tools", "done");
 
   const cli = dockerCli();
   if (!cli) return send("docker", "blocked", "Install Docker Desktop or OrbStack, then press Check again.");
@@ -107,6 +100,19 @@ async function boot() {
 
   send("database", "running");
   send("database", (await composeUp(cli)) ? "done" : "blocked", "Postgres on port 5433");
+
+  try {
+    send("python", "running", "Installing Python and PyTorch — about 2.4 GB, once");
+    setup.stageRuntime(RESOURCES, HOME);
+    const python = await setup.syncPython(HOME, (line) => send("python", "running", line.trim().split("\n").at(-1)));
+    send("python", "done");
+
+    send("voice", "running", "Downloading the Kokoro voice — 347 MB");
+    await setup.fetchEssentialModels(python, HOME, () => {});
+    send("voice", "done");
+  } catch (err) {
+    return send("python", "blocked", String(err.message || err).slice(0, 200));
+  }
 
   send("server", "running");
   startServer();
@@ -136,8 +142,8 @@ function menu(url) {
     {
       label: "Help",
       submenu: [
-        { label: "Show data folder", click: () => shell.openPath(path.join(HOME, "packages/server/data")) },
-        { label: "Where things live", click: () => dialog.showMessageBox({ message: `Home: ${HOME}\nDatabase: Docker, port 5433\nServer: ${url}` }) },
+        { label: "Show data folder", click: () => shell.openPath(path.join(HOME || "", "data")) },
+        { label: "Where things live", click: () => dialog.showMessageBox({ message: `Everything the app installed: ${HOME}\nYour library: Postgres in Docker, port 5433\nServer: ${url}` }) },
       ],
     },
     { role: "windowMenu" },
@@ -153,12 +159,7 @@ app.whenReady().then(() => {
   win.loadFile(path.join(__dirname, "first-run.html"));
   win.webContents.once("did-finish-load", boot);
   ipcMain.on("recheck", boot);
-  ipcMain.on("choose-home", async () => {
-    const picked = await dialog.showOpenDialog(win, { properties: ["openDirectory"], message: "Choose your pdf2audio checkout" });
-    if (picked.canceled || !picked.filePaths[0]) return;
-    writeHome(picked.filePaths[0]);
-    boot();
-  });
+
 });
 
 app.on("window-all-closed", () => {

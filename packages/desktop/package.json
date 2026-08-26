@@ -42,6 +42,22 @@
       {
         "from": "resources",
         "to": "."
+      },
+      {
+        "from": "../../scripts",
+        "to": "scripts"
+      },
+      {
+        "from": "../../pyproject.toml",
+        "to": "pyproject.toml"
+      },
+      {
+        "from": "../../uv.lock",
+        "to": "uv.lock"
+      },
+      {
+        "from": "../../docker-compose.yml",
+        "to": "docker-compose.yml"
       }
     ]
   }
