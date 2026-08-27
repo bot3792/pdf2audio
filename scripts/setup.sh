@@ -44,6 +44,11 @@ command -v ffmpeg >/dev/null 2>&1 || missing+=("ffmpeg ($INSTALL ffmpeg)")
 command -v espeak-ng >/dev/null 2>&1 || missing+=("espeak-ng ($INSTALL espeak-ng)")
 command -v pdftotext >/dev/null 2>&1 || missing+=("pdftotext ($INSTALL $POPPLER_PKG)")
 command -v pnpm >/dev/null 2>&1 || missing+=("pnpm (npm install -g pnpm)")
+if [ "$PLATFORM" = "linux" ]; then
+  # Read-along EPUBs are packed with the system zip; every Mac ships it, minimal servers do not.
+  command -v zip >/dev/null 2>&1 || missing+=("zip ($INSTALL zip)")
+  command -v unzip >/dev/null 2>&1 || missing+=("unzip ($INSTALL unzip)")
+fi
 if command -v node >/dev/null 2>&1; then
   node -e 'process.exit(+process.versions.node.split(".")[0] >= 20 ? 0 : 1)' || missing+=("Node.js >= 20 ($NODE_HINT)")
 else
