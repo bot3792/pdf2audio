@@ -3,6 +3,7 @@ import { db } from "../db.ts";
 import { books, bookChunks, type SearchIndexJob } from "../schema.ts";
 import { embedTexts } from "../lib/embeddings.ts";
 import { describeError } from "../lib/errors.ts";
+import { bundleInstalled } from "../lib/model-bundles.ts";
 
 export type EmbedChunksPayload = { bookId: string };
 
@@ -18,6 +19,15 @@ async function setJob(bookId: string, partial: Partial<SearchIndexJob>) {
 }
 
 export async function embedChunks({ bookId }: EmbedChunksPayload) {
+  // The embedding models are an optional 4.2 GB download, and dropping a book in before fetching
+  // them is an ordinary thing to do. Asking Python anyway gets HF_HUB_OFFLINE=1 and a traceback,
+  // which reached the library as a red "index failed" — a broken-looking book, for a download the
+  // user has not been offered yet. Keyword search already works; this is the half that waits.
+  if (!(await bundleInstalled("search"))) {
+    await setJob(bookId, { status: "waiting", progress: undefined, error: undefined });
+    return;
+  }
+
   const [{ total }] = await db
     .select({ total: sql<number>`count(*)::int` })
     .from(bookChunks)

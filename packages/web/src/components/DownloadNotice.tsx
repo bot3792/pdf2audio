@@ -8,6 +8,7 @@ export function DownloadNotice({
   children,
   buttonLabel,
   downloading,
+  progress,
   disabled,
   error,
   settledLabel,
@@ -18,6 +19,7 @@ export function DownloadNotice({
   children: ReactNode;
   buttonLabel: string;
   downloading: boolean;
+  progress?: string | null;
   disabled?: boolean;
   error?: string | null;
   settledLabel: string;
@@ -38,7 +40,7 @@ export function DownloadNotice({
         className="px-2 py-1 rounded bg-blue-600 text-white disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none"
         data-testid={`${testIdPrefix}-download`}
       >
-        {downloading ? `Downloading ${settledLabel}…` : buttonLabel}
+        {downloading ? `Downloading ${settledLabel}… ${progress ?? ""}`.trimEnd() : buttonLabel}
       </button>
       {downloading && (
         <p className="text-(--text-muted)">Keep using the app — this unlocks itself when it lands, no restart.</p>

@@ -1,4 +1,8 @@
 import { run, makeWorkerUtils, type Runner, type TaskList } from "graphile-worker";
+import { sql } from "drizzle-orm";
+import { db } from "../db.ts";
+import { books } from "../schema.ts";
+import { whenBundleInstalled } from "../lib/model-bundles.ts";
 import { extract } from "./extract.ts";
 import { normalize } from "./normalize.ts";
 import { synthesize } from "./synthesize.ts";
@@ -119,7 +123,32 @@ export const WORKER_POOLS: { name: string; concurrency: number; taskList: TaskLi
 
 let currentRunners: Runner[] = [];
 
+// A bundle finishing is not only a UI state change: books dropped in before the download existed
+// were parked as "waiting" rather than failed, and this is what makes that promise good. The
+// download notice says "this unlocks itself when it lands, no restart" — for extraction the user
+// clicks a button afterwards, but nobody is going to re-upload a book to get it indexed.
+async function requeueWaitingWork(id: string): Promise<void> {
+  if (id !== "search") return;
+  const waiting = await db
+    .select({ id: books.id })
+    .from(books)
+    .where(sql`${books.searchIndex}->>'status' = 'waiting'`);
+  if (waiting.length === 0) return;
+
+  const utils = await makeWorkerUtils({ connectionString });
+  try {
+    for (const { id: bookId } of waiting) {
+      await utils.addJob("embedChunks", { bookId }, { maxAttempts: 1, jobKey: `embed:${bookId}`, jobKeyMode: "replace" });
+    }
+    console.log(`[worker] BGE-M3 landed — queued ${waiting.length} book(s) that were waiting for it`);
+  } finally {
+    await utils.release();
+  }
+}
+
 export async function startWorker(): Promise<Runner[]> {
+  whenBundleInstalled(requeueWaitingWork);
+
   // On a virgin database the seven pools race their concurrent schema installs
   // (duplicate pg_namespace key on first boot) — migrate once up front instead
   const utils = await makeWorkerUtils({ connectionString });

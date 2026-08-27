@@ -14,10 +14,11 @@ export type ModelBundle = {
   appleSiliconOnly: boolean;
   installed: boolean;
   downloading: boolean;
+  progress: string | null;
   error: string | null;
 };
 
-type PythonBundle = Omit<ModelBundle, "downloading" | "error">;
+type PythonBundle = Omit<ModelBundle, "downloading" | "progress" | "error">;
 
 const MODELS_SCRIPT = scriptPath("models.py");
 const python = () => path.join(env.CONDA_ENV_PATH, "python");
@@ -113,10 +114,31 @@ export async function listModelBundles(): Promise<ModelBundle[]> {
   return bundles.map((b) => ({
     ...b,
     downloading: downloads.downloading(b.id),
+    progress: downloads.progressOf(b.id),
     error: downloads.error(b.id),
   }));
 }
 
+// Whether a gated feature can run at all. The client gate (useModelBundle) stops someone asking
+// for it; this stops a job that was queued before the download existed from failing loudly.
+export async function bundleInstalled(id: string): Promise<boolean> {
+  return readStatus()
+    .then((bundles) => bundles.some((b) => b.id === id && b.installed))
+    .catch(() => false);
+}
+
 export function startBundleDownload(id: string): { started: boolean } {
-  return downloads.start(id, python(), [MODELS_SCRIPT, "--download", id], () => { cache = null; });
+  return downloads.start(id, python(), [MODELS_SCRIPT, "--download", id], () => {
+    cache = null;
+    void onBundleInstalled?.(id);
+  });
+}
+
+// Set by the worker layer at boot. A bundle arriving is not just a state change — books that were
+// dropped in before the download exist, and were parked rather than failed, have to be picked up.
+// Without this, "waiting" would be a politer way of saying nothing ever happens.
+let onBundleInstalled: ((id: string) => Promise<void>) | null = null;
+
+export function whenBundleInstalled(fn: (id: string) => Promise<void>): void {
+  onBundleInstalled = fn;
 }

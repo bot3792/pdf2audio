@@ -520,6 +520,15 @@ export function BookList({ folderId = null }: { folderId?: string | null }) {
                       ✓
                     </span>
                   )}
+                  {book.searchIndex?.status === "waiting" && (
+                    <span
+                      className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-(--bg-subtle) text-(--text-muted) align-middle"
+                      title="Keyword search works. Semantic search needs the BGE-M3 models — download them from the chat page and this indexes itself."
+                      data-testid="index-badge-waiting"
+                    >
+                      search pending
+                    </span>
+                  )}
                   {book.searchIndex?.status === "failed" && (
                     <span
                       className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 align-middle"

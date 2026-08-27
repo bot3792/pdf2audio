@@ -7,6 +7,7 @@ import { DownloadNotice } from "./DownloadNotice.tsx";
 export function useModelBundle(id: string) {
   const { data: bundles, error } = trpc.models.list.useQuery(undefined, {
     // Only while something is downloading; otherwise this costs a Python start per poll
+    // Matches the reporter's own 2s tick in models.py, so the number moves rather than jumping
     refetchInterval: (q) => (q.state.data?.some((b) => b.downloading) ? 2000 : false),
     // Nothing changes `installed` except models.download, which invalidates below
     staleTime: Infinity,
@@ -55,6 +56,7 @@ export function ModelBundleNotice({ id, verb }: { id: string; verb: string }) {
       settledLabel={bundle.label}
       buttonLabel={`Download (${gb} GB)`}
       downloading={bundle.downloading}
+      progress={bundle.progress}
       disabled={download.isPending}
       error={bundle.error ?? download.error?.message ?? null}
       onDownload={() => download.mutate({ id })}

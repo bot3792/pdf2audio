@@ -44,6 +44,38 @@ def _hf_fetch(repo_id: str, allow_patterns=None) -> None:
     snapshot_download(repo_id, allow_patterns=allow_patterns)
 
 
+def _hf_repo_dir(repo_id: str) -> Path:
+    from huggingface_hub.constants import HF_HUB_CACHE
+    return Path(HF_HUB_CACHE) / ("models--" + repo_id.replace("/", "--"))
+
+
+def _bytes_on_disk(paths) -> int:
+    total = 0
+    for p in paths:
+        if not p.exists():
+            continue
+        # Partly-written blobs land as *.incomplete, and those are most of what a progress bar is
+        # for — counting only finished files makes a 5 GB download look stuck at zero for minutes.
+        for f in p.rglob("*"):
+            try:
+                if f.is_file() and not f.is_symlink():
+                    total += f.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+# huggingface_hub draws tqdm bars per file, which is several moving bars and nothing that adds up
+# to "how far along is this". The bundle sizes are already known, so progress is measured off the
+# disk instead: one number, and it survives however the library decides to render itself.
+def _report_progress(paths, total_mb: int, stop) -> None:
+    import time
+    while not stop.is_set():
+        mb = _bytes_on_disk(paths) // (1024 * 1024)
+        print(json.dumps({"type": "progress", "mb": mb, "totalMb": total_mb}), flush=True)
+        stop.wait(2)
+
+
 def _surya_dir():
     # Deliberately not `from surya.settings import settings` — that pulls in torch and turns a
     # status check the UI runs on page load into three quarters of a second. This is the same
@@ -74,6 +106,7 @@ BUNDLES = [
         "approxMb": 5100,
         "installed": marker_installed,
         "download": marker_download,
+        "cacheDirs": lambda: [_surya_dir()],
     },
     {
         "id": "search",
@@ -82,6 +115,7 @@ BUNDLES = [
         "approxMb": 4300,
         "installed": lambda: _hf_cached("BAAI/bge-m3"),
         "download": lambda: _hf_fetch("BAAI/bge-m3"),
+        "cacheDirs": lambda: [_hf_repo_dir("BAAI/bge-m3")],
     },
     {
         "id": "bulgarian",
@@ -91,6 +125,7 @@ BUNDLES = [
         "appleSiliconOnly": True,
         "installed": lambda: _hf_cached("raditotev/bg-tts-v5-mlx") and _hf_cached("facebook/mms-tts-bul"),
         "download": lambda: (_hf_fetch("raditotev/bg-tts-v5-mlx"), _hf_fetch("facebook/mms-tts-bul")),
+        "cacheDirs": lambda: [_hf_repo_dir("raditotev/bg-tts-v5-mlx"), _hf_repo_dir("facebook/mms-tts-bul")],
     },
 ]
 
@@ -122,7 +157,17 @@ def main() -> int:
         if not bundle:
             print(f"Unknown bundle: {args.download}", file=sys.stderr)
             return 2
-        bundle["download"]()
+        import threading
+        stop = threading.Event()
+        reporter = threading.Thread(
+            target=_report_progress, args=(bundle["cacheDirs"](), bundle["approxMb"], stop), daemon=True
+        )
+        reporter.start()
+        try:
+            bundle["download"]()
+        finally:
+            stop.set()
+            reporter.join(timeout=3)
         return 0
 
     if args.download_all:
@@ -130,7 +175,17 @@ def main() -> int:
         # which silently skipped any bundle added here afterwards.
         for bundle in BUNDLES:
             print(f"  {bundle['id']}...", file=sys.stderr)
+            import threading
+        stop = threading.Event()
+        reporter = threading.Thread(
+            target=_report_progress, args=(bundle["cacheDirs"](), bundle["approxMb"], stop), daemon=True
+        )
+        reporter.start()
+        try:
             bundle["download"]()
+        finally:
+            stop.set()
+            reporter.join(timeout=3)
         return 0
 
     if args.essential:

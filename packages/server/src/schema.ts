@@ -45,7 +45,9 @@ export type NoteScope =
   | { kind: "library"; folderId?: string; question: string };
 
 export type SearchIndexJob = {
-  status: "queued" | "chunking" | "embedding" | "done" | "failed";
+  // "waiting" is not a failure: the BGE-M3 bundle is an optional 4.2 GB download, and a book that
+  // arrives before it does is indexed for keyword search and queued for the rest.
+  status: "queued" | "chunking" | "embedding" | "waiting" | "done" | "failed";
   progress?: string;
   error?: string;
   updatedAt: string;
