@@ -12,6 +12,11 @@ services:
     volumes:
       # pgdata17 (glibc) replaced the alpine-era pgdata volume on 2026-08-08; old volume kept as rollback
       - pgdata17:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U libratory"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   app:
     # Behind a profile so `pnpm db:up` keeps meaning "Postgres and nothing else" on a Mac.
@@ -32,7 +37,10 @@ services:
       - data:/data
       - models:/models
     depends_on:
-      - postgres
+      # main.ts applies pending migrations at boot, so a plain depends_on races the first `up` and
+      # leaves restart: unless-stopped to paper over it. test.yml gates on health for this reason.
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
