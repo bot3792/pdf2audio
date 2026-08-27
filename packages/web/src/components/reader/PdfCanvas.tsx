@@ -2,8 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { PDFDocumentProxy } from "pdfjs-dist";
+import { installMapGetOrInsert } from "../../lib/map-get-or-insert.ts";
 
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+installMapGetOrInsert();
+// The worker thread needs the same patch before any pdf.js code runs there, so its entry is a
+// blob that installs it and then imports the real worker — the same wrapper shape pdf.js itself
+// uses to load cross-origin workers.
+pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
+  new Blob(
+    [`(${installMapGetOrInsert.toString()})();\nawait import(${JSON.stringify(new URL(workerUrl, import.meta.url).href)});`],
+    { type: "text/javascript" },
+  ),
+);
 
 // A retained document pins its bytes and pdf.js's page and font caches — tens of MB each. The
 // reader shows one book at a time, so anything older than the last two is a leak.
@@ -84,7 +94,13 @@ export function PdfCanvas({
       canvas.width = Math.round(width * scale);
       canvas.height = Math.round(height * scale);
       await page.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport }).promise;
-    })().catch(() => {});
+    })().catch((error) => {
+      // A cancelled render is routine — pages leave the viewport. Everything else used to be
+      // swallowed too, and a Safari missing one Map method drew blank pages with a clean console.
+      if (!(error instanceof pdfjs.RenderingCancelledException)) {
+        console.error("PDF page render failed:", error);
+      }
+    });
 
     return () => { cancelled = true; };
   }, [url, pageNumber, visible, x, y, width, height]);
