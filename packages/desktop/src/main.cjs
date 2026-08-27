@@ -192,7 +192,6 @@ const STEPS = [
     id: "python",
     label: "Python and PyTorch",
     async run(ctx, detail) {
-      setup.stageRuntime(RESOURCES, HOME);
       ctx.pending = runtime.pending(RESOURCES, HOME);
       ctx.python = setup.pythonBin(HOME);
       if (!ctx.pending.python) return "up to date";
@@ -237,6 +236,11 @@ async function runBoot() {
   HOME = defaultHome();
   CONFIG = readConfig(HOME);
   RESOURCES = app.isPackaged ? process.resourcesPath : path.join(__dirname, "../resources");
+
+  // Before any step, not inside one: the database step reads docker-compose.yml out of HOME, and
+  // this is what puts it there. It used to live in the python step, three steps too late — which
+  // only showed on a machine whose HOME had not already been populated by an earlier run.
+  setup.stageRuntime(RESOURCES, HOME);
 
   const ctx = { url: `http://localhost:${PORT}` };
   for (const [i, step] of STEPS.entries()) {
