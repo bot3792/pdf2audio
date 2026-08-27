@@ -18,6 +18,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { registerScriptRunRoutes } from "./script-run-routes.ts";
 import { ensureDataDirs, outputDir, previewsDir } from "./lib/paths.ts";
 import { isAllowedOrigin, parseTrustedHosts } from "./lib/cors.ts";
+import { registerSpaFallback } from "./lib/spa-fallback.ts";
 import { db } from "./db.ts";
 import { books, bookFiles, assemblies, documents, chapters, chapterVariants } from "./schema.ts";
 import { eq } from "drizzle-orm";
@@ -63,14 +64,7 @@ async function main() {
   const webDir = env.WEB_DIR;
   if (existsSync(path.join(webDir, "index.html"))) {
     await fastify.register(fastifyStatic, { root: webDir, prefix: "/", decorateReply: false });
-    // Client-side routes (/chat, /open, /books/:id) are not files; anything that is not an API
-    // path and does not look like an asset gets the shell, and React reads the url from there.
-    fastify.setNotFoundHandler((request, reply) => {
-      if (request.method !== "GET" || path.extname(request.url.split("?")[0])) {
-        return reply.code(404).send({ error: "Not Found" });
-      }
-      return reply.type("text/html").sendFile("index.html", webDir);
-    });
+    registerSpaFallback(fastify, webDir);
   }
 
   await fastify.register(fastifyTRPCPlugin, {

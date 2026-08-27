@@ -394,7 +394,11 @@ the state.
   prerelease that sorts *below* the release it follows. Update checks run once at launch and every
   6h after — nothing is pushed, each check is a GET of `latest-mac.yml`.
 - **One port.** The server serves the built web bundle (`WEB_DIR`, with an SPA fallback) when one
-  exists, so a package needs no Vite. In the repo, unbuilt, nothing changes.
+  exists, so a package needs no Vite. In the repo, unbuilt, nothing changes. `lib/spa-fallback.ts`
+  holds the fallback as an **allow-list** of the routes `packages/web/src/main.tsx` owns — add a
+  client route there too. It reads the other way round on purpose: the rule used to be "a GET with
+  no extension is a client route", and `/pdf/:id` and `/audio/chapter/:id` have none, so a missing
+  file came back as `index.html` with a 200 and drew every page of every book blank.
 - **`scripts/bundle-tools.py`** — copies ffmpeg, pdftotext and pdfinfo out of Homebrew with their
   dylib closure, rewrites load commands to `@loader_path`, and **re-signs ad-hoc**, without which
   Apple Silicon kills them silently. `scripts/make-icon.sh` builds the `.icns`.

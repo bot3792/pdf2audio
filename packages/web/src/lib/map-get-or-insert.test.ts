@@ -37,8 +37,8 @@ describe("installMapGetOrInsert", () => {
     const native = function () { return "native"; };
     for (const [proto, name] of saved) Object.defineProperty(proto, name, { value: native, configurable: true, writable: true });
     installMapGetOrInsert();
-    expect(Map.prototype.getOrInsertComputed).toBe(native);
-    expect(WeakMap.prototype.getOrInsert).toBe(native);
+    expect((Map.prototype as unknown as Record<string, unknown>).getOrInsertComputed).toBe(native);
+    expect((WeakMap.prototype as unknown as Record<string, unknown>).getOrInsert).toBe(native);
   });
 
   // PdfCanvas ships this function to the worker as source text. An import or a module-scope
