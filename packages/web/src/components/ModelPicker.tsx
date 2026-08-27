@@ -15,19 +15,21 @@ export const ModelPicker = memo(function ModelPicker({
   testId?: string;
 }) {
   const models = useLlmModels();
-  const defaultKey = useDefaultModelKey();
+  const { key: defaultKey, pending: defaultPending } = useDefaultModelKey();
   const usable = (key: string) => {
     const m = models.find((entry) => entry.key === key);
     return m !== undefined && (!requireTools || m.supportsTools);
   };
 
-  // Callers mount with value "" (unresolved): land on the default model, or the first usable
-  // one when the default is missing or can't do what this picker needs (e.g. chat tools).
+  // Callers mount with value "" (unresolved): land on the default model, or the first usable one
+  // when the default is missing or can't do what this picker needs (e.g. chat tools). Waiting for
+  // the default to arrive is the whole point — picking first and correcting later cannot happen,
+  // because by then `value` is usable and this returns early.
   useEffect(() => {
-    if (models.length === 0 || usable(value)) return;
+    if (models.length === 0 || defaultPending || usable(value)) return;
     const fallback = defaultKey && usable(defaultKey) ? defaultKey : models.find((m) => !requireTools || m.supportsTools)?.key;
     if (fallback) onChange(fallback);
-  }, [models, value, requireTools, onChange, defaultKey]);
+  }, [models, value, requireTools, onChange, defaultKey, defaultPending]);
 
   const active = models.find((m) => m.key === value);
   return (
