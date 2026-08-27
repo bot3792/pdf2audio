@@ -20,3 +20,8 @@ export function installMapGetOrInsert(): void {
     }
   }
 }
+
+// Asked before installMapGetOrInsert runs, which is what makes the answer meaningful.
+export function needsMapUpsertPolyfill(): boolean {
+  return typeof (Map.prototype as unknown as Record<string, unknown>).getOrInsertComputed !== "function";
+}

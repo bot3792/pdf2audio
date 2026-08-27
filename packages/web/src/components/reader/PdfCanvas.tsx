@@ -2,18 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import { installMapGetOrInsert } from "../../lib/map-get-or-insert.ts";
+import { installMapGetOrInsert, needsMapUpsertPolyfill } from "../../lib/map-get-or-insert.ts";
 
+const needsPolyfill = needsMapUpsertPolyfill();
 installMapGetOrInsert();
-// The worker thread needs the same patch before any pdf.js code runs there, so its entry is a
-// blob that installs it and then imports the real worker — the same wrapper shape pdf.js itself
-// uses to load cross-origin workers.
-pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
-  new Blob(
-    [`(${installMapGetOrInsert.toString()})();\nawait import(${JSON.stringify(new URL(workerUrl, import.meta.url).href)});`],
-    { type: "text/javascript" },
-  ),
-);
+// The worker thread needs the same patch before any pdf.js code runs there, so where it is missing
+// the worker entry becomes a blob that installs it and then imports the real one — the same wrapper
+// shape pdf.js itself uses to load cross-origin workers. Every other browser gets the real URL: the
+// object URL has to outlive every worker pdf.js spawns and so is never revoked, which is a fine
+// trade on the browser that needs it and pure cost on the ones that do not.
+pdfjs.GlobalWorkerOptions.workerSrc = needsPolyfill
+  ? URL.createObjectURL(
+      new Blob(
+        [`(${installMapGetOrInsert.toString()})();\nawait import(${JSON.stringify(new URL(workerUrl, import.meta.url).href)});`],
+        { type: "text/javascript" },
+      ),
+    )
+  : workerUrl;
 
 // A retained document pins its bytes and pdf.js's page and font caches — tens of MB each. The
 // reader shows one book at a time, so anything older than the last two is a leak.
