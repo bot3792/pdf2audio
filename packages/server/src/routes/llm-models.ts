@@ -1,9 +1,8 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc.ts";
-import { availableModels, defaultModelKey, llmStatus, modelKeySchema } from "../lib/llm.ts";
+import { availableModels, defaultModelKey, llmStatus, modelKeySchema, setDefaultModelKey } from "../lib/llm.ts";
 import { startLocalServer } from "../lib/llm-server-control.ts";
-import { env, envFilePath } from "../env.ts";
-import { updateEnvFile } from "../lib/env-file.ts";
+import { env } from "../env.ts";
 
 export const llmModelsRouter = router({
   list: publicProcedure.query(async () =>
@@ -26,14 +25,9 @@ export const llmModelsRouter = router({
     resolved: (await defaultModelKey()) ?? null,
   })),
 
-  // Persisted the same way API keys are: written to the .env file and applied to the
-  // in-memory env, so it survives restarts without needing one.
   setDefault: publicProcedure
     .input(z.object({ key: modelKeySchema.nullable() }))
-    .mutation(({ input }) => {
-      updateEnvFile(envFilePath, "DEFAULT_LLM_MODEL", input.key);
-      env.DEFAULT_LLM_MODEL = input.key ?? undefined;
-    }),
+    .mutation(({ input }) => setDefaultModelKey(input.key)),
 
   startLocalServer: publicProcedure
     .input(z.object({ name: z.enum(["Ollama", "LM Studio"]) }))
