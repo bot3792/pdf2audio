@@ -16,14 +16,14 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg17
         env:
-          POSTGRES_USER: pdf2audio
-          POSTGRES_PASSWORD: pdf2audio
-          POSTGRES_DB: pdf2audio
+          POSTGRES_USER: libratory
+          POSTGRES_PASSWORD: libratory
+          POSTGRES_DB: libratory
         ports: ["5433:5432"]
         # The template database is created before the first test file runs; without a health gate
         # that race is lost on exactly the runners where it matters.
         options: >-
-          --health-cmd="pg_isready -U pdf2audio"
+          --health-cmd="pg_isready -U libratory"
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
@@ -50,4 +50,4 @@ jobs:
       # is set here because env.ts requires one and a runner has no .env to read it from.
       - run: pnpm test
         env:
-          DATABASE_URL: postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio
+          DATABASE_URL: postgres://libratory:libratory@localhost:5433/libratory

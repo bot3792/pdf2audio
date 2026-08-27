@@ -17,7 +17,7 @@ COPY tsconfig.base.json ./
 # The web build type-checks against the server's router, imported straight from its source.
 COPY packages/server packages/server
 COPY packages/web packages/web
-RUN pnpm --filter @pdf2audio/web build
+RUN pnpm --filter @libratory/web build
 
 # ---- Runtime ----------------------------------------------------------------
 FROM node:22-bookworm AS runtime
@@ -78,13 +78,13 @@ COPY --from=web-build /app/packages/web/dist packages/web/dist
 # FONT_PATH moves marker's on-demand font out of site-packages, which is root-owned here and
 # rightly so — the server runs as node and the image stays immutable. It must be the full path:
 # marker precomputes FONT_PATH from FONT_DIR at import, so overriding the directory alone is inert.
-# PDF2AUDIO_ENV_FILE lives in /data because the Settings panel writes API keys to it — written
+# LIBRATORY_ENV_FILE lives in /data because the Settings panel writes API keys to it — written
 # into the container's own filesystem they would vanish with the next `up --build`.
 ENV NODE_ENV=production \
     CONDA_ENV_PATH=/opt/venv/bin \
     POCKET_ENV_PATH=/opt/venv-pocket/bin \
     DATA_DIR=/data \
-    PDF2AUDIO_ENV_FILE=/data/.env \
+    LIBRATORY_ENV_FILE=/data/.env \
     HOST=0.0.0.0 \
     PORT=3034 \
     HF_HOME=/models/hf \

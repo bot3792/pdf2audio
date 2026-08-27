@@ -19,7 +19,7 @@ beforeAll(async () => {
   adminSql = postgres(adminUrl, { max: 1 });
 
   // Create unique test database from template
-  currentDbName = `pdf2audio_test_${randomUUID().replace(/-/g, "")}`;
+  currentDbName = `libratory_test_${randomUUID().replace(/-/g, "")}`;
   await adminSql.unsafe(`CREATE DATABASE "${currentDbName}" TEMPLATE "${templateDbName}"`);
 
   // Connect to test database

@@ -1,6 +1,6 @@
 # The main use cases — the happy paths the app promises
 
-Distilled from **"The pdf2audio Playbook"** (the in-app book whose chapters narrate the five
+Distilled from **"The Libratory Playbook"** (the in-app book whose chapters narrate the five
 YouTube guided tours; see `project` memory / the playbook book in the Demo profile). Those
 videos are the app's public contract: whatever they show working is what must keep working.
 This doc restates them as concrete, assertable user journeys so that agents writing e2e tests

@@ -1,4 +1,6 @@
 const { app, dialog, shell } = require("electron");
+const { existsSync } = require("node:fs");
+const path = require("node:path");
 
 // Checked in the background after the window is up, never during boot: an update that delays the
 // app opening is worse than an update that waits for the next launch. The runtime steps
@@ -9,6 +11,28 @@ const { app, dialog, shell } = require("electron");
 // for an app people leave open for days at a time, so it also repeats; declining a version stops
 // it asking about that version again until the app restarts.
 const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
+const RELEASES_URL = "https://github.com/subev/libratory/releases";
+
+// Help → Check for Updates. The default is the honest answer for a build with no feed, because
+// install() returns early in precisely that case and would never get to replace this.
+let checkNow = async () => {
+  const { response } = await dialog.showMessageBox({
+    type: "info",
+    title: "Updates are not available in this build",
+    message: `Libratory ${app.getVersion()} was built locally.`,
+    detail: "Builds made with `pnpm app` carry no update feed, so this copy will never find a new version however long it runs. Install a release from GitHub to get updates.",
+    buttons: ["Open the downloads page", "OK"],
+    defaultId: 1,
+    noLink: true,
+  });
+  if (response === 0) void shell.openExternal(`${RELEASES_URL}/latest`);
+};
+// `pnpm app` builds with --dir, which skips app-update.yml, so a locally-installed copy can never
+// find an update — and used to say nothing at all, which is indistinguishable from being current.
+function updatesConfigured() {
+  return app.isPackaged && existsSync(path.join(process.resourcesPath, "app-update.yml"));
+}
+
 function install({ onStatus } = {}) {
   let autoUpdater;
   try {
@@ -34,7 +58,7 @@ function install({ onStatus } = {}) {
     onStatus?.(`Update available: ${info.version}`);
     const { response } = await dialog.showMessageBox({
       type: "info",
-      title: "A new pdf2audio is available",
+      title: "A new Libratory is available",
       message: `Version ${info.version} is ready to download.`,
       detail: "It installs when you quit, and the next launch brings the Python environment and models up to date with it. Nothing in your library changes.",
       buttons: ["Download it", "Not now"],
@@ -52,7 +76,7 @@ function install({ onStatus } = {}) {
     const { response } = await dialog.showMessageBox({
       type: "info",
       title: "Ready to install",
-      message: `pdf2audio ${info.version} is ready.`,
+      message: `Libratory ${info.version} is ready.`,
       detail: "Restarting takes a few seconds. If this release changes the Python environment, the next launch will say so while it catches up.",
       buttons: ["Restart now", "Later"],
       defaultId: 0,
@@ -75,7 +99,7 @@ function install({ onStatus } = {}) {
     void dialog.showMessageBox({
       type: "warning",
       title: "That update could not install itself",
-      message: `pdf2audio ${downloaded} downloaded, but macOS would not let it replace the running app.`,
+      message: `Libratory ${downloaded} downloaded, but macOS would not let it replace the running app.`,
       detail: signature
         ? "This build is not signed by an Apple developer certificate, and macOS only lets signed apps update themselves. Downloading the new version and dragging it to Applications works — it is the same file."
         : err.message,
@@ -84,15 +108,44 @@ function install({ onStatus } = {}) {
       cancelId: 1,
       noLink: true,
     }).then(({ response }) => {
-      if (response === 0) void shell.openExternal("https://github.com/subev/pdf2audio/releases/latest");
+      if (response === 0) void shell.openExternal(`${RELEASES_URL}/latest`);
     });
   });
 
-  if (!app.isPackaged) return;
+  if (!updatesConfigured()) {
+    onStatus?.("No app-update.yml — this build cannot check for updates");
+    return;
+  }
   const check = () => void autoUpdater.checkForUpdates().catch(() => {});
   check();
   const timer = setInterval(check, CHECK_EVERY_MS);
   app.on("before-quit", () => clearInterval(timer));
+
+  // Asked for from the Help menu. The automatic check is deliberately quiet about finding nothing,
+  // which leaves no way to tell "already current" from "never looked" — this answers both.
+  checkNow = async () => {
+    // Asking explicitly overrides a "Not now" from earlier in this session
+    declined.clear();
+    const result = await autoUpdater.checkForUpdates().catch((err) => {
+      void dialog.showMessageBox({
+        type: "warning",
+        message: "Could not check for updates.",
+        detail: err.message,
+        buttons: ["OK"],
+      });
+      return null;
+    });
+    // An available update opens its own dialog through the event above; silence is the only
+    // outcome that needs answering here.
+    if (result && !result.isUpdateAvailable) {
+      void dialog.showMessageBox({
+        type: "info",
+        message: `Libratory ${app.getVersion()} is the latest version.`,
+        buttons: ["OK"],
+      });
+    }
+  };
+
 }
 
-module.exports = { install };
+module.exports = { install, updatesConfigured, checkNow: (...a) => checkNow(...a) };

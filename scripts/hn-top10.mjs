@@ -164,7 +164,7 @@ async function fetchArticle(url) {
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(20_000),
-      headers: { "User-Agent": "Mozilla/5.0 (pdf2audio hn-top10 script)" },
+      headers: { "User-Agent": "Mozilla/5.0 (Libratory hn-top10 script)" },
       redirect: "follow",
     });
     if (!res.ok) return null;

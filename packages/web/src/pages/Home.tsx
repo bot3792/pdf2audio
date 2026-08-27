@@ -40,7 +40,7 @@ export function Home() {
     <div className="min-h-screen bg-(--bg-page)">
       <div className="max-w-screen-2xl mx-auto px-6 py-8">
         <div className="flex items-center mb-2">
-          <h1 className="text-2xl font-bold text-(--text-primary)">pdf2audio</h1>
+          <h1 className="text-2xl font-bold text-(--text-primary)">Libratory</h1>
           <ProfileSwitcher />
           <Link
             to={folderId ? `/chat?folderId=${folderId}` : "/chat"}

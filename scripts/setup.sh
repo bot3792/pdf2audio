@@ -7,7 +7,7 @@ POCKET_VENV_DIR="$REPO_DIR/.venv-pocket"
 WITH_KUGEL=false
 [ "${1:-}" = "--kugel" ] && WITH_KUGEL=true
 
-echo "=== pdf2audio setup ==="
+echo "=== Libratory setup ==="
 
 # Apple Silicon gets everything; Linux gets everything except the two MLX narrators, which are
 # Metal and say so in the UI. Anything else has no local TTS story, so refusing beats half-installing.
@@ -176,7 +176,7 @@ fi
 "$POCKET_PY" "$REPO_DIR/scripts/synthesize_pocket_tts.py" --cache-only
 
 echo ""
-KUGEL_DIR="$HOME/.cache/pdf2audio-models/kugelaudio-0-open-4bit"
+KUGEL_DIR="$HOME/.cache/libratory-models/kugelaudio-0-open-4bit"
 if [ "$PLATFORM" != "mac" ]; then
   echo "KugelAudio narrator: Apple Silicon only (MLX) — skipped"
 elif [ -d "$KUGEL_DIR" ]; then

@@ -135,7 +135,7 @@ export async function assemble(
       await log(`Assembling ${m4aPaths.length} chapter(s) into M4B with chapter markers`);
       await concatToM4b(m4aPaths, outputPath, {
         title: book.title,
-        artist: "pdf2audio",
+        artist: "Libratory",
         chapters: chapterMetas,
         ...(hasCover ? { coverPath } : {}),
       });

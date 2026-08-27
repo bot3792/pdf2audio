@@ -67,7 +67,7 @@ engine wrote it.
 For reference, other hosted engines: **ElevenLabs** returns *character*-level alignment
 (`character_start_times_seconds` / `character_end_times_seconds`) from its
 `/with-timestamps` and `/stream/with-timestamps` endpoints — finer than anything used here.
-It is not a pdf2audio engine today.
+It is not a Libratory engine today.
 
 ## What the page itself is like
 

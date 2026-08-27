@@ -9,12 +9,12 @@ const crash = require("./crash.cjs");
 const runtime = require("./runtime.cjs");
 const updater = require("./updater.cjs");
 
-const PORT = Number(process.env.PDF2AUDIO_PORT || 3034);
+const PORT = Number(process.env.LIBRATORY_PORT || 3034);
 
 // Everything the app installs for itself: the Python environment, the scripts it runs, the
 // lockfile it resolves against. Never inside the bundle, which an update replaces wholesale.
 function defaultHome() {
-  return process.env.PDF2AUDIO_HOME || path.join(app.getPath("appData"), "pdf2audio");
+  return process.env.LIBRATORY_HOME || path.join(app.getPath("appData"), "Libratory");
 }
 
 // dataDir, databaseUrl, envFile: the three things a developer running both the app and a checkout
@@ -32,7 +32,7 @@ function readConfig(home) {
 let HOME = null;
 let RESOURCES = null;
 let CONFIG = {};
-const DEFAULT_DATABASE_URL = "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
+const DEFAULT_DATABASE_URL = "postgres://libratory:libratory@localhost:5433/libratory";
 
 let win = null;
 let server = null;
@@ -74,7 +74,7 @@ function composeUp(cli, env, onOutput) {
 // and keeps serving, so the next launch finds the port taken and the one after that talks to a
 // server from two versions ago. Adopting the orphan is not worth the complexity; ending it is.
 function killOrphanedServers() {
-  const bundled = path.join(RESOURCES, "pdf2audio-server");
+  const bundled = path.join(RESOURCES, "libratory-server");
   try {
     const out = execFileSync("/usr/bin/pgrep", ["-f", bundled], { encoding: "utf8" });
     for (const pid of out.split("\n").map((n) => Number(n.trim())).filter(Boolean)) {
@@ -89,7 +89,7 @@ function killOrphanedServers() {
 
 function startServer(onDied) {
   killOrphanedServers();
-  const bundled = path.join(RESOURCES, "pdf2audio-server");
+  const bundled = path.join(RESOURCES, "libratory-server");
   server = spawn(bundled, [], { env: serverEnv(), stdio: ["ignore", "pipe", "pipe"] });
   let tail = "";
   const keep = (b) => { tail = (tail + String(b)).slice(-2000); process.stdout.write(String(b)); };
@@ -114,7 +114,7 @@ function dataDir() {
 function serverEnv() {
   return {
     ...process.env,
-    PDF2AUDIO_HOME: HOME,
+    LIBRATORY_HOME: HOME,
     SCRIPTS_DIR: path.join(HOME, "scripts"),
     DATA_DIR: dataDir(),
     CONDA_ENV_PATH: path.join(HOME, "python/bin"),
@@ -122,7 +122,7 @@ function serverEnv() {
     WEB_DIR: path.join(RESOURCES, "web"),
     MIGRATIONS_DIR: path.join(RESOURCES, "drizzle"),
     DATABASE_URL: process.env.DATABASE_URL || CONFIG.databaseUrl || DEFAULT_DATABASE_URL,
-    PDF2AUDIO_ENV_FILE: process.env.PDF2AUDIO_ENV_FILE || CONFIG.envFile || path.join(HOME, ".env"),
+    LIBRATORY_ENV_FILE: process.env.LIBRATORY_ENV_FILE || CONFIG.envFile || path.join(HOME, ".env"),
     PORT: String(PORT),
     // A GUI app's PATH omits Homebrew, and the workers spawn ffmpeg, pdftotext and pdfinfo
     PATH: setup.toolPath(RESOURCES),
@@ -212,13 +212,13 @@ const STEPS = [
   },
   {
     id: "server",
-    label: "Starting pdf2audio",
+    label: "Starting Libratory",
     async run(ctx) {
       let died = null;
       startServer((reason) => { died = reason; });
       const ready = await waitFor(`${ctx.url}/health`, 120000, () => died);
       if (died) throw new Error(died);
-      if (!ready) throw new Error("The server did not start — check Console.app for pdf2audio.");
+      if (!ready) throw new Error("The server did not start — check Console.app for Libratory.");
     },
   },
 ];
@@ -280,7 +280,8 @@ function menu(url) {
       label: "Help",
       submenu: [
         { label: "Show data folder", click: () => shell.openPath(dataDir()) },
-        { label: "Where things live", click: () => dialog.showMessageBox({ message: `Everything the app installed: ${HOME}\nYour library: Postgres in Docker, port 5433\nServer: ${url}` }) },
+        { label: "Check for Updates…", click: () => void updater.checkNow() },
+        { label: "Where things live", click: () => dialog.showMessageBox({ message: `Everything the app installed: ${HOME}\nYour library: Postgres in Docker, port 5433\nServer: ${url}\nUpdates: ${updater.updatesConfigured() ? "from GitHub releases" : "not configured — this is a local build"}` }) },
         { type: "separator" },
         { label: "Report a problem", click: () => shell.openExternal(`${crash.REPO}/issues/new`) },
         { label: "Open the crash log", click: () => shell.openPath(crash.logPath(HOME || "")) },
@@ -294,7 +295,7 @@ crash.install(() => HOME || defaultHome());
 
 app.whenReady().then(() => {
   win = new BrowserWindow({
-    width: 1280, height: 860, title: "pdf2audio",
+    width: 1280, height: 860, title: "Libratory",
     webPreferences: { preload: path.join(__dirname, "preload.cjs") },
   });
   // The UI links out to Hacker News, publisher pages and whatever a digest cites. Electron's

@@ -54,7 +54,7 @@ jobs:
       # Not the server suite: it needs a live Postgres on 5433, and GitHub's macOS runners have no
       # Docker and cannot run service containers. Those tests run locally and would need a Linux
       # job of their own — releasing on a green macOS build is not a claim that they passed.
-      - run: pnpm --filter @pdf2audio/web --filter @pdf2audio/desktop test
+      - run: pnpm --filter @libratory/web --filter @libratory/desktop test
 
       # Only for rendering the .icns. ffmpeg and poppler are NOT installed here: they ship inside
       # the DMG, so they are downloaded as a pinned, checksummed bundle rather than taken from
@@ -105,7 +105,7 @@ jobs:
             # with no way past it. See packages/desktop/README.md.
             IDENTITY="-c.mac.identity=-"
           fi
-          pnpm --filter @pdf2audio/desktop exec electron-builder --mac --publish always ${IDENTITY:-}
+          pnpm --filter @libratory/desktop exec electron-builder --mac --publish always ${IDENTITY:-}
 
       - name: Say what shipped
         run: |

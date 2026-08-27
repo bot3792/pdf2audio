@@ -1,12 +1,14 @@
+name: libratory
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
     ports:
       - "5433:5432"
     environment:
-      POSTGRES_USER: pdf2audio
-      POSTGRES_PASSWORD: pdf2audio
-      POSTGRES_DB: pdf2audio
+      POSTGRES_USER: libratory
+      POSTGRES_PASSWORD: libratory
+      POSTGRES_DB: libratory
     volumes:
       # pgdata17 (glibc) replaced the alpine-era pgdata volume on 2026-08-08; old volume kept as rollback
       - pgdata17:/var/lib/postgresql/data
@@ -22,7 +24,7 @@ services:
       # who is on that network.
       - "127.0.0.1:3034:3034"
     environment:
-      DATABASE_URL: postgres://pdf2audio:pdf2audio@postgres:5432/pdf2audio
+      DATABASE_URL: postgres://libratory:libratory@postgres:5432/libratory
     volumes:
       # Named volumes rather than ./data — a bind mount the daemon creates on first `up` arrives
       # owned by root, and the server (running as node) cannot write into it. To keep the library
