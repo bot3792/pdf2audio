@@ -154,7 +154,8 @@ docker compose --profile app up -d --build   # Postgres + the app on one port
 
 One container holds the server, the built web UI and both Python environments (CPU-only torch,
 so no multi-gigabyte nvidia downloads). Web UI and API share http://localhost:3034; migrations
-apply at boot. The library lives in the `data` volume, every lazily-downloaded model in the
+apply at boot, and the first boot caches the essential Kokoro voice (~350 MB) before the server
+starts. The library lives in the `data` volume, every lazily-downloaded model in the
 `models` volume — backing those two up is the whole story. API keys set in ⚙️ Settings persist
 in `/data/.env`.
 

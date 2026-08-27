@@ -98,5 +98,8 @@ EXPOSE 3034
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3034)+'/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
 
+# The entrypoint caches the essential Kokoro voice into /models on first boot — the one model
+# the lazy-download story cannot cover, because synthesis itself runs HF_HUB_OFFLINE=1.
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 # tsx from the server's own node_modules — the same way `pnpm dev` runs it, minus the watcher.
 CMD ["packages/server/node_modules/.bin/tsx", "packages/server/src/main.ts"]

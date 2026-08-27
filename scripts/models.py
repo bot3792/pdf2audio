@@ -216,7 +216,10 @@ def main() -> int:
     if args.essential:
         # Kokoro is not in BUNDLES because it is not optional — without a voice there is no
         # audiobook. It is the whole of what a first run must fetch before the app is useful.
-        _hf_fetch("hexgrad/Kokoro-82M")
+        # Skipped when already cached so callers can run it on every start — the Docker
+        # entrypoint does, and must come up offline once the volume holds the voice.
+        if not _hf_cached("hexgrad/Kokoro-82M"):
+            _hf_fetch("hexgrad/Kokoro-82M")
         return 0
 
     if args.capabilities:
