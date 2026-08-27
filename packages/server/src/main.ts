@@ -1,6 +1,6 @@
 import { env } from "./env.ts";
-import Fastify from "fastify";
-import cors from "@fastify/cors";
+import Fastify, { type FastifyRequest } from "fastify";
+import cors, { type FastifyCorsOptions } from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { existsSync } from "node:fs";
@@ -48,6 +48,18 @@ function isLocalOrigin(origin: string): boolean {
   }
 }
 
+// Judged against the Host actually asked for, port included — a phone reading the library over
+// HOST=0.0.0.0 sends an Origin naming this very server, and holding that against a localhost list
+// rejected every POST a headless deployment exists to serve.
+function isSameOrigin(origin: string, hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  try {
+    return new URL(origin).host === hostHeader;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
   await ensureDataDirs();
   await sweepStalePreviews();
@@ -58,8 +70,9 @@ async function main() {
   // their browser — deleting books, spending credits, and since `secrets.set`, rewriting API keys
   // on disk. Nothing legitimate needs it: the UI is same-origin in the app and proxied by Vite in
   // development, and non-browser callers (the external /api scripts) send no Origin at all.
-  await fastify.register(cors, {
-    origin: (origin, cb) => cb(null, origin === undefined || isLocalOrigin(origin)),
+  await fastify.register(cors, () => (req: FastifyRequest, callback: (error: Error | null, options: FastifyCorsOptions) => void) => {
+    const origin = req.headers.origin;
+    callback(null, { origin: origin === undefined || isLocalOrigin(origin) || isSameOrigin(origin, req.headers.host) });
   });
   await fastify.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } });
 
