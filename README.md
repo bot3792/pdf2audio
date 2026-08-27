@@ -222,6 +222,85 @@ note that has to go with an unsigned release are in [packages/desktop/README.md]
 runs the whole thing inside a fresh macOS VM, checking first that the VM has no Homebrew, no Python
 and no cached models — this machine has all three and hides bugs because of it.
 
+## Uninstall
+
+A full install with every model downloaded reaches about **27 GB**, and almost none of it is inside
+the app bundle — dragging `pdf2audio.app` to the Trash leaves roughly 26 GB behind. Everything the
+app installs is listed here so you can remove exactly as much as you mean to.
+
+| What | Where | Size here |
+| --- | --- | --- |
+| The app | `/Applications/pdf2audio.app` | 451 MB |
+| Python runtime, `uv`, staged scripts, config | `~/Library/Application Support/pdf2audio/` | 1.5 GB |
+| **Your library** — books, chapters, notes, embeddings | Docker volume `pdf2audio_pgdata17` | 5.2 GB |
+| TTS and embedding models | `~/.cache/huggingface/hub/` (7 repos) | 9.7 GB |
+| Marker's OCR and layout models | `~/Library/Caches/datalab/` | 5.1 GB |
+| KugelAudio 4-bit quant | `~/.cache/pdf2audio-models/` | 4.6 GB |
+| Window state and preferences | `~/Library/Caches/dev.pdf2audio.app/`, `~/Library/Preferences/dev.pdf2audio.app.plist` | 84 KB |
+
+Audio, uploads and exports live under `data/` inside the Application Support directory unless you
+pointed `dataDir` somewhere else — check `~/Library/Application Support/pdf2audio/config.json`
+before deleting anything, because that is where your finished audiobooks are.
+
+### Remove the app, keep the library
+
+Frees about 21 GB and leaves Postgres untouched, so a later reinstall finds every book where it was.
+
+```bash
+# stop the app, then its database container
+pkill -f "pdf2audio.app/Contents/MacOS" 2>/dev/null
+docker compose -f ~/Library/Application\ Support/pdf2audio/docker-compose.yml down
+
+rm -rf /Applications/pdf2audio.app
+rm -rf ~/Library/Application\ Support/pdf2audio/python \
+       ~/Library/Application\ Support/pdf2audio/uv
+rm -rf ~/.cache/pdf2audio-models
+rm -rf ~/Library/Caches/datalab
+rm -rf ~/Library/Caches/dev.pdf2audio.app
+rm -f  ~/Library/Preferences/dev.pdf2audio.app.plist
+
+# models — only the seven repos this app downloaded, see the warning below
+cd ~/.cache/huggingface/hub && rm -rf \
+  models--hexgrad--Kokoro-82M \
+  models--BAAI--bge-m3 \
+  models--facebook--mms-tts-bul \
+  models--raditotev--bg-tts-v5-mlx \
+  models--kyutai--pocket-tts \
+  models--kyutai--pocket-tts-without-voice-cloning \
+  models--nineninesix--nemo-nano-codec-22khz-0.6kbps-12.5fps-MLX
+```
+
+> **`~/.cache/huggingface` is shared.** Every Python tool on your machine that touches Hugging Face
+> uses it, so `rm -rf ~/.cache/huggingface` will also delete models that have nothing to do with this
+> app. Remove the seven directories above and nothing else. `~/Library/Caches/datalab` belongs to
+> marker and surya — keep it if you use those elsewhere.
+
+### Remove everything, including the library
+
+**This destroys your books, chapters, notes and embeddings permanently.** Export anything you want
+to keep first — assembled M4B files and EPUB exports already sit under `data/`, and copying that
+folder somewhere safe is enough to keep the audio even though the library metadata goes.
+
+```bash
+# everything from the section above, then:
+docker volume rm pdf2audio_pgdata17
+rm -rf ~/Library/Application\ Support/pdf2audio
+```
+
+If you ever ran an older build, `docker volume ls | grep pdf2audio` will show leftovers such as the
+pre-2026-08-08 `pdf2audio_pgdata`; they are safe to remove once the current volume is gone.
+
+### Keep a backup instead of deleting
+
+A dump is a few seconds and about a tenth of the volume's size, so there is rarely a reason to
+delete the library outright rather than park it:
+
+```bash
+pg_dump "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio" -Fc -f ~/pdf2audio-backup.dump
+```
+
+Restoring later needs a running container and `pg_restore -d … --no-owner ~/pdf2audio-backup.dump`.
+
 ## Notes
 
 - Docker Postgres is mapped to host port **5433** to avoid conflicts with other Postgres instances on 5432.
