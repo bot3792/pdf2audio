@@ -18,7 +18,7 @@ are in `tasks/desktop-app.md`; this package is the part that exists.
 ## The first run
 
 No checkout, no terminal. The app stages `scripts/`, `pyproject.toml` and `uv.lock` out of its own
-bundle into `~/Library/Application Support/pdf2audio`, downloads a pinned and checksummed `uv`,
+bundle into `~/Library/Application Support/Libratory`, downloads a pinned and checksummed `uv`,
 builds the Python environment from the lockfile, fetches Kokoro, starts Postgres in Docker and
 then the server — which also serves the UI, so there is one port and no Vite.
 
@@ -42,7 +42,7 @@ never finds an update. That is deliberate (nothing to check against), and the up
 about it. Use `pnpm app:dmg` when you want the packaged, updatable article.
 
 `--install` exists because rebuilding proves nothing until the build is installed. It is easy to
-spend an afternoon reading the behaviour of `/Applications/pdf2audio.app` while editing the one in
+spend an afternoon reading the behaviour of `/Applications/Libratory.app` while editing the one in
 `release/`; the giveaway is `WEB_DIR` in the server's environment pointing somewhere you did not
 expect. It also clears the quarantine flag, which is what right-click → Open does by hand.
 
@@ -62,10 +62,10 @@ not a preference — it is the other half of the database. Point the app at a di
 wrote the files and you get a library that lists 578 books and can play none of them: the audio
 route resolves the stored path relative to `DATA_DIR`, and a path that escapes it is a 403.
 
-`~/Library/Application Support/pdf2audio/config.json` says where they already are:
+`~/Library/Application Support/Libratory/config.json` says where they already are:
 
 ```json
-{ "dataDir": "/Users/you/repos/pdf2audio/packages/server/data" }
+{ "dataDir": "/Users/you/repos/libratory/packages/server/data" }
 ```
 
 `databaseUrl` and `envFile` are accepted there too. A real install needs none of them — the
@@ -75,8 +75,8 @@ than two halves of one:
 
 ```json
 {
-  "dataDir": "/Users/you/repos/pdf2audio/packages/server/data",
-  "envFile": "/Users/you/repos/pdf2audio/.env"
+  "dataDir": "/Users/you/repos/libratory/packages/server/data",
+  "envFile": "/Users/you/repos/libratory/.env"
 }
 ```
 
@@ -174,8 +174,8 @@ brew upgrade ffmpeg poppler
 python3 scripts/bundle-tools.py           # refuses unless the versions match pins.json
 # extract and synthesize a real book with the new versions
 python3 scripts/bundle-tools.py --update-pins
-tar -czf pdf2audio-tools-arm64.tar.gz -C packages/desktop/resources bin
-gh release create tools-2 pdf2audio-tools-arm64.tar.gz --latest=false
+tar -czf libratory-tools-arm64.tar.gz -C packages/desktop/resources bin
+gh release create tools-2 libratory-tools-arm64.tar.gz --latest=false
 # then put the new url + sha256 in pins.json
 ```
 
@@ -189,7 +189,7 @@ assesses that as
 code has no resources but signature indicates they must be present
 ```
 
-which it presents to the user as **"pdf2audio is damaged and can't be opened. You should move it to
+which it presents to the user as **"Libratory is damaged and can't be opened. You should move it to
 the Bin"** — with Move to Bin as the only button, and no entry in Privacy & Security to override.
 The first release shipped exactly that, and the only way past it was a Terminal command.
 
@@ -202,15 +202,15 @@ recoverable wall instead of a dead end.
 ### The note an unsigned release needs
 
 Without an Apple certificate macOS refuses the download, and the message it shows —
-*"pdf2audio is damaged and can't be opened"* — is a lie that costs you most of your downloads
+*"Libratory is damaged and can't be opened"* — is a lie that costs you most of your downloads
 unless the release says otherwise. Paste this:
 
 > **First time opening it:** macOS will say the app is damaged or from an unidentified developer.
 > It is neither — this build just is not signed with an Apple certificate yet.
 >
-> 1. Drag **pdf2audio** to your Applications folder.
+> 1. Drag **Libratory** to your Applications folder.
 > 2. Open **System Settings → Privacy & Security**, scroll to the bottom, and click **Open Anyway**
->    next to the message about pdf2audio.
+>    next to the message about libratory.
 > 3. Confirm **Open**.
 >
 > On older macOS you can instead right-click the app → **Open** → **Open**.
@@ -249,7 +249,7 @@ Two constraints, both from `electron-updater` comparing with semver:
   the escape is `YY.M.N` — month plus a counter, `26.8.0`, `26.8.1` — which keeps the "how old"
   reading and lifts the limit.
 
-**Until there is an Apple certificate the download is quarantined**, and macOS says "pdf2audio is
+**Until there is an Apple certificate the download is quarantined**, and macOS says "Libratory is
 damaged and can't be opened" — which is a lie, but it is the lie Gatekeeper tells about unsigned
 apps that came from a browser. The release notes have to say: right-click the app → Open → Open.
 That instruction is the entire reason the $99 Developer account is worth buying; with it the
@@ -268,12 +268,12 @@ version until the app restarts.
 What happens after "Download it" is four processes, only the first of which is ours:
 
 1. **electron-updater** (in our process) downloads the zip to
-   `~/Library/Caches/@pdf2audiodesktop-updater/pending/`.
+   `~/Library/Caches/@libratorydesktop-updater/pending/`.
 2. It then starts a **local HTTP server** and points Electron's native `autoUpdater` at it, because
    Squirrel.Mac will only take an update from a URL it fetches itself. The log line
    `…zip requested by Squirrel.Mac, pipe …` is that hand-off — the file is piped from the copy
    already on disk, so the 185 MB is not downloaded twice.
-3. **Squirrel.Mac** pulls it from localhost into `~/Library/Caches/dev.pdf2audio.app.ShipIt/`,
+3. **Squirrel.Mac** pulls it from localhost into `~/Library/Caches/dev.libratory.app.ShipIt/`,
    unzips it there, and validates the unpacked app's code signature. *This is the step that fails
    without an Apple certificate* — nothing before it involves signing at all.
 4. On `quitAndInstall`, Squirrel launches **ShipIt**, a 125 KB helper inside
@@ -288,19 +288,19 @@ helper that outlives the app.
 
 ```bash
 # build the version you want to update *from*, and install it
-pnpm app:dmg && cp -R packages/desktop/release/mac-arm64/pdf2audio.app /Applications/
+pnpm app:dmg && cp -R packages/desktop/release/mac-arm64/Libratory.app /Applications/
 
 # bump the version, build again, serve the new artefacts as a feed
 python3 -m http.server 8765   # in a folder holding latest-mac.yml + the new -mac.zip
 
 # point the installed copy at that feed instead of GitHub
-cat > /Applications/pdf2audio.app/Contents/Resources/app-update.yml <<'YML'
+cat > /Applications/Libratory.app/Contents/Resources/app-update.yml <<'YML'
 provider: generic
 url: http://localhost:8765/
 YML
 
 # run it from the terminal, not Finder, so the updater's log is visible
-/Applications/pdf2audio.app/Contents/MacOS/pdf2audio
+/Applications/Libratory.app/Contents/MacOS/Libratory
 ```
 
 Check, offer, download and hand-off all work this way. **The install step will fail until the app is

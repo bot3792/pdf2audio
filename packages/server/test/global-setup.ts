@@ -4,7 +4,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import path from "node:path";
 import type { TestProject } from "vitest/node";
 
-const TEMPLATE_DB_NAME = "pdf2audio_test_template";
+const TEMPLATE_DB_NAME = "libratory_test_template";
 
 // Parse the DATABASE_URL to extract connection details
 function parseDbUrl(url: string) {
@@ -19,14 +19,14 @@ function parseDbUrl(url: string) {
 }
 
 function getAdminUrl() {
-  const base = process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
+  const base = process.env.DATABASE_URL ?? "postgres://libratory:libratory@localhost:5433/libratory";
   const config = parseDbUrl(base);
   // Connect to the default 'postgres' database for admin operations
   return `postgres://${config.user}:${config.password}@${config.host}:${config.port}/postgres`;
 }
 
 function getTemplateUrl() {
-  const base = process.env.DATABASE_URL ?? "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio";
+  const base = process.env.DATABASE_URL ?? "postgres://libratory:libratory@localhost:5433/libratory";
   const config = parseDbUrl(base);
   return `postgres://${config.user}:${config.password}@${config.host}:${config.port}/${TEMPLATE_DB_NAME}`;
 }
@@ -81,7 +81,7 @@ async function cleanUpTestDatabases(adminUrl: string) {
 
   try {
     const dbs = await sql<{ datname: string }[]>`
-      SELECT datname FROM pg_database WHERE datname LIKE 'pdf2audio_test_%'
+      SELECT datname FROM pg_database WHERE datname LIKE 'libratory_test_%'
     `;
 
     for (const { datname } of dbs) {

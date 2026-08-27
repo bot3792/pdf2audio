@@ -1,5 +1,5 @@
 {
-  "name": "@pdf2audio/desktop",
+  "name": "@libratory/desktop",
   "private": true,
   "version": "26.827.3",
   "description": "Turns PDFs and EPUBs into audiobooks you can read along with, on your own machine.",
@@ -19,8 +19,8 @@
   },
   "main": "src/main.cjs",
   "build": {
-    "appId": "dev.pdf2audio.app",
-    "productName": "pdf2audio",
+    "appId": "dev.libratory.app",
+    "productName": "Libratory",
     "directories": {
       "output": "release"
     },
@@ -79,7 +79,7 @@
       {
         "provider": "github",
         "owner": "subev",
-        "repo": "pdf2audio",
+        "repo": "libratory",
         "releaseType": "draft"
       }
     ]

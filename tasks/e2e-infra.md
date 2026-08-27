@@ -19,7 +19,7 @@ Ollama/LM Studio); the point of this task is to make those hand checks repeatabl
 ## What to test — the Playbook happy paths
 
 **`docs/use-cases.md` is the source of truth for happy-path coverage.** It distills the five
-video tutorials (narrated by "The pdf2audio Playbook" book in the app) into assertable user
+video tutorials (narrated by "The Libratory Playbook" book in the app) into assertable user
 journeys UC1–UC7. Implement them roughly in order — UC1 (core loop) and UC2 (Ask AI) carry the
 most user value per test. The infrastructure below exists to make those journeys testable.
 

@@ -22,7 +22,7 @@ vi.mock("./lib/paths.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/paths.ts")>();
   const os = await import("node:os");
   const path = await import("node:path");
-  return { ...actual, uploadsDir: path.join(os.tmpdir(), "pdf2audio-test-uploads") };
+  return { ...actual, uploadsDir: path.join(os.tmpdir(), "libratory-test-uploads") };
 });
 
 import { registerUploadRoutes } from "./upload-routes.ts";

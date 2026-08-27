@@ -1,6 +1,6 @@
 export type DragItems = { bookIds: string[]; folderIds: string[] };
 
-const MIME = "application/x-pdf2audio-items";
+const MIME = "application/x-libratory-items";
 
 export function setDragItems(e: React.DragEvent, items: DragItems) {
   e.dataTransfer.setData(MIME, JSON.stringify(items));

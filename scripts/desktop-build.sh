@@ -2,7 +2,7 @@
 # Builds the desktop app, and optionally installs it over the copy in /Applications.
 #
 #   scripts/desktop-build.sh              build a .app and a .dmg
-#   scripts/desktop-build.sh --install    …and replace /Applications/pdf2audio.app with it
+#   scripts/desktop-build.sh --install    …and replace /Applications/Libratory.app with it
 #   scripts/desktop-build.sh --fast       skip the DMG; a .app is enough to test
 #   scripts/desktop-build.sh --no-package  prepare resources only, for a signed build to package
 #
@@ -58,12 +58,12 @@ fi
 [ -f "$DESKTOP/build/icon.icns" ] || { echo "==> rendering the icon"; bash scripts/make-icon.sh; }
 
 echo "==> building the web bundle"
-pnpm --filter @pdf2audio/web build >/dev/null
+pnpm --filter @libratory/web build >/dev/null
 
 echo "==> compiling the server"
 mkdir -p "$DESKTOP/resources"
 "$BUN" build --compile --target=bun-darwin-arm64 packages/server/src/main.ts \
-  --outfile "$DESKTOP/resources/pdf2audio-server" >/dev/null
+  --outfile "$DESKTOP/resources/libratory-server" >/dev/null
 rm -rf "$DESKTOP/resources/web" && cp -R packages/web/dist "$DESKTOP/resources/web"
 
 $PACKAGE || { echo "    resources staged; packaging left to the caller"; exit 0; }
@@ -82,18 +82,18 @@ export CSC_IDENTITY_AUTO_DISCOVERY=false
 ADHOC="-c.mac.identity=-"
 if $FAST; then npx electron-builder --mac --dir $ADHOC >/dev/null; else npx electron-builder --mac $ADHOC >/dev/null; fi
 
-APP="$DESKTOP/release/mac-arm64/pdf2audio.app"
+APP="$DESKTOP/release/mac-arm64/Libratory.app"
 echo "    $APP"
 $FAST || ls -lh "$DESKTOP"/release/*.dmg | awk '{print "    " $9 "  " $5}'
 
 if $INSTALL; then
   echo "==> installing over /Applications"
-  pkill -f "pdf2audio.app/Contents/MacOS" 2>/dev/null || true
-  pkill -f "Resources/pdf2audio-server" 2>/dev/null || true
-  rm -rf /Applications/pdf2audio.app
+  pkill -f "Libratory.app/Contents/MacOS" 2>/dev/null || true
+  pkill -f "Resources/libratory-server" 2>/dev/null || true
+  rm -rf /Applications/Libratory.app
   cp -R "$APP" /Applications/
   # An unsigned app is quarantined the moment it comes off a DMG or a download. This is what
   # right-click → Open does, and it is the one step a real user cannot be asked to script.
-  xattr -dr com.apple.quarantine /Applications/pdf2audio.app 2>/dev/null || true
-  echo "    /Applications/pdf2audio.app  (quarantine cleared)"
+  xattr -dr com.apple.quarantine /Applications/Libratory.app 2>/dev/null || true
+  echo "    /Applications/Libratory.app  (quarantine cleared)"
 fi

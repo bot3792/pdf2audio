@@ -63,7 +63,7 @@ async function dockerEnv() {
 const DOCKER_HELP = {
   missing: {
     detail: "Not installed",
-    title: "pdf2audio needs Docker",
+    title: "Libratory needs Docker",
     body: "Your library lives in a database, and Docker is the free program that runs it. It is a normal app: download it, drag it to Applications, open it once, and leave it running in the menu bar.",
     links: [
       { label: "Get Docker Desktop (recommended)", url: "https://www.docker.com/products/docker-desktop/" },

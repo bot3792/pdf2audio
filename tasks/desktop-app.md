@@ -3,7 +3,7 @@
 ## Goal
 
 Someone who is not us should be able to download one file, drag it to Applications, open it, and
-have a working pdf2audio. Today they need Homebrew, Node 20, pnpm, Python 3.12, Docker, and the
+have a working libratory. Today they need Homebrew, Node 20, pnpm, Python 3.12, Docker, and the
 patience to run a script that downloads fifteen gigabytes of models.
 
 ## What is actually in the way
@@ -44,11 +44,11 @@ But two facts undo that:
 So the shape is: **a small signed shell, and a runtime directory it populates on first launch.**
 
 ```
-pdf2audio.app                          signed, notarised, ~120 MB
+Libratory.app                          signed, notarised, ~120 MB
   Node runtime + the built server + the web bundle
   a launcher that starts Postgres, starts the server, opens a window
 
-~/Library/Application Support/pdf2audio/     never signed, never quarantined
+~/Library/Application Support/Libratory/     never signed, never quarantined
   postgres/     binaries + data directory
   python/       the two environments
   bin/          ffmpeg, pdftotext, espeak-ng
@@ -118,7 +118,7 @@ With those three done, against a cluster spawned from that directory:
 | The real `src/main.ts` | boots, all **7 worker pools** connect, no errors |
 
 One environmental limit worth remembering: **the Unix socket path is capped at 103 bytes**, and the
-first attempt failed on that alone. `~/Library/Application Support/pdf2audio/` is comfortably
+first attempt failed on that alone. `~/Library/Application Support/Libratory/` is comfortably
 inside it, but a long username plus a deep data directory is not — put `unix_socket_directories`
 somewhere short, or use TCP on loopback.
 

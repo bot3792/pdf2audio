@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../env.ts", () => ({
-  env: { ELEVENLABS_API_KEY: "sk_eleven_test", ELEVENLABS_MODEL: "eleven_multilingual_v2", DATA_DIR: "/tmp/pdf2audio-test" },
+  env: { ELEVENLABS_API_KEY: "sk_eleven_test", ELEVENLABS_MODEL: "eleven_multilingual_v2", DATA_DIR: "/tmp/libratory-test" },
 }));
 
 import { charactersToWords, elevenLabsQuota, listElevenLabsVoices, recordElevenLabsSpend } from "./elevenlabs.ts";

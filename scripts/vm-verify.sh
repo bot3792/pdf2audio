@@ -5,7 +5,7 @@
 # It answers that question only up to Docker — see the note further down. A macOS guest cannot run
 # Docker at all, so the database and everything after it needs a second physical Mac.
 #
-#   ./vm-verify.sh pdf2audio-0.0.1-arm64.dmg
+#   ./vm-verify.sh Libratory-0.0.1-arm64.dmg
 #
 # Everything it checks is something that has already been got wrong once on the host, where a
 # stray Homebrew, a warm HuggingFace cache or an existing Postgres hid the problem.
@@ -25,7 +25,7 @@ test -d /opt/homebrew/bin && echo "  NOTE  this image has Homebrew; the tool che
 check "no ffmpeg on PATH" '! command -v ffmpeg'
 check "no pdftotext on PATH" '! command -v pdftotext'
 check "no Python 3.12 on PATH" '! command -v python3.12'
-check "no existing pdf2audio data" '! test -d "$HOME/Library/Application Support/pdf2audio"'
+check "no existing Libratory data" '! test -d "$HOME/Library/Application Support/Libratory"'
 if ! command -v docker >/dev/null 2>&1 && ! test -S /var/run/docker.sock; then
   echo "  NOTE  Docker is not installed — the app should say so and stop, which is itself the test"
 fi
@@ -33,14 +33,14 @@ fi
 echo
 echo "=== install ==="
 # An explicit mountpoint, because the volume name carries the version and a space —
-# /Volumes/pdf2audio 0.0.1-arm64 — and parsing hdiutil's columns silently truncates it.
+# /Volumes/Libratory 0.0.1-arm64 — and parsing hdiutil's columns silently truncates it.
 MOUNT=/tmp/p2a-dmg
 rm -rf "$MOUNT" && mkdir -p "$MOUNT"
 hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" "$DMG" >/dev/null || { echo "  could not mount $DMG"; exit 1; }
-rm -rf /Applications/pdf2audio.app
-cp -R "$MOUNT"/pdf2audio.app /Applications/ && echo "  copied to /Applications"
+rm -rf /Applications/Libratory.app
+cp -R "$MOUNT"/Libratory.app /Applications/ && echo "  copied to /Applications"
 hdiutil detach "$MOUNT" -quiet
-APP=$(ls -d /Applications/pdf2audio.app 2>/dev/null)
+APP=$(ls -d /Applications/Libratory.app 2>/dev/null)
 check "app is in /Applications" 'test -d "$APP"'
 
 # Gatekeeper will refuse an unsigned build. Clearing quarantine is what a person does by
@@ -57,7 +57,7 @@ done
 echo
 echo "=== first run ==="
 # This is where a macOS VM stops being able to help, and it is worth being blunt about why.
-# pdf2audio keeps its library in Postgres, Postgres runs in Docker, and Docker runs a Linux VM.
+# Libratory keeps its library in Postgres, Postgres runs in Docker, and Docker runs a Linux VM.
 # Apple's Virtualization framework offers nested virtualization to *Linux* guests on M3 and later
 # only — `tart run --nested` on a macOS guest answers "macOS virtual machines do not support
 # nested virtualization" and refuses. So Docker Desktop and OrbStack both install fine in here and

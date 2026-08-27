@@ -133,7 +133,7 @@ def check_versions(originals: list[Path], update: bool) -> int:
         "\nThese go inside the DMG, so a change here reaches every user. Adopt it deliberately:\n"
         "  1. extract and synthesize a real book with the new versions\n"
         "  2. python3 scripts/bundle-tools.py --update-pins\n"
-        "  3. tar -czf pdf2audio-tools-arm64.tar.gz -C packages/desktop/resources bin\n"
+        "  3. tar -czf libratory-tools-arm64.tar.gz -C packages/desktop/resources bin\n"
         "  4. gh release create tools-N that tarball, and put its url + sha256 in pins.json",
         file=sys.stderr,
     )

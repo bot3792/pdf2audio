@@ -81,7 +81,7 @@ and flat pricing only over the local ones.
 
 Which obligations apply depends on who runs the software, and the split is not obvious.
 
-**Self-hosted (user runs pdf2audio themselves).** The Pocket-TTS cloning weights are
+**Self-hosted (user runs Libratory themselves).** The Pocket-TTS cloning weights are
 gated per HuggingFace account, so **every user must make their own HF account and accept
 Kyutai's terms**. We cannot accept on their behalf and cannot redistribute the gated
 weights pre-cached. Our only obligation is telling them so in the README. The 26 catalog

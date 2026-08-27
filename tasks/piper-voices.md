@@ -42,7 +42,7 @@ instead of being faked by chunk gaps.
 
 - **`piper-tts` 1.7.0** on PyPI, **GPL-3.0-or-later** (the `piper1-gpl` rewrite by OHF-Voice —
   the old MIT Piper is retired). It runs as a subprocess like every other engine here, so it does
-  not affect pdf2audio's own licensing — but the repo is public, so note it in the docs.
+  not affect Libratory's own licensing — but the repo is public, so note it in the docs.
 - Prebuilt **`macosx_11_0_arm64`** wheel (cp39-abi3), espeak-ng bundled. **No cp314 wheel** —
   build the venv on **python3.12** (what `.venv` already uses); 3.14 falls back to an sdist build.
 - **Measured on this machine: ~20x realtime on CPU** — 16.9s of Bulgarian audio in 0.83s wall,

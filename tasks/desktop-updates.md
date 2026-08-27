@@ -37,7 +37,7 @@ that differ, then continue.
 ```
 
 ```jsonc
-// ~/Library/Application Support/pdf2audio/runtime-state.json
+// ~/Library/Application Support/Libratory/runtime-state.json
 { "runtime": 2, "python": "<sha256>", "migrations": 33, "models": { … } }
 ```
 
@@ -121,10 +121,10 @@ with the installed app's `Resources/app-update.yml` rewritten to match) against 
 ```
 Checking for update                                    ✅
 Found version 26.8.27                                  ✅
-"A new pdf2audio is available"  → Download it          ✅
+"A new Libratory is available"  → Download it          ✅
 185 MB downloaded, handed to Squirrel.Mac              ✅
 install                                                ❌
-  Code signature at URL …/pdf2audio.app/ did not pass validation:
+  Code signature at URL …/Libratory.app/ did not pass validation:
   code has no resources but signature indicates they must be present
 ```
 
@@ -143,7 +143,7 @@ The second is one step from working, and the reason is exact: an ad-hoc signatur
 requirement *is its cdhash*, a hash of the code —
 
 ```
-$ codesign -d -r- /Applications/pdf2audio.app
+$ codesign -d -r- /Applications/Libratory.app
 # designated => cdhash H"75d8c207a5d5703ef15da968fa0a68ae3bfa2d5c"
 ```
 

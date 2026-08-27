@@ -27,7 +27,7 @@ pnpm e2e:ui     # Playwright UI mode (all tests visible; filter by @slow tag in 
 ## Coverage
 
 The specs mirror the promises of the five intro videos (`docs/use-cases.md`, narrated
-by "The pdf2audio Playbook" book): core loop up to raw text (smoke) and through marker
+by "The Libratory Playbook" book): core loop up to raw text (smoke) and through marker
 extraction / structure re-cut, say-voice synthesis, and M4B assembly (full); Ask AI with
 saved notes and note→chapter; scoped chat with verified citations opening the PDF at the
 cited page; transform variants; digests; folders; PDF/EPUB export; the external books API;

@@ -1,4 +1,4 @@
-# pdf2audio
+# Libratory
 
 Turns PDF books into audiobooks — and more. Upload PDFs, pick a voice, and get chapter-marked M4B audiobooks, AI digests, translations, AI rewrites (ELI5, summaries, custom prompts), PDF/EPUB exports, and read-along synced EPUBs (audio + highlighted text) you can listen to offline on a phone.
 
@@ -33,7 +33,7 @@ Short standalone tours, narrated by the app's own synthesized voice — the scri
 
 ## How is this different from Ebook2Audiobook?
 
-[Ebook2Audiobook](https://github.com/DrewThomasson/ebook2audiobook) is a one-shot converter: file in, audiobook out, with voice cloning (XTTSv2) and huge language coverage. pdf2audio is a **library you live in**: books persist in a database with per-chapter editing, re-synthesis, AI cleanup, translations and rewrites, notes, digests, read-along export, and chat over the content of every book. PDFs are the first-class input (raw text instantly, OCR opt-in) rather than routed through an EPUB conversion, and the TTS stack is newer local models (Kokoro, KugelAudio) plus macOS and Cartesia voices instead of the Coqui-era engines. If you want "this EPUB in a cloned voice", use Ebook2Audiobook; if you want to clean up, restructure, transform, and actually work with a messy PDF collection, that's this.
+[Ebook2Audiobook](https://github.com/DrewThomasson/ebook2audiobook) is a one-shot converter: file in, audiobook out, with voice cloning (XTTSv2) and huge language coverage. Libratory is a **library you live in**: books persist in a database with per-chapter editing, re-synthesis, AI cleanup, translations and rewrites, notes, digests, read-along export, and chat over the content of every book. PDFs are the first-class input (raw text instantly, OCR opt-in) rather than routed through an EPUB conversion, and the TTS stack is newer local models (Kokoro, KugelAudio) plus macOS and Cartesia voices instead of the Coqui-era engines. If you want "this EPUB in a cloned voice", use Ebook2Audiobook; if you want to clean up, restructure, transform, and actually work with a messy PDF collection, that's this.
 
 ## How it works
 
@@ -137,7 +137,7 @@ An Apple Silicon Mac (the MLX TTS engines need Metal) with:
 ## Setup
 
 ```bash
-git clone https://github.com/subev/pdf2audio.git && cd pdf2audio
+git clone https://github.com/subev/libratory.git && cd libratory
 pnpm run setup    # checks deps, builds .venv (pinned Python deps), caches models, starts Postgres, migrates
 pnpm dev          # server on :3034, web on :3033
 ```
@@ -197,7 +197,7 @@ the app keeps beside everything else it installed. There is nothing to edit by h
 checkout required.
 
 Running the app **and** `pnpm dev` against the same Docker Postgres needs one more thing:
-`~/Library/Application Support/pdf2audio/config.json`.
+`~/Library/Application Support/Libratory/config.json`.
 
 ```json
 {
@@ -225,21 +225,21 @@ and no cached models — this machine has all three and hides bugs because of it
 ## Uninstall
 
 A full install with every model downloaded reaches about **27 GB**, and almost none of it is inside
-the app bundle — dragging `pdf2audio.app` to the Trash leaves roughly 26 GB behind. Everything the
+the app bundle — dragging `Libratory.app` to the Trash leaves roughly 26 GB behind. Everything the
 app installs is listed here so you can remove exactly as much as you mean to.
 
 | What | Where | Size here |
 | --- | --- | --- |
-| The app | `/Applications/pdf2audio.app` | 451 MB |
-| Python runtime, `uv`, staged scripts, config | `~/Library/Application Support/pdf2audio/` | 1.5 GB |
-| **Your library** — books, chapters, notes, embeddings | Docker volume `pdf2audio_pgdata17` | 5.2 GB |
+| The app | `/Applications/Libratory.app` | 451 MB |
+| Python runtime, `uv`, staged scripts, config | `~/Library/Application Support/Libratory/` | 1.5 GB |
+| **Your library** — books, chapters, notes, embeddings | Docker volume `libratory_pgdata17` | 5.2 GB |
 | TTS and embedding models | `~/.cache/huggingface/hub/` (7 repos) | 9.7 GB |
 | Marker's OCR and layout models | `~/Library/Caches/datalab/` | 5.1 GB |
-| KugelAudio 4-bit quant | `~/.cache/pdf2audio-models/` | 4.6 GB |
-| Window state and preferences | `~/Library/Caches/dev.pdf2audio.app/`, `~/Library/Preferences/dev.pdf2audio.app.plist` | 84 KB |
+| KugelAudio 4-bit quant | `~/.cache/libratory-models/` | 4.6 GB |
+| Window state and preferences | `~/Library/Caches/dev.libratory.app/`, `~/Library/Preferences/dev.libratory.app.plist` | 84 KB |
 
 Audio, uploads and exports live under `data/` inside the Application Support directory unless you
-pointed `dataDir` somewhere else — check `~/Library/Application Support/pdf2audio/config.json`
+pointed `dataDir` somewhere else — check `~/Library/Application Support/Libratory/config.json`
 before deleting anything, because that is where your finished audiobooks are.
 
 ### Remove the app, keep the library
@@ -248,16 +248,16 @@ Frees about 21 GB and leaves Postgres untouched, so a later reinstall finds ever
 
 ```bash
 # stop the app, then its database container
-pkill -f "pdf2audio.app/Contents/MacOS" 2>/dev/null
-docker compose -f ~/Library/Application\ Support/pdf2audio/docker-compose.yml down
+pkill -f "Libratory.app/Contents/MacOS" 2>/dev/null
+docker compose -f ~/Library/Application\ Support/Libratory/docker-compose.yml down
 
-rm -rf /Applications/pdf2audio.app
-rm -rf ~/Library/Application\ Support/pdf2audio/python \
-       ~/Library/Application\ Support/pdf2audio/uv
-rm -rf ~/.cache/pdf2audio-models
+rm -rf /Applications/Libratory.app
+rm -rf ~/Library/Application\ Support/Libratory/python \
+       ~/Library/Application\ Support/Libratory/uv
+rm -rf ~/.cache/libratory-models
 rm -rf ~/Library/Caches/datalab
-rm -rf ~/Library/Caches/dev.pdf2audio.app
-rm -f  ~/Library/Preferences/dev.pdf2audio.app.plist
+rm -rf ~/Library/Caches/dev.libratory.app
+rm -f  ~/Library/Preferences/dev.libratory.app.plist
 
 # models — only the seven repos this app downloaded, see the warning below
 cd ~/.cache/huggingface/hub && rm -rf \
@@ -283,12 +283,12 @@ folder somewhere safe is enough to keep the audio even though the library metada
 
 ```bash
 # everything from the section above, then:
-docker volume rm pdf2audio_pgdata17
-rm -rf ~/Library/Application\ Support/pdf2audio
+docker volume rm libratory_pgdata17
+rm -rf ~/Library/Application\ Support/Libratory
 ```
 
-If you ever ran an older build, `docker volume ls | grep pdf2audio` will show leftovers such as the
-pre-2026-08-08 `pdf2audio_pgdata`; they are safe to remove once the current volume is gone.
+If you ever ran an older build, `docker volume ls | grep libratory` will show leftovers such as the
+pre-2026-08-08 `libratory_pgdata`; they are safe to remove once the current volume is gone.
 
 ### Keep a backup instead of deleting
 
@@ -296,10 +296,10 @@ A dump is a few seconds and about a tenth of the volume's size, so there is rare
 delete the library outright rather than park it:
 
 ```bash
-pg_dump "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2audio" -Fc -f ~/pdf2audio-backup.dump
+pg_dump "postgres://libratory:libratory@localhost:5433/libratory" -Fc -f ~/libratory-backup.dump
 ```
 
-Restoring later needs a running container and `pg_restore -d … --no-owner ~/pdf2audio-backup.dump`.
+Restoring later needs a running container and `pg_restore -d … --no-owner ~/libratory-backup.dump`.
 
 ## Notes
 
@@ -309,9 +309,9 @@ Restoring later needs a running container and `pg_restore -d … --no-owner ~/pd
 - `scripts/models.py --status` lists the bundles and what is cached; `--download <id>` fetches one; `--capabilities` reports whether MLX is usable, which is what greys out the two Metal-only narrators (BG-TTS V5 and KugelAudio) instead of letting them fail at synthesis. Everything else falls back to the CPU. A `.models-missing` file at the repo root (one bundle id per line) makes the app pretend those are absent — the only sane way to work on a download gate without deleting gigabytes.
 - The first PDF/EPUB export downloads a rendering browser (~350 MB) into the Vivliostyle cache.
 - **Pocket TTS** runs in its own Python env (`.venv-pocket`) because it needs numpy 2.x while the marker/kokoro stack is pinned to 1.26. `pnpm run setup` builds both. It is CPU-only by design — it leaves the GPU free for the MLX engines — and has no speed parameter, so the UI disables the slider.
-- **Pocket TTS voice licensing is mixed.** The built-in voices are embeddings of real recordings under different licenses: most are CC0 or CC BY 4.0, but `cosette` and `jean` are **CC BY-NC 4.0 (non-commercial only)** and `estelle`'s provenance is unverified. Each voice shows its license in the picker. This is irrelevant while pdf2audio is noncommercial (see [LICENSE](LICENSE)) — it matters if you ever sell audio made with it. Details in [docs/tts-licensing.md](docs/tts-licensing.md).
+- **Pocket TTS voice licensing is mixed.** The built-in voices are embeddings of real recordings under different licenses: most are CC0 or CC BY 4.0, but `cosette` and `jean` are **CC BY-NC 4.0 (non-commercial only)** and `estelle`'s provenance is unverified. Each voice shows its license in the picker. This is irrelevant while Libratory is noncommercial (see [LICENSE](LICENSE)) — it matters if you ever sell audio made with it. Details in [docs/tts-licensing.md](docs/tts-licensing.md).
 - The Bulgarian-capable narrators are `BG-TTS V5 (Radi Totev MLX port)`, `MMS Bulgarian (Meta)`, `KugelAudio (7B, 24 EU languages)`, the macOS `Daria` system voice, and the Bulgarian voices from Cartesia and ElevenLabs. The local model narrators run at fixed speed (UI disables the slider); macOS and the cloud engines support the speed control.
-- KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/pdf2audio-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm run setup --kugel` downloads and converts it. ~1.5x realtime on an M4 Pro.
+- KugelAudio (`kugelaudio/kugelaudio-0-open`, Apache-2.0) runs from a local 4-bit MLX quantization (~5 GB) at `~/.cache/libratory-models/kugelaudio-0-open-4bit` (override with `KUGEL_TTS_MODEL_PATH`); `pnpm run setup --kugel` downloads and converts it. ~1.5x realtime on an M4 Pro.
 - `facebook/mms-tts-bul` is licensed `CC-BY-NC-4.0`.
 - Best Kokoro voices: `af_heart` (A tier), `af_bella` (A- tier), `bf_emma` (B- tier).
 
@@ -324,13 +324,13 @@ language of whatever voice is currently selected.
 
 ### Cloning your own voice
 
-Pocket TTS can clone a voice from a short sample. In the voice picker, open **Your voices**, then either record ~20 seconds in the browser or upload a file (anything ffmpeg can read). The sample is encoded locally into a small voice file and the recording is discarded — it never leaves the machine running pdf2audio.
+Pocket TTS can clone a voice from a short sample. In the voice picker, open **Your voices**, then either record ~20 seconds in the browser or upload a file (anything ffmpeg can read). The sample is encoded locally into a small voice file and the recording is discarded — it never leaves the machine running libratory.
 
 ![The Your voices tab of the voice picker, listing cloned voices above the recording controls](docs/images/voice-cloning.png)
 
 **Set your expectations accordingly.** Pocket TTS is a 100M-parameter model built to run on a CPU, and a clone inherits that ceiling — it lands somewhere between recognisable and convincing, and it is not as easy to listen to across a whole book as Kokoro's built-in voices. It also reproduces the *recording* faithfully, so room echo and mic hiss get cloned along with the voice. A quiet room and a headset mic help; on iPhone, Voice Memos set to **Studio** quality gives a noticeably cleaner sample. It's a fun extra rather than the voice you'd pick for a long listen.
 
-Kyutai's terms prohibit cloning a voice without that person's consent, along with deception and impersonation generally — hence the confirmation checkbox, which the server enforces rather than takes on trust. Enabling cloning means accepting those terms on your own HuggingFace account, and if you host pdf2audio for other people, enforcing them becomes your responsibility.
+Kyutai's terms prohibit cloning a voice without that person's consent, along with deception and impersonation generally — hence the confirmation checkbox, which the server enforces rather than takes on trust. Enabling cloning means accepting those terms on your own HuggingFace account, and if you host Libratory for other people, enforcing them becomes your responsibility.
 
 ## License
 

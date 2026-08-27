@@ -3,7 +3,7 @@ const { appendFileSync, readFileSync, existsSync } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const REPO = "https://github.com/subev/pdf2audio";
+const REPO = "https://github.com/subev/libratory";
 // GitHub truncates very long querystrings, and a stack tail is more use than a stack head
 const MAX_BODY = 4000;
 
@@ -25,7 +25,7 @@ function report(err, home, context) {
 
 function asText(r) {
   return [
-    `pdf2audio ${r.version}`,
+    `Libratory ${r.version}`,
     `${r.platform}`,
     `${r.when}${r.context ? ` — ${r.context}` : ""}`,
     "",
@@ -53,8 +53,8 @@ function show(r) {
   const { response } = dialog.showMessageBoxSync
     ? { response: dialog.showMessageBoxSync({
         type: "error",
-        title: "pdf2audio stopped",
-        message: "pdf2audio hit a problem it could not recover from.",
+        title: "Libratory stopped",
+        message: "Libratory hit a problem it could not recover from.",
         detail: `${r.message.split("\n").slice(0, 3).join("\n")}\n\nThe full details are in crash.log. Reporting it opens GitHub with everything filled in — you only have to say what you were doing.`,
         buttons: ["Report this", "Copy details", "Close"],
         defaultId: 0,

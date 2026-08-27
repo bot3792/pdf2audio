@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_MODEL_PATH = os.path.expanduser("~/.cache/pdf2audio-models/kugelaudio-0-open-4bit")
+DEFAULT_MODEL_PATH = os.path.expanduser("~/.cache/libratory-models/kugelaudio-0-open-4bit")
 VOICES = {"default"}
 CHUNK_SEPARATOR = "\f"
 PAUSE_MS = 250

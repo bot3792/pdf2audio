@@ -7,7 +7,7 @@ POCKET_VENV_DIR="$REPO_DIR/.venv-pocket"
 WITH_KUGEL=false
 [ "${1:-}" = "--kugel" ] && WITH_KUGEL=true
 
-echo "=== pdf2audio setup ==="
+echo "=== Libratory setup ==="
 
 if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
   echo "This setup targets Apple Silicon Macs — the MLX TTS engines need Metal."
@@ -130,7 +130,7 @@ fi
 "$POCKET_PY" "$REPO_DIR/scripts/synthesize_pocket_tts.py" --cache-only
 
 echo ""
-KUGEL_DIR="$HOME/.cache/pdf2audio-models/kugelaudio-0-open-4bit"
+KUGEL_DIR="$HOME/.cache/libratory-models/kugelaudio-0-open-4bit"
 if [ -d "$KUGEL_DIR" ]; then
   echo "KugelAudio narrator: already present"
 elif ! $WITH_KUGEL && [ -t 0 ]; then
