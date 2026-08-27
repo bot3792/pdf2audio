@@ -1,6 +1,6 @@
 # pdf2audio — Agent Context
 
-Personal tool that converts PDF books to M4B audiobooks with chapter markers. Runs locally on Apple Silicon Macs. Fully offline after initial model download.
+Personal tool that converts PDF books to M4B audiobooks with chapter markers. Runs locally on Apple Silicon Macs and on Linux (CPU or CUDA; the two MLX narrators stay Mac-only and the UI says so). Fully offline after initial model download.
 
 ## Product Vision
 
@@ -455,7 +455,7 @@ Intentionally minimal — Kokoro handles numbers/dates/abbreviations natively. W
 - Python subprocess: `scripts/synthesize.py` called from `lib/kokoro.ts`
 - Two-step synthesis: G2P + `en_tokenize` phoneme chunking upfront (exact chunk count), then `KPipeline.infer()` loop per chunk
 - **510 phoneme limit**: Voice pack tensor has 510 entries (indices 0-509). `en_tokenize` can produce chunks >510 chars. `synthesize.py` splits oversized chunks at space boundaries to stay within limits.
-- Uses MPS (Metal Performance Shaders) for Apple Silicon GPU acceleration
+- Uses MPS (Metal Performance Shaders) on Apple Silicon; CUDA or CPU elsewhere (torch decides)
 - Subprocess timeout: **3 hours** (configurable in `lib/kokoro.ts`)
 - Env vars: `PYTORCH_ENABLE_MPS_FALLBACK=1`, `HF_HUB_OFFLINE=1`, Python env path via `CONDA_ENV_PATH`
 - Outputs WAV at 24kHz (Kokoro's native rate); FFmpeg resamples to the pinned 44.1kHz mono during the M4A encode so chapters from any engine concat losslessly
@@ -487,7 +487,7 @@ Intentionally minimal — Kokoro handles numbers/dates/abbreviations natively. W
 - Each block has `bbox`/`polygon` coordinates (useful for column filtering), `section_hierarchy` for heading ancestry
 - `metadata.table_of_contents` may or may not be present (some PDFs don't produce it)
 - Uses Surya OCR for scanned PDFs, pdftext for digital PDFs
-- Env vars: `TORCH_DEVICE=mps`, `HF_HUB_OFFLINE=1` for offline Apple Silicon GPU acceleration
+- Env vars: `TORCH_DEVICE` (mps on a Mac; cuda/cpu by capability probe elsewhere — `lib/marker.ts`), `HF_HUB_OFFLINE=1`
 - Timeout: 24 hours (user cancels manually if needed)
 
 ## Logging
