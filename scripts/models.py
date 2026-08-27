@@ -220,12 +220,18 @@ def main() -> int:
         return 0
 
     if args.capabilities:
-        if "mlx" in _forced_missing():
-            print(json.dumps({"mlx": False}))
-            return 0
-        # Deliberately does not import torch to check MPS: that costs half a second and nothing
-        # is gated on it — the two MLX narrators are the only engines that cannot fall back.
-        print(json.dumps({"mlx": _mlx_available()}))
+        # A Mac still never imports torch here: MPS gates nothing — the two MLX narrators are the
+        # only engines that cannot fall back. On Linux the answer decides marker's device, so the
+        # half-second import is paid, once, where it buys something.
+        cuda = False
+        if sys.platform == "linux":
+            try:
+                import torch
+                cuda = torch.cuda.is_available()
+            except Exception:
+                cuda = False
+        mlx = False if "mlx" in _forced_missing() else _mlx_available()
+        print(json.dumps({"mlx": mlx, "cuda": cuda}))
         return 0
 
     if args.status:
