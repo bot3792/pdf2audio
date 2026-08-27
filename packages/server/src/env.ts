@@ -18,6 +18,11 @@ const envSchema = z.object({
   // Localhost by default: the desktop app opens a window on the same machine, and a library that
   // answers the whole coffee-shop network is not a default anyone chose.
   HOST: z.string().default("127.0.0.1"),
+  // Hostnames a browser may legitimately reach this server by, comma-separated (`host:port` when
+  // it is not the default port). Only names need listing — an IP-literal Host is already accepted,
+  // because DNS rebinding cannot produce one. Set it when a reverse proxy or an mDNS/tailnet name
+  // fronts the server; see lib/cors.ts.
+  TRUSTED_HOSTS: z.string().default(""),
   CONDA_ENV_PATH: z.string().default(path.join(repoRoot, ".venv", "bin")),
   SCRIPTS_DIR: z.string().default(path.join(repoRoot, "scripts")),
   WEB_DIR: z.string().default(path.join(repoRoot, "packages", "web", "dist")),
