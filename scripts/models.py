@@ -117,15 +117,28 @@ BUNDLES = [
         "download": lambda: _hf_fetch("BAAI/bge-m3"),
         "cacheDirs": lambda: [_hf_repo_dir("BAAI/bge-m3")],
     },
+    # One bundle used to hold both Bulgarian voices, flagged Apple-Silicon-only for the sake of
+    # the MLX narrator — which made the MMS voice, which runs anywhere, undownloadable on exactly
+    # the machines where it is the only Bulgarian option. A Mac that installed the old bundle has
+    # both repos cached, so each half reports installed without a migration.
     {
         "id": "bulgarian",
+        "label": "Bulgarian voice",
+        "unlocks": "The Meta MMS Bulgarian voice",
+        "approxMb": 290,
+        "installed": lambda: _hf_cached("facebook/mms-tts-bul"),
+        "download": lambda: _hf_fetch("facebook/mms-tts-bul"),
+        "cacheDirs": lambda: [_hf_repo_dir("facebook/mms-tts-bul")],
+    },
+    {
+        "id": "bulgarian-narrator",
         "label": "Bulgarian narrator",
-        "unlocks": "The BG-TTS V5 and Meta MMS Bulgarian voices",
-        "approxMb": 1240,
+        "unlocks": "The BG-TTS V5 narrator voice",
+        "approxMb": 1000,
         "appleSiliconOnly": True,
-        "installed": lambda: _hf_cached("raditotev/bg-tts-v5-mlx") and _hf_cached("facebook/mms-tts-bul"),
-        "download": lambda: (_hf_fetch("raditotev/bg-tts-v5-mlx"), _hf_fetch("facebook/mms-tts-bul")),
-        "cacheDirs": lambda: [_hf_repo_dir("raditotev/bg-tts-v5-mlx"), _hf_repo_dir("facebook/mms-tts-bul")],
+        "installed": lambda: _hf_cached("raditotev/bg-tts-v5-mlx"),
+        "download": lambda: _hf_fetch("raditotev/bg-tts-v5-mlx"),
+        "cacheDirs": lambda: [_hf_repo_dir("raditotev/bg-tts-v5-mlx")],
     },
 ]
 
@@ -136,6 +149,14 @@ BY_ID = {b["id"]: b for b in BUNDLES}
 # back to see the other state. A file rather than an env var because the e2e suite drives an
 # already-running dev server, whose environment it cannot reach. "mlx" is accepted here too, so the
 # Apple-Silicon-only narrators can be seen greyed out on a machine that has MLX.
+def _mlx_available() -> bool:
+    try:
+        import mlx.core  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
 def _forced_missing() -> set:
     marker = Path(__file__).resolve().parent.parent / ".models-missing"
     if not marker.exists():
@@ -175,6 +196,10 @@ def main() -> int:
         # which silently skipped any bundle added here afterwards.
         import threading
         for bundle in BUNDLES:
+            # Fetching a gigabyte of Metal weights onto a machine with no Metal is not "all models"
+            if bundle.get("appleSiliconOnly") and not _mlx_available():
+                print(f"  {bundle['id']}: Apple Silicon only — skipped", file=sys.stderr)
+                continue
             print(f"  {bundle['id']}...", file=sys.stderr)
             stop = threading.Event()
             reporter = threading.Thread(
@@ -200,12 +225,7 @@ def main() -> int:
             return 0
         # Deliberately does not import torch to check MPS: that costs half a second and nothing
         # is gated on it — the two MLX narrators are the only engines that cannot fall back.
-        try:
-            import mlx.core  # noqa: F401
-            mlx = True
-        except Exception:
-            mlx = False
-        print(json.dumps({"mlx": mlx}))
+        print(json.dumps({"mlx": _mlx_available()}))
         return 0
 
     if args.status:
