@@ -173,19 +173,19 @@ def main() -> int:
     if args.download_all:
         # WITH_ALL_MODELS=1 in setup.sh. Iterating BY_ID rather than a list spelled out in bash,
         # which silently skipped any bundle added here afterwards.
+        import threading
         for bundle in BUNDLES:
             print(f"  {bundle['id']}...", file=sys.stderr)
-            import threading
-        stop = threading.Event()
-        reporter = threading.Thread(
-            target=_report_progress, args=(bundle["cacheDirs"](), bundle["approxMb"], stop), daemon=True
-        )
-        reporter.start()
-        try:
-            bundle["download"]()
-        finally:
-            stop.set()
-            reporter.join(timeout=3)
+            stop = threading.Event()
+            reporter = threading.Thread(
+                target=_report_progress, args=(bundle["cacheDirs"](), bundle["approxMb"], stop), daemon=True
+            )
+            reporter.start()
+            try:
+                bundle["download"]()
+            finally:
+                stop.set()
+                reporter.join(timeout=3)
         return 0
 
     if args.essential:
