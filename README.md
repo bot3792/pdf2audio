@@ -161,7 +161,10 @@ in `/data/.env`.
 The port is published on **127.0.0.1 deliberately**: there is no login, so anyone who can reach
 it can read and delete everything. To serve your LAN, override the mapping in a
 `docker-compose.override.yml` — and know who is on that network — or front it with a reverse
-proxy or Tailscale.
+proxy or Tailscale. A reverse proxy must forward the original `Host` header (nginx:
+`proxy_set_header Host $host;` — Caddy already does): the server tells browsers apart from
+strangers by matching their `Origin` against the Host they asked for, so a proxy that rewrites
+it to `127.0.0.1:3034` makes every browser POST look foreign and get rejected.
 
 ### Optional: Storyteller companion (read-along on a phone)
 
