@@ -370,6 +370,11 @@ export async function availableModels(): Promise<LlmModelDef[]> {
 
 export async function defaultModelKey(): Promise<string | undefined> {
   const models = await availableModels();
+  // The user's pick (Settings → Default AI model) wins while its model is actually available;
+  // a stopped Ollama or a removed key falls through to the automatic choice rather than erroring.
+  if (env.DEFAULT_LLM_MODEL && models.some((m) => m.key === env.DEFAULT_LLM_MODEL)) {
+    return env.DEFAULT_LLM_MODEL;
+  }
   return (models.find((m) => m.key === "flash") ?? models[0])?.key;
 }
 
@@ -382,7 +387,8 @@ function openAiCompatName(def: LlmModelDef): string {
 }
 
 export async function resolveLlm(key?: string): Promise<{ model: LanguageModel; def: LlmModelDef }> {
-  const wanted = key ?? (await defaultModelKey());
+  // || not ??: a picker that has not resolved yet submits "", which means "the default", not a model
+  const wanted = key || (await defaultModelKey());
   if (!wanted) {
     throw new Error(
       "No AI model is available — start Ollama or LM Studio, or add an API key (e.g. DEEPSEEK_API_KEY) to .env",

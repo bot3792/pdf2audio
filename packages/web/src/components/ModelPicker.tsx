@@ -1,5 +1,5 @@
 import { memo, useEffect } from "react";
-import { useLlmModels } from "../lib/use-llm-models.ts";
+import { useDefaultModelKey, useLlmModels } from "../lib/use-llm-models.ts";
 import { formatTokens } from "../lib/ai-presets.ts";
 
 export const ModelPicker = memo(function ModelPicker({
@@ -15,16 +15,19 @@ export const ModelPicker = memo(function ModelPicker({
   testId?: string;
 }) {
   const models = useLlmModels();
+  const defaultKey = useDefaultModelKey();
   const usable = (key: string) => {
     const m = models.find((entry) => entry.key === key);
     return m !== undefined && (!requireTools || m.supportsTools);
   };
 
+  // Callers mount with value "" (unresolved): land on the default model, or the first usable
+  // one when the default is missing or can't do what this picker needs (e.g. chat tools).
   useEffect(() => {
     if (models.length === 0 || usable(value)) return;
-    const fallback = models.find((m) => !requireTools || m.supportsTools);
-    if (fallback) onChange(fallback.key);
-  }, [models, value, requireTools, onChange]);
+    const fallback = defaultKey && usable(defaultKey) ? defaultKey : models.find((m) => !requireTools || m.supportsTools)?.key;
+    if (fallback) onChange(fallback);
+  }, [models, value, requireTools, onChange, defaultKey]);
 
   const active = models.find((m) => m.key === value);
   return (

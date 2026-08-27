@@ -27,6 +27,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
+  // Settings → "Default AI model": the model key every no-explicit-pick request resolves to.
+  // Unset means automatic (V4 Flash when configured, else the first available model).
+  DEFAULT_LLM_MODEL: z.string().optional(),
   LOCAL_LLM_URL: z.string().optional(),
   LOCAL_LLM_MODEL: z.string().optional(),
   LOCAL_LLM_LABEL: z.string().optional(),
