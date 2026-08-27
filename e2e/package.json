@@ -1,5 +1,7 @@
 {
   "name": "@pdf2audio/e2e",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "Petar Sabev",
   "private": true,
   "type": "module",
   "scripts": {

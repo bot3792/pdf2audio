@@ -1,6 +1,6 @@
 // The window: this file starts child processes and points a BrowserWindow at a local url.
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require("electron");
-const { execFile, execFileSync, spawn } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 
 const path = require("node:path");
 const setup = require("./setup.cjs");
@@ -37,10 +37,36 @@ const DEFAULT_DATABASE_URL = "postgres://pdf2audio:pdf2audio@localhost:5433/pdf2
 let win = null;
 let server = null;
 
-function composeUp(cli, env) {
+// First run pulls a 644 MB Postgres image, which took longer than the two-minute timeout this used
+// to have — killed mid-pull, and reported as "Postgres would not start". Docker's own output is
+// forwarded so the wait shows progress instead of looking like a hang, and its last line survives
+// into the error, because a timeout, a port already in use and a full disk are not the same problem
+// and used to produce the same sentence.
+function composeUp(cli, env, onOutput) {
   return new Promise((resolve) => {
-    execFile(cli, ["compose", "-f", path.join(HOME, "docker-compose.yml"), "up", "-d"], { timeout: 120000, env }, (err) =>
-      resolve(!err));
+    const proc = spawn(cli, ["compose", "-f", path.join(HOME, "docker-compose.yml"), "up", "-d"], { env });
+    let tail = "";
+    const keep = (b) => {
+      const text = String(b);
+      tail = (tail + text).slice(-4000);
+      const line = text.trim().split("\n").filter(Boolean).at(-1);
+      if (line) onOutput?.(line.slice(0, 120));
+    };
+    proc.stdout?.on("data", keep);
+    proc.stderr?.on("data", keep);
+
+    // Generous, because the only thing that takes real time here is a download on someone else's
+    // connection. Still bounded, so a wedged daemon does not hang the launch forever.
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      tail += "\ntimed out after 30 minutes";
+    }, 30 * 60_000);
+
+    proc.on("error", (err) => { clearTimeout(timer); resolve({ ok: false, detail: err.message }); });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, detail: tail.trim().split("\n").filter(Boolean).at(-1) || `exit ${code ?? "?"}` });
+    });
   });
 }
 
@@ -155,10 +181,10 @@ const STEPS = [
   {
     id: "database",
     label: "Database",
-    async run(ctx) {
-      if (!(await composeUp(ctx.docker.cli, ctx.docker.env))) {
-        throw new Error("Postgres would not start — check Docker has finished pulling, then press Check again.");
-      }
+    async run(ctx, detail) {
+      detail("Starting Postgres — the first run downloads a 644 MB image");
+      const { ok, detail: reason } = await composeUp(ctx.docker.cli, ctx.docker.env, detail);
+      if (!ok) throw new Error(`Postgres would not start: ${reason}`);
       return "Postgres on port 5433";
     },
   },

@@ -1,3 +1,17 @@
+# Libratory
+
+Copyright © 2026 Petar Sabev
+
+Licensed under the PolyForm Noncommercial License 1.0.0, reproduced in full below.
+For the purposes of that license, the **licensor** is Petar Sabev and the
+**software** is Libratory.
+
+Required Notice: Copyright © 2026 Petar Sabev — https://libratory.dev
+
+Commercial use of any kind requires a separate license from the licensor.
+
+---
+
 # PolyForm Noncommercial License 1.0.0
 
 <https://polyformproject.org/licenses/noncommercial/1.0.0>

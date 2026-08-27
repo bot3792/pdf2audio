@@ -255,4 +255,4 @@ Kyutai's terms prohibit cloning a voice without that person's consent, along wit
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE.md) — the source is public, and you're free to use, modify, and share pdf2audio for personal and any other noncommercial purpose. Commercial use of any kind requires permission — open a GitHub issue to ask.
+Libratory is copyright © 2026 Petar Sabev, licensed under [PolyForm Noncommercial 1.0.0](LICENSE.md) — the source is public, and you're free to use, modify, and share Libratory for personal and any other noncommercial purpose. Commercial use of any kind requires permission from the licensor — open a GitHub issue to ask.

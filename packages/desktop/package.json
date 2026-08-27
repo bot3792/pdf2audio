@@ -3,7 +3,8 @@
   "private": true,
   "version": "26.826.0",
   "description": "Turns PDFs and EPUBs into audiobooks you can read along with, on your own machine.",
-  "author": "subev",
+  "author": "Petar Sabev",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
     "test": "vitest run",
