@@ -1,0 +1,19 @@
+# The image builds from source and its own installs — nothing machine-local belongs in the context.
+.git
+node_modules
+**/node_modules
+**/dist
+.venv
+.venv-pocket
+.uv
+.bun
+.turbo
+data
+.env
+.models-missing
+e2e/test-results
+e2e/playwright-report
+storyteller
+*.mov
+__pycache__
+**/__pycache__
