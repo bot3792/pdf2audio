@@ -280,7 +280,8 @@ function menu(url) {
       label: "Help",
       submenu: [
         { label: "Show data folder", click: () => shell.openPath(dataDir()) },
-        { label: "Where things live", click: () => dialog.showMessageBox({ message: `Everything the app installed: ${HOME}\nYour library: Postgres in Docker, port 5433\nServer: ${url}` }) },
+        { label: "Check for Updates…", click: () => void updater.checkNow() },
+        { label: "Where things live", click: () => dialog.showMessageBox({ message: `Everything the app installed: ${HOME}\nYour library: Postgres in Docker, port 5433\nServer: ${url}\nUpdates: ${updater.updatesConfigured() ? "from GitHub releases" : "not configured — this is a local build"}` }) },
         { type: "separator" },
         { label: "Report a problem", click: () => shell.openExternal(`${crash.REPO}/issues/new`) },
         { label: "Open the crash log", click: () => shell.openPath(crash.logPath(HOME || "")) },
