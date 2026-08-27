@@ -1,12 +1,14 @@
+name: libratory
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
     ports:
       - "5433:5432"
     environment:
-      POSTGRES_USER: pdf2audio
-      POSTGRES_PASSWORD: pdf2audio
-      POSTGRES_DB: pdf2audio
+      POSTGRES_USER: libratory
+      POSTGRES_PASSWORD: libratory
+      POSTGRES_DB: libratory
     volumes:
       # pgdata17 (glibc) replaced the alpine-era pgdata volume on 2026-08-08; old volume kept as rollback
       - pgdata17:/var/lib/postgresql/data
